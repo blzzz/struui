@@ -1,0 +1,108 @@
+:root {
+  box-sizing: border-box;
+  color-scheme: light dark;
+  /* Höhe der festen Leiste oben (ohne Safe Area) */
+  --bar-h: 56px;
+  /* Höhe der festen Snapshot-Leiste unten (ohne Safe Area) */
+  --dock-h: 88px;
+
+  --bg: #dfe2dd;
+  --panel: #eceee9;
+  /* Grund der Klangpalette, deutlich vom Panel abgesetzt */
+  --palette: #cdd3c9;
+  --line: #a9aea6;
+  --ink: #1e2420;
+  --mute: #5d655e;
+  --wood: #d8b98c;
+  --wood-edge: #b08f60;
+  --wood-ink: #3a2a14;
+  /* Wertsteine der Effekte */
+  --val: #f4f1e6;
+  --val-edge: #c9c3ae;
+  --val-ink: #2c2f2a;
+  --red: #d2453d;
+  --blue: #2f72c9;
+  --green: #3d9a4f;
+  /* Gewicht @ */
+  --orange: #d97a1e;
+  --on: #f3c93e;
+  --br1: #59647a;
+  --br2: #80597d;
+  --br3: #3a7c84;
+  --code-bg: #1b201d;
+  --code-ink: #d9e6d6;
+
+  --s: 36px;
+  /* Gruppenfarben: viel Transparenz, damit der Grund im hellen Modus dunkler und im dunklen heller wird */
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #171b18;
+    --panel: #212622;
+    --palette: #343d36;
+    --line: #4a524b;
+    --ink: #e6ebe5;
+    --mute: #97a198;
+    --wood: #c8a574;
+    --wood-edge: #8f7248;
+    --wood-ink: #2c1f0e;
+    --val: #d9d5c6;
+    --val-edge: #9d9884;
+    --val-ink: #1d201c;
+    --code-bg: #0f1311;
+    --br1: #7a87a3;
+    --br2: #a67aa3;
+    --br3: #5aa2aa;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: inherit;
+}
+
+html {
+  scroll-padding-top: calc(var(--bar-h) + env(safe-area-inset-top, 0px));
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  line-height: 1.4;
+}
+
+button {
+  font: inherit;
+  font-weight: 500;
+  font-size: 15px;
+  border: 1.5px solid var(--ink);
+  background: transparent;
+  color: var(--ink);
+  border-radius: 8px;
+  padding: 8px 14px;
+  cursor: pointer;
+}
+button:focus-visible,
+[role='button']:focus-visible,
+a:focus-visible {
+  outline: 3px solid var(--blue);
+  outline-offset: 2px;
+}
+button.primary,
+button[aria-pressed='true'] {
+  background: var(--ink);
+  color: var(--bg);
+}
+
+/* Geisterstein beim Ziehen (hängt direkt am body, deshalb global) */
+.ghost {
+  position: fixed;
+  pointer-events: none;
+  z-index: 30;
+  opacity: 0.92;
+  transform: scale(1.12);
+}

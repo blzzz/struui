@@ -1,0 +1,31 @@
+{
+  "name": "strudel-steine",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "check": "svelte-check --tsconfig ./tsconfig.json",
+    "test": "node --test src/lib/domain/*.test.ts src/lib/syntax/*.test.ts",
+    "test:strudel": "node scripts/strudel-check.mjs",
+    "gen:effects": "node scripts/strudel-effects.mjs",
+    "gen:sounds": "node scripts/strudel-sounds.mjs"
+  },
+  "dependencies": {
+    "@strudel/core": "1.2.6",
+    "@strudel/mini": "1.2.6",
+    "@strudel/repl": "1.3.0",
+    "@strudel/transpiler": "1.2.6",
+    "@strudel/webaudio": "1.3.0"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^7.3.1",
+    "@types/node": "^26.6.5",
+    "svelte": "^5.57.2",
+    "svelte-check": "^4.7.6",
+    "typescript": "~5.9.0",
+    "vite": "^8.3.4"
+  }
+}
