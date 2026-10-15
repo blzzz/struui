@@ -1,9 +1,11 @@
 <script lang="ts">
   import { flushSync, untrack } from 'svelte';
-  import { isValueAtom, stepValue, valueInfo } from '../domain/effects.ts';
-  import { isNote, stepNote } from '../domain/notes.ts';
+  import { isValueAtom, singleValue, stepValue } from '../domain/effects.ts';
+  import { DEFAULT_VOICE, isNote, stepNote } from '../domain/notes.ts';
+  import { isSoundName, stepSound } from '../domain/sounds.ts';
   import { tokenGestures } from '../interaction/token-gestures.ts';
   import { CLOSING, hasModifiers, hasSteps, isPause, label } from '../domain/types.ts';
+  import { playback } from '../state/playback.svelte.ts';
   import { project } from '../state/project.svelte.ts';
   import { session } from '../state/session.svelte.ts';
   import type { GroupType, Repeat, Token } from '../domain/types.ts';
@@ -14,7 +16,6 @@
     laneId,
     error,
     value = false,
-    readonly = false,
     replacing = false,
     spanned = false,
   }: {
@@ -22,8 +23,6 @@
     laneId: string;
     error: boolean;
     value?: boolean;
-    /** Nur anzeigen (eingeklappte Spur): kein Tippen, Bearbeiten, Menü oder Ziehen. */
-    readonly?: boolean;
     /** Ein Stein aus der Palette schwebt darüber und würde ihn ersetzen. */
     replacing?: boolean;
     /** Umschliessen im Gang: der Stein liegt im Bereich, den das Klammerpaar fassen würde. */
@@ -55,9 +54,13 @@
    */
   /** Notenstein (Notenspur): bearbeitet sich wie ein Wert, ↑/↓ gehen einen Halbton weiter. Pausen nicht. */
   const notes = $derived(!value && project.contentOf(laneId) === 'notes');
-  const editable = $derived((value || (notes && !isPause(token))) && token.kind === 'sound');
-  const valid = (text: string) => (notes ? isNote(text) : isValueAtom(text));
-  const values = $derived(value ? (valueInfo(project.lane(laneId)?.effect?.name ?? '')?.values ?? []) : []);
+  /**
+   * Klangstein: ebenso, Tippen öffnet ein Feld für den Namen,
+   * ↑/↓ gehen in der Palettengruppe weiter. Pausen nicht. Langes Drücken öffnet wie bei Noten das Menü.
+   */
+  const editable = $derived(token.kind === 'sound' && (value || !isPause(token)));
+  const valid = (text: string) => (notes ? isNote(text) : value ? isValueAtom(text) : isSoundName(text));
+  const values = $derived(value ? (project.lane(laneId)?.info?.values ?? []) : []);
   /** Zahlentastatur, wenn Strudels Beispiele nur Zahlen ab 0 zeigen. */
   const numeric = $derived(values.length > 0 && values.every((v) => /^(\d+\.?\d*|\.\d+)$/.test(v)));
   let editing = $state(false);
@@ -91,7 +94,21 @@
 
   function step(dir: 1 | -1) {
     const current = token.kind === 'sound' ? token.sound : draft;
-    apply(notes ? stepNote(current, dir) : stepValue(current, values, dir));
+    apply(notes ? stepNote(current, dir) : value ? stepValue(current, values, dir) : stepSound(current, dir));
+    audition();
+  }
+
+  /**
+   * Ohne Wiedergabe spielt Tippen den Stein einmal an: einen Klang (auch den Klang einer Notenspur oder das Sample einer
+   * Sampler-Spur), eine Note mit dem Klang ihrer Spur. Nicht bei Pausen, Werten und MIDI-Spuren (die klingen nicht im Browser).
+   */
+  function audition() {
+    if (session.playing || token.kind !== 'sound' || isPause(token)) return;
+    const lane = project.lane(laneId);
+    if (!lane || lane.track.type === 'midi') return;
+    if (lane.content === 'sounds' && isSoundName(token.sound)) void playback.preview(token.sound);
+    else if (lane.content === 'notes' && isNote(token.sound))
+      void playback.preview(singleValue(lane.track.voice.tokens) ?? DEFAULT_VOICE, token.sound);
   }
 
   /**
@@ -172,22 +189,25 @@
   class:picking
   class:anchor
   class:spanned
-  class:readonly
   role="button"
-  tabindex={readonly ? -1 : 0}
-  aria-disabled={readonly}
+  tabindex="0"
   aria-label={`${value ? 'Wert' : notes ? 'Note' : 'Stein'} ${text}`}
   onpointerenter={() => hover(true)}
   onpointerleave={() => hover(false)}
-  {@attach !readonly && tokenGestures(() => ({
-    onTap: () => finishWrap() || (editable ? startEdit() : session.openMenu(laneId, token.id)),
-    // Nur noch per Tastatur (Enter): Wertsteine öffnen den Wertdialog, Noten das Feld, andere ihr Menü
+  {@attach tokenGestures(() => ({
+    onTap: () => {
+      if (finishWrap()) return;
+      audition();
+      if (editable) startEdit();
+      else session.openMenu(laneId, token.id);
+    },
+    // Nur noch per Tastatur (Enter): Wertsteine öffnen den Wertdialog, Noten und Klänge das Feld, andere ihr Menü
     onDoubleTap: () =>
       finishWrap() ||
-      (notes && editable ? startEdit() : editable ? session.openSheet(laneId, token.id) : session.openMenu(laneId, token.id)),
+      (!value && editable ? startEdit() : editable ? session.openSheet(laneId, token.id) : session.openMenu(laneId, token.id)),
     immediateTap: true,
-    // Noten: langes Drücken öffnet das Menü (Entfernen, Umschliessen), weil Tippen schon bearbeitet
-    onLongPress: !editable ? undefined : notes ? () => session.openMenu(laneId, token.id) : () => session.openSheet(laneId, token.id),
+    // Noten und Klänge: langes Drücken öffnet das Menü (Entfernen, Umschliessen), weil Tippen schon bearbeitet
+    onLongPress: !editable ? undefined : !value ? () => session.openMenu(laneId, token.id) : () => session.openSheet(laneId, token.id),
     onDragMove: (target) => {
       session.menu = null;
       session.wrap = null;
@@ -206,7 +226,7 @@
         inputmode={numeric ? 'decimal' : 'text'}
         value={draft}
         size={Math.max(draft.length, 2) + 1}
-        aria-label={notes ? 'Note' : 'Wert'}
+        aria-label={notes ? 'Note' : value ? 'Wert' : 'Klang'}
         aria-invalid={!valid(draft.trim())}
         spellcheck="false"
         autocomplete="off"
@@ -273,8 +293,8 @@
   {#if editing}
     <!-- Für Touch ohne Pfeiltasten. pointerdown verhindern, damit das Feld den Fokus behält. -->
     <div class="steps">
-      <button tabindex="-1" aria-label={notes ? 'Halbton tiefer' : 'Kleinerer Wert'} onpointerdown={(e) => e.preventDefault()} onclick={() => step(-1)}>−</button>
-      <button tabindex="-1" aria-label={notes ? 'Halbton höher' : 'Grösserer Wert'} onpointerdown={(e) => e.preventDefault()} onclick={() => step(1)}>+</button>
+      <button tabindex="-1" aria-label={notes ? 'Halbton tiefer' : value ? 'Kleinerer Wert' : 'Vorheriger Klang'} onpointerdown={(e) => e.preventDefault()} onclick={() => step(-1)}>−</button>
+      <button tabindex="-1" aria-label={notes ? 'Halbton höher' : value ? 'Grösserer Wert' : 'Nächster Klang'} onpointerdown={(e) => e.preventDefault()} onclick={() => step(1)}>+</button>
     </div>
   {/if}
 </div>
@@ -292,11 +312,6 @@
     -webkit-user-select: none;
     cursor: pointer;
     border-radius: 8px;
-  }
-  /* Nur anzeigen: der Browser darf darüber scrollen, kein Zeiger zum Antippen */
-  .slot.readonly {
-    touch-action: auto;
-    cursor: default;
   }
   /* Roher Stein: so breit wie sein Text */
   .slot.wide {
@@ -327,10 +342,13 @@
     outline-color: var(--red);
   }
   /* Menü über dem Stein, mittig */
-  /* Menü und ± in einer verkleinerten Reihe (Lane) in normaler Grösse */
+  /* Menü, ± und Eingabefeld in einer verkleinerten Reihe (Lane) oder Effektliste (EffectList) in normaler Grösse.
+     Beim Feld nicht die Reihe zurücksetzen: sie spränge unter dem Finger, der Browser setzte den Fokus dann woanders hin
+     und das Feld ginge gleich wieder zu. In normaler Grösse zoomt iOS auch nicht ins Feld. */
   .menu,
-  .steps {
-    zoom: calc(1 / var(--fit, 1));
+  .steps,
+  input {
+    zoom: calc(1 / (var(--fit, 1) * var(--fx-fit, 1)));
   }
   .menu {
     position: absolute;
@@ -488,49 +506,14 @@
   .br2 { background: var(--br2); }
   .br3 { background: var(--br3); }
 
-  /* Kompakt-Markierungen: im Normalbetrieb unsichtbar */
+  /* Markierungen am Stein, wenn Zufalls- oder Drehknöpfe verborgen sind: sonst unsichtbar */
   .mk {
     display: none;
   }
-  :global(.compact) .slot {
-    width: 20px;
-    height: 44px;
-  }
-  :global(.compact) .stone {
-    border-radius: 5px;
-    box-shadow: none;
-  }
-  :global(.compact) .slot.wide {
-    width: 20px;
-    min-width: 0;
-  }
-  :global(.compact) .raw {
-    padding: 0;
-    overflow: hidden;
-  }
-  :global(.compact) .snd,
-  :global(.compact) .val,
-  :global(.compact) .raw,
-  :global(.compact) .pause {
-    writing-mode: vertical-rl;
-    font-size: 10px !important;
-  }
-  :global(.compact) .br1,
-  :global(.compact) .br2,
-  :global(.compact) .br3 {
-    font-size: 15px;
-  }
-  :global(.compact) .mk {
-    display: block;
-    position: absolute;
-  }
-  /* Zufall als roter Punkt: eingeklappt und wenn die Zufallsknöpfe verborgen sind. Nur Anzeige. */
+  /* Zufall als roter Punkt, wenn die Zufallsknöpfe verborgen sind. Nur Anzeige. */
   :global(.norandom) .mk.r {
     display: block;
     position: absolute;
-  }
-  :global(.compact) .mk.r,
-  :global(.norandom) .mk.r {
     top: 2px;
     left: 50%;
     width: 7px;
@@ -539,36 +522,20 @@
     border-radius: 50%;
     background: var(--red);
   }
-  /* Wiederholung und Modulo als Balken: eingeklappt und wenn die Drehknöpfe verborgen sind. Nur Anzeige. */
+  /* Wiederholung und Modulo als Balken, wenn die Drehknöpfe verborgen sind. Nur Anzeige. */
   :global(.noknobs) .mk:not(.r) {
     display: block;
     position: absolute;
-  }
-  :global(.compact) .mk.b,
-  :global(.compact) .mk.g,
-  :global(.compact) .mk.o,
-  :global(.compact) .mk.m,
-  :global(.noknobs) .mk.b,
-  :global(.noknobs) .mk.g,
-  :global(.noknobs) .mk.o,
-  :global(.noknobs) .mk.m {
     left: 0;
     right: 0;
     bottom: 0;
     height: 6px;
-    border-radius: 0 0 5px 5px;
-  }
-  /* Grosser Stein: Balken folgt seinen runderen Ecken */
-  :global(.noknobs:not(.compact)) .mk:not(.r) {
+    /* folgt den runden Ecken des Steins */
     border-radius: 0 0 8px 8px;
   }
-  :global(.compact) .mk.b,
   :global(.noknobs) .mk.b { background: var(--blue); }
-  :global(.compact) .mk.g,
   :global(.noknobs) .mk.g { background: var(--green); }
-  :global(.compact) .mk.o,
   :global(.noknobs) .mk.o { background: var(--orange); }
   /* Modulo auf der hellen Klammer weiss, damit er sich abhebt */
-  :global(.compact) .mk.m,
   :global(.noknobs) .mk.m { background: rgba(255, 255, 255, 0.85); }
 </style>

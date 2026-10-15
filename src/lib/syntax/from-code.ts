@@ -1,5 +1,7 @@
 import { NOTE_OPS, effectInfo, isSliderRange, noteOpInfo } from '../domain/effects.ts';
 import type { SliderRange } from '../domain/effects.ts';
+import { SLICES_MAX } from '../domain/sampler.ts';
+import type { SamplerMode } from '../domain/sampler.ts';
 import { CHANNEL_MAX, ORBIT_MAX, soundToken, trackName } from '../domain/types.ts';
 import type { Token, TrackType } from '../domain/types.ts';
 import { textToTokens } from './from-text.ts';
@@ -11,6 +13,8 @@ import { textToTokens } from './from-text.ts';
  * Endet die Zeile mit `.midi(…)`, ist es eine MIDI-Spur: `$synth: s("bd").note("c e").midichan(2).midi('IAC')`.
  * Beginnt sie mit `note(…)`, ist es eine Notenspur, ihr Klang steht in `.s(…)`: `$melodie: note("f d").s("sine")`.
  * Rechenarten für die Noten stehen an deren Mini-Notation: `note("f d".add("<0 3>"))`.
+ * Folgt direkt auf `s("…")` ein `.slice(8, "…")`, ist es eine Sampler-Spur: `$x: s("brk").slice(8, "0 3")`. Ein `.scrub("…")`
+ * an derselben Stelle macht nur dann eine Sampler-Spur, wenn die Spur schon eine ist (`prefer`), sonst ist es ein Effekt.
  */
 export interface CodeLine {
   name: string;
@@ -24,8 +28,14 @@ export interface CodeLine {
   channel: number;
   /** Aus `.midi('…')`, leer bei `.midi()`. */
   port: string;
-  /** Klang- oder Notensteine, je nach `type`. */
+  /** Klang-, Noten- oder (Sampler-Spur) Wertsteine, je nach `type`. */
   tokens: Token[];
+  /** Sampler-Spur: die Steine aus `s(…)`, sonst null. */
+  sample: { tokens: Token[] } | null;
+  /** Sampler-Spur: `scrub` oder `slice`. Bei anderen Spuren `slice`, ohne Bedeutung. */
+  samplerMode: SamplerMode;
+  /** Sampler-Spur mit `slice`: Zahl der Abschnitte. Sonst 8, ohne Bedeutung. */
+  slices: number;
   /** Notenspur: die Steine aus `.s(…)`, null ohne `.s()` oder bei anderen Spuren. */
   voice: { tokens: Token[] } | null;
   /** Notenspur: Rechenarten an der Mini-Notation, in ihrer Reihenfolge. */
@@ -50,7 +60,7 @@ class CodeError extends Error {
   }
 }
 
-export function codeToTrack(code: string): CodeResult {
+export function codeToTrack(code: string, prefer?: TrackType): CodeResult {
   let pos = 0;
   const space = () => {
     while (pos < code.length && /\s/.test(code[pos])) pos += 1;
@@ -150,6 +160,30 @@ export function codeToTrack(code: string): CodeResult {
     }
     expect(')');
 
+    // Sampler-Spur: `.slice(n, "…")` oder (wenn schon eine) `.scrub("…")` direkt nach s("…")
+    let sampler: { mode: SamplerMode; slices: number; tokens: Token[]; at: number } | null = null;
+    space();
+    const head = notes ? null : /^\.\s*(slice|scrub)\s*\(/.exec(code.slice(pos));
+    if (head && (head[1] === 'slice' || prefer === 'sampler')) {
+      const at = pos + 1;
+      const mode = head[1] as SamplerMode;
+      pos += head[0].length;
+      let slices = 8;
+      if (mode === 'slice') {
+        space();
+        const m = /^\d+/.exec(code.slice(pos));
+        if (!m || Number(m[0]) < 1 || Number(m[0]) > SLICES_MAX) {
+          throw new CodeError(`Die Zahl der Abschnitte ist eine ganze Zahl von 1 bis ${SLICES_MAX}.`, pos);
+        }
+        pos += m[0].length;
+        slices = Number(m[0]);
+        expect(',');
+      }
+      const row = value(mode);
+      if (row.slider) throw new CodeError(`Bei .${mode}() geht kein Regler (slider).`, at);
+      sampler = { mode, slices, tokens: row.tokens, at };
+    }
+
     const effects: CodeLine['effects'] = [];
     let volume = 1;
     let orbit = 1;
@@ -186,6 +220,11 @@ export function codeToTrack(code: string): CodeResult {
       if (!special && !effectInfo(fx)) throw new CodeError(`Unbekannter Effekt «${fx}».`, at);
       expect('(');
       space();
+      if (effectInfo(fx)?.noValue) {
+        expect(')', `«)», ${fx}() nimmt keinen Wert`);
+        effects.push({ name: fx, tokens: [], slider: null });
+        continue;
+      }
       if (fx === 'orbit') {
         orbit = whole('Der Orbit', ORBIT_MAX);
         soundOnly ??= { at, what: '.orbit()' };
@@ -218,10 +257,27 @@ export function codeToTrack(code: string): CodeResult {
       }
       effects.push(value(fx));
     }
-    const type: TrackType = notes ? 'note' : port === null ? 'sound' : 'midi';
+    const type: TrackType = notes ? 'note' : port !== null ? 'midi' : sampler ? 'sampler' : 'sound';
+    if (type === 'midi' && sampler) throw new CodeError(`.${sampler.mode}() direkt nach s(…) gibt es nicht mit .midi().`, sampler.at);
     if (type === 'midi' && soundOnly) throw new CodeError(`${soundOnly.what} gibt es nicht mit .midi().`, soundOnly.at);
     if (type !== 'midi' && midiOnly) throw new CodeError(`${midiOnly.what} gibt es nur mit .midi() am Ende.`, midiOnly.at);
-    return { ok: true, name, muted, type, volume, orbit, channel, port: port ?? '', tokens, voice, noteOps, effects };
+    return {
+      ok: true,
+      name,
+      muted,
+      type,
+      volume,
+      orbit,
+      channel,
+      port: port ?? '',
+      tokens: sampler ? sampler.tokens : tokens,
+      voice,
+      sample: sampler ? { tokens } : null,
+      samplerMode: sampler?.mode ?? 'slice',
+      slices: sampler?.slices ?? 8,
+      noteOps,
+      effects,
+    };
   } catch (e) {
     if (e instanceof CodeError) return { ok: false, offset: e.offset, message: e.message };
     throw e;

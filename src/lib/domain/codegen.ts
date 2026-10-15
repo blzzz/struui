@@ -1,6 +1,9 @@
 import { PAUSE, hasModifiers, hasSteps, label } from './types.ts';
 import type { Modifiers, Token, TrackType } from './types.ts';
+import { effectInfo } from './effects.ts';
 import type { Effect, SliderRange } from './effects.ts';
+import { clampSlices } from './sampler.ts';
+import type { SamplerMode } from './sampler.ts';
 import { tempoCode } from './tempo.ts';
 import type { TempoUnit } from './tempo.ts';
 
@@ -76,7 +79,7 @@ export interface CodeTrack {
   tokens: readonly Token[];
   /** Spurname nach dem `$`. Fehlt er, steht nur `$:`. */
   name?: string;
-  /** Effekte ohne Wertsteine werden übersprungen. */
+  /** Effekte ohne Wertsteine werden übersprungen, ausser solche ohne Wert (`.fit()`). */
   effects?: readonly Pick<Effect, 'name' | 'tokens' | 'slider'>[];
   muted?: boolean;
   /** Lautstärke nach allen Effekten. Fehlt sie oder ist sie 1, steht nichts im Code. Nur bei Klangspuren. */
@@ -87,7 +90,13 @@ export interface CodeTrack {
   noteOps?: readonly { name: string; tokens: readonly Token[]; slider?: SliderRange | null }[];
   /** Notenspur: Klang der Noten (`.s("sine")`). Ohne Steine steht kein `.s()` im Code. */
   voice?: { readonly tokens: readonly Token[] } | null;
-  /** Klangspur: Orbit. Fehlt er oder ist er 1, steht nichts im Code. */
+  /** Sampler-Spur: das Sample (`s("brk")`). Ohne Steine (oder null) steht die Spur nicht im Code. */
+  sample?: { readonly tokens: readonly Token[] } | null;
+  /** Sampler-Spur: `scrub` oder `slice` (Standard), dahinter die Wertsteine der Spur. */
+  samplerMode?: SamplerMode;
+  /** Sampler-Spur mit `slice`: Zahl der Abschnitte, Standard 8. */
+  slices?: number;
+  /** Klang- und Sampler-Spur: Orbit. Fehlt er oder ist er 1, steht nichts im Code. */
   orbit?: number;
   /** MIDI-Spur: Kanal, Standard 1. */
   channel?: number;
@@ -103,7 +112,7 @@ export function quote(text: string): string {
 const NUMBER = /^-?(\d+\.?\d*|\.\d+)$/;
 
 /**
- * Ein Effekt als Code, oder null ohne Wertsteine. Ein einzelner Zahlenstein ohne Modifier geht als Zahl hinein (`.lpf(800)`),
+ * Ein Effekt als Code, oder null ohne Wertsteine. Effekte ohne Wert (`fit`) stehen immer da: `.fit()`. Ein einzelner Zahlenstein ohne Modifier geht als Zahl hinein (`.lpf(800)`),
  * mit eingestelltem Regler als Strudels `slider()` (`.lpf(slider(800, 100, 8000, 10))`, auf strudel.cc ein Regler im Code),
  * alles andere als Mini-Notation (`.lpf("<200 800>")`). Dann meldet Strudel auch hier Positionen und die Wertsteine leuchten.
  */
@@ -112,6 +121,7 @@ export function effectToCode(e: {
   tokens: readonly Token[];
   slider?: SliderRange | null;
 }): { text: string; ranges: TokenRange[] } | null {
+  if (effectInfo(e.name)?.noValue) return { text: `.${e.name}()`, ranges: [] };
   const [only] = e.tokens;
   if (!only) return null;
   if (e.tokens.length === 1 && only.kind === 'sound' && NUMBER.test(only.sound) && only.random === null && only.repeat === null) {
@@ -132,8 +142,34 @@ export function trackLabel(t: Pick<CodeTrack, 'name' | 'muted'>): string {
   return `${t.muted ? '_' : ''}$${t.name ?? ''}`;
 }
 
+/**
+ * Anfang der Zeile einer Sampler-Spur: das Sample, dann die Wertsteine als `scrub` oder `slice`.
+ * `$x: s("brk").slice(8, "0 3 <1 2>")`, `$x: s("<brk amen>").scrub("0 .25")`.
+ */
+function samplerHead(t: CodeTrack): { text: string; ranges: TokenRange[] } {
+  const sample = trackToMiniWithRanges(t.sample?.tokens ?? []);
+  let text = `${trackLabel(t)}: s("`;
+  const ranges = shift(sample.ranges, text.length);
+  text += `${sample.text}")`;
+  if (t.samplerMode === 'scrub') {
+    const fx = effectToCode({ name: 'scrub', tokens: t.tokens });
+    if (fx) {
+      ranges.push(...shift(fx.ranges, text.length));
+      text += fx.text;
+    }
+    return { text, ranges };
+  }
+  // slice immer mit Mini-Notation in Anführungszeichen, auch für einen einzelnen Abschnitt
+  const values = trackToMiniWithRanges(t.tokens);
+  text += `.slice(${clampSlices(t.slices ?? 8)}, "`;
+  ranges.push(...shift(values.ranges, text.length));
+  text += `${values.text}")`;
+  return { text, ranges };
+}
+
 /** Eine Spur als eine Codezeile (`$drums: s("bd sd").lpf(800)`), mit den Positionen ihrer Klang- und Wertsteine. */
 export function trackToCode(t: CodeTrack): { text: string; ranges: TokenRange[] } {
+  if (t.type === 'sampler') return withTail(t, samplerHead(t));
   const { text: mini, ranges: local } = trackToMiniWithRanges(t.tokens);
   let text = `${trackLabel(t)}: ${t.type === 'note' ? 'note' : 's'}("`;
   const ranges = shift(local, text.length);
@@ -151,6 +187,13 @@ export function trackToCode(t: CodeTrack): { text: string; ranges: TokenRange[] 
     ranges.push(...shift(voice.ranges, text.length));
     text += voice.text;
   }
+  return withTail(t, { text, ranges });
+}
+
+/** Effekte, dann MIDI-Ausgang bzw. Orbit und Lautstärke: der gemeinsame Schluss jeder Zeile. */
+function withTail(t: CodeTrack, head: { text: string; ranges: TokenRange[] }): { text: string; ranges: TokenRange[] } {
+  let { text } = head;
+  const ranges = [...head.ranges];
   for (const e of t.effects ?? []) {
     const fx = effectToCode(e);
     if (!fx) continue;
@@ -171,9 +214,9 @@ export function trackToCode(t: CodeTrack): { text: string; ranges: TokenRange[] 
 export function toStrudelProgram(tracks: readonly CodeTrack[], opts: CodeOptions): Program {
   const samples = opts.samples ?? new Map<string, string>();
   const used = new Set<string>();
-  for (const { tokens, type, voice } of tracks) {
-    // Klangnamen stehen bei Notenspuren in `.s()`, nicht auf den Steinen
-    const names = type === 'note' ? (voice?.tokens ?? []) : tokens;
+  for (const { tokens, type, voice, sample } of tracks) {
+    // Klangnamen stehen bei Noten- und Sampler-Spuren in eigenen Reihen, nicht auf den Steinen
+    const names = type === 'note' ? (voice?.tokens ?? []) : type === 'sampler' ? (sample?.tokens ?? []) : tokens;
     for (const t of names) if (t.kind === 'sound' && samples.has(t.sound)) used.add(t.sound);
   }
   let code = '';
@@ -191,6 +234,7 @@ export function toStrudelProgram(tracks: readonly CodeTrack[], opts: CodeOptions
   const ranges: TokenRange[] = [];
   for (const t of tracks) {
     if (t.tokens.length === 0) continue;
+    if (t.type === 'sampler' && !t.sample?.tokens.length) continue;
     const line = trackToCode(t);
     code += '\n';
     ranges.push(...shift(line.ranges, code.length));

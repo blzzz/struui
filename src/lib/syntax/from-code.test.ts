@@ -27,6 +27,7 @@ test('code: ganze Zeile mit Name, Stummschaltung und Effekten wird zur Spur und 
     ['$n: note("<c e> g").lpf(800).sound("<sine sawtooth>").orbit(2)', '$n: note("<c e> g").s("<sine sawtooth>").lpf(800).orbit(2)'],
     ['$n: note("c")', '$n: note("c")'],
     ['$n: note("f d" .add("<0 3>").div( 2 )).s("sine")', '$n: note("f d".add("<0 3>").div(2)).s("sine")'],
+    ['$b: s("brk/2").fit( ).scrub("<0 .25>").chop(4)', '$b: s("brk/2").fit().scrub("<0 .25>").chop(4)'],
   ];
   for (const [input, expected] of cases) assert.equal(roundTrip(input), expected, input);
 });
@@ -65,6 +66,7 @@ test('code: Fehler nennen die Stelle', () => {
   assert.equal(at('$a: s("bd".add(1))'), 10, 'Rechnen nur in note()');
   assert.equal(at('$a: note("c".foo(1))'), 13, 'unbekannte Rechenart');
   assert.equal(at('$a: note("c".lpf(1))'), 13, 'Effekte nicht an der Mini-Notation');
+  assert.equal(at('$a: s("bd").fit(1)'), 16, 'fit() nimmt keinen Wert');
 });
 
 test('code: MIDI-Spur mit Kanal und Ausgang', () => {

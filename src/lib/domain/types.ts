@@ -6,6 +6,8 @@
 
 import type { Effect } from './effects.ts';
 import { DEFAULT_VOICE } from './notes.ts';
+import { DEFAULT_SAMPLE, DEFAULT_SLICES } from './sampler.ts';
+import type { SamplerMode } from './sampler.ts';
 
 /**
  * `[` = Gruppe (teilt sich einen Schritt), `<` = Wechsel (pro Zyklus ein Element),
@@ -69,12 +71,16 @@ export type Token = SoundToken | OpenToken | CloseToken | RawToken;
 /**
  * `sound`: Klänge im Browser (`s("bd sd")`). `note`: Noten im Browser, gespielt mit einem Klang (`note("f d").s("sine")`).
  * `midi`: Klänge plus `.note()` an ein MIDI-Gerät (`.midi()`).
+ * `sampler`: Stellen in einem Sample (`s("brk").slice(8, "0 3")` oder `s("brk").scrub("0 .5")`, siehe `sampler.ts`).
  */
-export type TrackType = 'sound' | 'note' | 'midi';
+export type TrackType = 'sound' | 'note' | 'midi' | 'sampler';
+
+/** Was auf den Steinen einer Reihe liegt: Klänge, Noten oder Werte (Effekte, Sampler-Spur). */
+export type TrackContent = 'sounds' | 'notes' | 'values';
 
 /** Was auf den Steinen der Spur liegt. Klang- und MIDI-Spuren teilen ihre Klangsteine. */
-export function contentOf(type: TrackType): 'sounds' | 'notes' {
-  return type === 'note' ? 'notes' : 'sounds';
+export function contentOf(type: TrackType): TrackContent {
+  return type === 'note' ? 'notes' : type === 'sampler' ? 'values' : 'sounds';
 }
 
 export interface Track {
@@ -82,14 +88,20 @@ export interface Track {
   type: TrackType;
   /** Name der Spur, im Code nach dem `$` (`$drums:`). Leer = `$:`. Nur Buchstaben, Ziffern und `_` (siehe `trackName`). */
   name: string;
-  /** Klangsteine, bei Notenspuren Notensteine. */
+  /** Klangsteine, bei Notenspuren Notensteine, bei Sampler-Spuren Wertsteine (Positionen oder Abschnitte). */
   tokens: Token[];
-  /** Die Steine der anderen Inhaltsart (Noten bzw. Klänge), damit sie beim Zurückwechseln wieder da sind. */
-  parked: Token[];
+  /** Die Steine der anderen Inhaltsarten, damit sie beim Zurückwechseln wieder da sind. */
+  parked: Partial<Record<TrackContent, Token[]>>;
   /** Notenspur: Rechenarten auf den Noten, in dieser Reihenfolge (`note("c e".add("<0 3>").div(2))`). Sonst gespeichert, nicht im Code. */
   noteOps: Effect[];
   /** Notenspur: womit die Noten klingen, als Wertreihe mit Klangnamen (`.s("sine")`). Bei anderen Spuren gespeichert, aber nicht im Code. */
   voice: Effect;
+  /** Sampler-Spur: das Sample als Reihe mit Klangnamen (`s("brk")`). Bei anderen Spuren gespeichert, aber nicht im Code. */
+  sample: Effect;
+  /** Sampler-Spur: wie die Wertsteine das Sample spielen (`scrub` oder `slice`). */
+  samplerMode: SamplerMode;
+  /** Sampler-Spur mit `slice`: in so viele gleich lange Abschnitte wird das Sample geteilt (`.slice(8, "…")`). */
+  slices: number;
   /** Effekte der ganzen Spur, in dieser Reihenfolge an den Code gehängt (`.lpf(800).room(0.5)`). */
   effects: Effect[];
   /** Stumm geschaltet: steht weiter im Code, Strudel spielt sie aber nicht (`_$:`). */
@@ -148,9 +160,12 @@ export function track(tokens: Token[] = [], name = ''): Track {
     type: 'sound',
     name,
     tokens,
-    parked: [],
+    parked: {},
     noteOps: [],
     voice: effect('s', [soundToken(DEFAULT_VOICE)]),
+    sample: effect('s', [soundToken(DEFAULT_SAMPLE)]),
+    samplerMode: 'slice',
+    slices: DEFAULT_SLICES,
     effects: [],
     muted: false,
     volume: 1,

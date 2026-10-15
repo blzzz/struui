@@ -10,9 +10,10 @@ export interface EffectInfo {
   name: string;
   /**
    * `audio` wirkt auf den Klang, `pitch` setzt die Tonhöhe, `midi` geht nur an MIDI-Geräte (`ccv`, `progNum` …).
+   * `sample` zerschneidet oder streckt Samples (`chop`, `scrub`, `fit` …), nur in Klangspuren.
    * `arith` rechnet mit den Noten einer Notenspur (`add`, `div` …, siehe `NOTE_OPS`), kein Effekt.
    */
-  group: 'audio' | 'pitch' | 'midi' | 'arith';
+  group: 'audio' | 'pitch' | 'midi' | 'sample' | 'arith';
   /** Andere Namen, unter denen Strudel denselben Effekt kennt (`lpf` = `cutoff`). */
   synonyms: string[];
   /** Erster Satz aus Strudels Dokumentation (englisch). */
@@ -21,6 +22,8 @@ export interface EffectInfo {
   hint: string;
   /** Werte aus Strudels Beispielen, Zahlen aufsteigend. Durch sie schaltet das Einzeltippen. Kann leer sein. */
   values: string[];
+  /** Nimmt keinen Wert (`fit`): steht immer als `.fit()` im Code, die Box hat keine Wertreihe. */
+  noValue?: true;
 }
 
 export interface Effect {
@@ -86,13 +89,13 @@ export function isValueAtom(text: string): boolean {
 const MIDI_AUDIO = new Set(['velocity', 'gain']);
 
 /**
- * Was eine Spur anbietet: Klangspuren Audio und Tonhöhe, Notenspuren nur Audio (die Tonhöhe tragen die Steine),
- * MIDI-Spuren MIDI, Tonhöhe und die Anschlagstärke.
+ * Was eine Spur anbietet: Klang- und Sampler-Spuren Audio, Tonhöhe und Sample-Funktionen, Notenspuren nur Audio (die Tonhöhe tragen
+ * die Steine), MIDI-Spuren MIDI, Tonhöhe und die Anschlagstärke.
  */
 export function offersEffect(type: TrackType, e: EffectInfo): boolean {
-  if (type === 'sound') return e.group !== 'midi';
+  if (type === 'sound' || type === 'sampler') return e.group === 'audio' || e.group === 'pitch' || e.group === 'sample';
   if (type === 'note') return e.group === 'audio';
-  return e.group !== 'audio' || MIDI_AUDIO.has(e.name);
+  return e.group === 'midi' || e.group === 'pitch' || MIDI_AUDIO.has(e.name);
 }
 
 /**

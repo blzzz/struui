@@ -38,8 +38,6 @@ class Session {
   view = $state<View>('ui');
   /** Erklärungsdialog offen. */
   help = $state(false);
-  /** Spuren in der Kompaktansicht (schmale Striche statt Steine). */
-  compact = $state<ReadonlySet<string>>(new Set());
   /**
    * Spuren, die über den Steinen die Zufallsknöpfe (`?`) zeigen. Sonst ist Zufall nur ein roter Punkt am Stein
    * und lässt sich nicht ändern. Standard: aus.
@@ -47,7 +45,7 @@ class Session {
   random = $state<ReadonlySet<string>>(new Set());
   /**
    * Spuren, die unter den Steinen keine Drehknöpfe (Wiederholung, Modulo) zeigen. Dann sind sie nur
-   * farbige Balken am Stein wie in der Kompaktansicht. Standard: Knöpfe sichtbar (Menge leer).
+   * farbige Balken am Stein. Standard: Knöpfe sichtbar (Menge leer).
    */
   noKnobs = $state<ReadonlySet<string>>(new Set());
   /**
@@ -55,6 +53,11 @@ class Session {
    * Standard: verkleinern (Menge leer).
    */
   unfit = $state<ReadonlySet<string>>(new Set());
+  /**
+   * Effektlisten (Spur und Art, siehe `EffectList`), deren Boxen auf eine Zeile verkleinert sind.
+   * Anders als bei den Steinreihen ist der Standard die Originalgrösse (Menge leer).
+   */
+  fitEffects = $state<ReadonlySet<string>>(new Set());
   /**
    * Effekte, deren Box die Wertsteine (Mini-Notation) statt des Reglers zeigt. Ist der Wert mehr als ein einzelner Stein,
    * zeigt die Box die Wertsteine ohnehin. Standard: Regler (Menge leer).
@@ -113,12 +116,11 @@ class Session {
     if (!next.delete(effectId)) next.add(effectId);
     this.mini = next;
   }
-  /** Ein- oder ausklappen. Eingeklappt lässt sich nichts bearbeiten, ein offenes Steinmenü geht zu. */
-  toggleCompact(trackId: string): void {
-    this.menu = null;
-    const next = new Set(this.compact);
-    if (!next.delete(trackId)) next.add(trackId);
-    this.compact = next;
+  /** Effektliste zwischen Originalgrösse und «auf eine Zeile verkleinert» umschalten. */
+  toggleFitEffects(listId: string): void {
+    const next = new Set(this.fitEffects);
+    if (!next.delete(listId)) next.add(listId);
+    this.fitEffects = next;
   }
 }
 

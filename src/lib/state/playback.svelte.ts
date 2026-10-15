@@ -38,11 +38,11 @@ export const playback = {
     }
   },
 
-  /** Einen Klang einmal anspielen (Palette). Lädt Strudel beim ersten Mal. */
-  async preview(name: string): Promise<void> {
+  /** Einen Klang einmal anspielen (Palette, Stein), bei `note` in dieser Tonhöhe. Lädt Strudel beim ersten Mal. */
+  async preview(name: string, note?: string): Promise<void> {
     engine ??= new StrudelEngine(host);
     try {
-      await engine.preview(name, sampleBank.dataUrls.get(name));
+      await engine.preview(name, sampleBank.dataUrls.get(name), note);
     } catch (e) {
       session.status = { kind: 'error', text: `Anspielen fehlgeschlagen: ${(e as Error)?.message ?? e}` };
     }

@@ -67,10 +67,11 @@ export class StrudelEngine {
   }
 
   /**
-   * Einen Klang einmal anspielen (langes Drücken in der Palette), unabhängig von der Wiedergabe.
+   * Einen Klang einmal anspielen (langes Drücken in der Palette, Tippen auf einen Stein), unabhängig von der Wiedergabe.
    * `url`: eigener Klang, der vorher bei Strudel angemeldet wird. Ein unbekannter Name bleibt still.
+   * `note`: Tonhöhe wie im Code (`c#4`, `eb` oder eine MIDI-Zahl), sonst spielt der Klang in seiner eigenen Höhe.
    */
-  async preview(name: string, url?: string): Promise<void> {
+  async preview(name: string, url?: string, note?: string): Promise<void> {
     const wasLoaded = this.mod !== null;
     await this.ensureLoaded();
     const mod = this.mod as Webaudio;
@@ -81,7 +82,8 @@ export class StrudelEngine {
     if (ctx.state !== 'running') await ctx.resume().catch(() => {});
     if (url) await mod.samples({ [name]: url });
     this.applyVolume();
-    await mod.superdough({ s: name }, mod.getAudioContextCurrentTime() + 0.05, 0.5);
+    const pitch = note === undefined ? {} : { note: Number.isNaN(Number(note)) ? note : Number(note) };
+    await mod.superdough({ s: name, ...pitch }, mod.getAudioContextCurrentTime() + 0.05, 0.5);
   }
 
   /** Strudel nur einmal laden, auch wenn Abspielen und Anspielen gleichzeitig kommen. */

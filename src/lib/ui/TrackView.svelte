@@ -8,6 +8,7 @@
   import TrackCode from "./TrackCode.svelte";
   import TrackMenu from "./TrackMenu.svelte";
   import { VOLUME_MAX } from "../domain/types.ts";
+  import { SLICES_MAX, clampSlices } from "../domain/sampler.ts";
   import type { Track } from "../domain/types.ts";
 
   let { track, index }: { track: Track; index: number } = $props();
@@ -19,13 +20,20 @@
   const messages = $derived([
     ...new Set(parsed.errors.map((e) => PARSE_MESSAGES[e.code])),
   ]);
-  const compact = $derived(session.compact.has(track.id));
   /** Zufallsknöpfe über den Steinen sichtbar (Würfel). Sonst nur rote Punkte. */
   const showRandom = $derived(session.random.has(track.id));
   /** Drehknöpfe (Wiederholung, Modulo) unter den Steinen sichtbar. Sonst nur farbige Balken am Stein. */
   const showKnobs = $derived(!session.noKnobs.has(track.id));
   const isMidi = $derived(track.type === "midi");
   const isNote = $derived(track.type === "note");
+  const isSampler = $derived(track.type === "sampler");
+  const sampleMessages = $derived([
+    ...new Set(
+      project
+        .parsedOf(track.sample.id)
+        .errors.map((e) => PARSE_MESSAGES[e.code]),
+    ),
+  ]);
   const voiceMessages = $derived([
     ...new Set(
       project
@@ -57,32 +65,16 @@
   }
 </script>
 
-<!-- Eingeklappt ist die Spur kein Ablageziel -->
 <section
   class="track"
   class:muted={track.muted}
-  class:compact
   class:norandom={!showRandom}
   class:noknobs={!showKnobs}
-  data-lane={compact ? undefined : track.id}
-  data-lane-end={compact ? undefined : track.tokens.length}
+  data-lane={track.id}
+  data-lane-end={track.tokens.length}
 >
   <header>
     <div class="left">
-      <!-- Pfeil: Steine gross (nach unten) oder kompakt (nach rechts). In der Code-Ansicht unsichtbar, der Name bleibt an seinem Platz. -->
-      <button
-        class="fold"
-        class:hidden={showCode}
-        aria-expanded={!compact}
-        aria-label={compact ? "Steine gross zeigen" : "Kompaktansicht"}
-        title={compact ? "Steine gross zeigen" : "Kompaktansicht"}
-        tabindex={showCode ? -1 : 0}
-        onclick={() => session.toggleCompact(track.id)}
-      >
-        <svg viewBox="0 0 16 16" aria-hidden="true"
-          ><path d="M4 6l4 4 4-4" /></svg
-        >
-      </button>
       <!-- Der Name steht im Code nach dem $ ($drums:) -->
       <label class="name" title="Name der Spur, im Code nach dem $">
         <!-- <span aria-hidden="true">$</span> -->
@@ -176,99 +168,125 @@
       </div>
     </div>
   </header>
-  <!-- Eingeklappt: alles in einem Fluss (Steine, Rechenarten, Klang, Effekte), ohne Paletten und Knöpfe, nur zum Ansehen -->
-  <div class="main" class:flow={compact && !showCode}>
+  <div class="main">
     {#if showCode}
       <TrackCode {track} />
     {:else}
-      {#if compact}
-        <Lane laneId={track.id} tokens={track.tokens} readonly />
-      {:else}
-        <!-- Links vom Notationseditor zwei Schalter für die ganze Spur, zusammen so hoch wie ein Stein und auf seiner Höhe:
-             Würfel = Zufallsknöpfe über den Steinen (aus: roter Punkt am Stein, nicht änderbar),
-             Drehknopf = Knöpfe für Wiederholung und Modulo darunter (aus: farbiger Balken am Stein, nicht änderbar). -->
-        <div class="editor">
-          <!-- Erst mit mindestens einem Stein, vorher gibt es nichts umzuschalten -->
-          {#if track.tokens.length > 0}
-            <div class="toggles">
-              <button
-                class="toggle dice"
-                aria-pressed={showRandom}
-                aria-label="Zufall bearbeiten"
-                title={showRandom
-                  ? "Zufallsknöpfe verbergen"
-                  : "Zufallsknöpfe zeigen (?)"}
-                onclick={() => session.toggleRandom(track.id)}
-              >
-                <svg viewBox="0 0 16 16" aria-hidden="true">
-                  <rect x="2" y="2" width="12" height="12" rx="2.5" />
-                  <circle cx="5.3" cy="5.3" r="1.1" />
-                  <circle cx="8" cy="8" r="1.1" />
-                  <circle cx="10.7" cy="10.7" r="1.1" />
-                </svg>
-              </button>
-              <button
-                class="toggle knobs"
-                aria-pressed={showKnobs}
-                aria-label="Wiederholung bearbeiten"
-                title={showKnobs
-                  ? "Drehknöpfe verbergen"
-                  : "Drehknöpfe zeigen (* ! @ %)"}
-                onclick={() => session.toggleKnobs(track.id)}
-              >
-                <svg viewBox="0 0 16 16" aria-hidden="true">
-                  <circle class="ring" cx="8" cy="8" r="4.5" />
-                  <path d="M8 8l2.2-2.2" />
-                  <circle class="tick" cx="8" cy="1.6" r="0.9" />
-                  <circle class="tick" cx="13.5" cy="10.8" r="0.9" />
-                  <circle class="tick" cx="2.5" cy="10.8" r="0.9" />
-                </svg>
-              </button>
-            </div>
+      <!-- Links vom Notationseditor zwei Schalter für die ganze Spur, zusammen so hoch wie ein Stein und auf seiner Höhe:
+           Würfel = Zufallsknöpfe über den Steinen (aus: roter Punkt am Stein, nicht änderbar),
+           Drehknopf = Knöpfe für Wiederholung und Modulo darunter (aus: farbiger Balken am Stein, nicht änderbar). -->
+      {#if isSampler}
+        <!-- Sampler-Spur: zuerst das Sample (s("brk"), Klangsteine aus der Palette), dann wie die Wertsteine es spielen -->
+        <div class="voice sample">
+          <div class="box" class:off={track.sample.tokens.length === 0} class:bad={sampleMessages.length > 0}>
+            <span class="box-name" title="Sample, im Code s(…)">s</span>
+            <Lane laneId={track.sample.id} tokens={track.sample.tokens} />
+          </div>
+          {#if sampleMessages.length > 0}
+            <p class="error">{sampleMessages.join(" ")} Diese Spur bleibt stumm.</p>
+          {:else if track.sample.tokens.length === 0}
+            <p class="hint">Ohne Sample bleibt diese Spur stumm. Zieh einen Klang aus der Palette hierher.</p>
           {/if}
-          <Lane laneId={track.id} tokens={track.tokens} />
+        </div>
+        <div class="sampler" role="group" aria-label="Wie die Steine das Sample spielen">
+          <div class="seg">
+            <button
+              aria-pressed={track.samplerMode === "slice"}
+              title="Das Sample in gleich lange Abschnitte teilen, die Steine sind Abschnittsnummern (.slice)"
+              onclick={() => project.setSamplerMode(track.id, "slice")}>slice</button
+            >
+            <button
+              aria-pressed={track.samplerMode === "scrub"}
+              title="Die Steine sind Positionen im Sample, 0 = Anfang, 1 = Ende (.scrub)"
+              onclick={() => project.setSamplerMode(track.id, "scrub")}>scrub</button
+            >
+          </div>
+          {#if track.samplerMode === "slice"}
+            <label class="slices" title={`Zahl der Abschnitte, 1 bis ${SLICES_MAX}`}>
+              <input
+                type="number"
+                inputmode="numeric"
+                min="1"
+                max={SLICES_MAX}
+                step="1"
+                value={track.slices}
+                aria-label="Zahl der Abschnitte"
+                oninput={(e) => {
+                  const n = Number(e.currentTarget.value);
+                  if (e.currentTarget.value !== "" && n === clampSlices(n)) project.setSlices(track.id, n);
+                }}
+                onblur={(e) => (e.currentTarget.value = String(track.slices))}
+              />
+              <span>Abschnitte, Steine 0–{track.slices - 1}</span>
+            </label>
+          {:else}
+            <span class="voice-desc">Positionen: 0 = Anfang, 1 = Ende</span>
+          {/if}
         </div>
       {/if}
-      {#if isNote}
-        <!-- Rechenarten auf den Noten (add, div …), im Code an der Mini-Notation: note("f d".add("<0 3>")) -->
-        <EffectList {track} kind="noteOps" readonly={compact} />
-        <!-- Klang der Noten (.s), eine feste Reihe vor den Effekten. Meist ein Stein, mehrere wechseln (<sine sawtooth>). -->
-        {#if compact}
-          {#if track.voice.tokens.length > 0}
-            <div
-              class="voice"
-              class:bad={voiceMessages.length > 0}
-              title="Klang der Noten"
+      <div class="editor">
+        <!-- Erst mit mindestens einem Stein, vorher gibt es nichts umzuschalten -->
+        {#if track.tokens.length > 0}
+          <div class="toggles">
+            <button
+              class="toggle dice"
+              aria-pressed={showRandom}
+              aria-label="Zufall bearbeiten"
+              title={showRandom
+                ? "Zufallsknöpfe verbergen"
+                : "Zufallsknöpfe zeigen (?)"}
+              onclick={() => session.toggleRandom(track.id)}
             >
-              <span class="voice-name">.s</span>
-              <Lane
-                laneId={track.voice.id}
-                tokens={track.voice.tokens}
-                readonly
-              />
-            </div>
-          {/if}
-        {:else}
-          <div class="voice">
-            <div class="voice-head">
-              <span class="voice-name">.s</span>
-              <span class="voice-desc">Klang der Noten</span>
-            </div>
-            <Lane laneId={track.voice.id} tokens={track.voice.tokens} />
-            {#if voiceMessages.length > 0}
-              <p class="error">
-                {voiceMessages.join(" ")} Die Noten klingen dann als triangle.
-              </p>
-            {:else if track.voice.tokens.length === 0}
-              <p class="hint">
-                Ohne Klang spielt Strudel die Noten als triangle.
-              </p>
-            {/if}
+              <svg viewBox="0 0 16 16" aria-hidden="true">
+                <rect x="2" y="2" width="12" height="12" rx="2.5" />
+                <circle cx="5.3" cy="5.3" r="1.1" />
+                <circle cx="8" cy="8" r="1.1" />
+                <circle cx="10.7" cy="10.7" r="1.1" />
+              </svg>
+            </button>
+            <button
+              class="toggle knobs"
+              aria-pressed={showKnobs}
+              aria-label="Wiederholung bearbeiten"
+              title={showKnobs
+                ? "Drehknöpfe verbergen"
+                : "Drehknöpfe zeigen (* ! @ %)"}
+              onclick={() => session.toggleKnobs(track.id)}
+            >
+              <svg viewBox="0 0 16 16" aria-hidden="true">
+                <circle class="ring" cx="8" cy="8" r="4.5" />
+                <path d="M8 8l2.2-2.2" />
+                <circle class="tick" cx="8" cy="1.6" r="0.9" />
+                <circle class="tick" cx="13.5" cy="10.8" r="0.9" />
+                <circle class="tick" cx="2.5" cy="10.8" r="0.9" />
+              </svg>
+            </button>
           </div>
         {/if}
+        <Lane laneId={track.id} tokens={track.tokens} value={isSampler} />
+      </div>
+      {#if isNote}
+        <!-- Rechenarten auf den Noten (add, div …), im Code an der Mini-Notation: note("f d".add("<0 3>")) -->
+        <EffectList {track} kind="noteOps" />
+        <!-- Klang der Noten (.s), eine feste Reihe vor den Effekten. Meist ein Stein, mehrere wechseln (<sine sawtooth>). -->
+        <div class="voice">
+          <div class="box" class:off={track.voice.tokens.length === 0} class:bad={voiceMessages.length > 0}>
+            <span class="box-name" title="Klang der Noten, im Code .s(…)">s</span>
+            <Lane laneId={track.voice.id} tokens={track.voice.tokens} />
+          </div>
+          {#if voiceMessages.length > 0}
+            <p class="error">
+              {voiceMessages.join(" ")} Die Noten klingen dann als triangle.
+            </p>
+          {:else if track.voice.tokens.length === 0}
+            <p class="hint">
+              Ohne Klang spielt Strudel die Noten als triangle.
+            </p>
+          {/if}
+        </div>
       {/if}
-      <EffectList {track} readonly={compact} />
-      {#if withoutNote && !compact}
+      <EffectList {track} />
+      {#if withoutNote}
         <p class="hint">
           Ohne <code>.note()</code> schickt diese Spur keine Noten.
           <button class="small" onclick={addNote}>note hinzufügen</button>
@@ -286,10 +304,10 @@
   .track {
     background: var(--panel);
     border-bottom: 1.5px solid var(--line);
-    padding: 8px max(12px, env(safe-area-inset-right, 0px)) 12px
-      max(12px, env(safe-area-inset-left, 0px));
+    padding: 8px max(8px, env(safe-area-inset-right, 0px)) 12px
+      max(8px, env(safe-area-inset-left, 0px));
   }
-  /* Drei Spalten: links Pfeil und Name, in der Mitte der Kanalzug, rechts MIDI-Ausgang und Menü */
+  /* Drei Spalten: links der Name, in der Mitte der Kanalzug, rechts MIDI-Ausgang und Menü */
   header {
     display: grid;
     grid-template-columns: 1fr auto;
@@ -387,31 +405,6 @@
     line-height: 1;
     border-color: var(--line);
     color: var(--mute);
-  }
-  .fold {
-    width: 32px;
-    height: 28px;
-    padding: 0;
-    border: none;
-    color: var(--mute);
-    flex: none;
-  }
-  .fold svg {
-    width: 16px;
-    height: 16px;
-    fill: none;
-    stroke: currentColor;
-    stroke-width: 2;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-    transition: transform 0.15s ease-out;
-  }
-  /* Kompakt: Pfeil nach rechts (eingeklappt) */
-  .compact .fold svg {
-    transform: rotate(-90deg);
-  }
-  .fold.hidden {
-    visibility: hidden;
   }
   /* Schalter links, Steine rechts daneben */
   .editor {
@@ -539,40 +532,84 @@
   .voice {
     margin-top: 10px;
   }
-  /* Eingeklappt: Steine, Rechenarten, Klang und Effekte folgen in einer umbrechenden Zeile aufeinander */
-  .main.flow {
+  .voice.sample {
+    margin: 0 0 10px;
+  }
+  /* Sampler-Spur: Art (slice/scrub) und Zahl der Abschnitte, zwischen Sample und Wertsteinen */
+  .sampler {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 4px 8px;
-  }
-  .flow .voice {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    margin: 0;
-    padding-left: 6px;
-  }
-  .flow .voice-name {
-    font-size: 13px;
-  }
-  .flow .voice.bad .voice-name {
-    color: var(--red);
-    text-decoration: line-through;
-  }
-  .voice-head {
-    display: flex;
-    align-items: baseline;
     gap: 8px;
-    margin-bottom: 4px;
+    margin-bottom: 10px;
   }
-  .voice-name {
+  .seg {
+    display: inline-flex;
+    border: 1.5px solid var(--line);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .seg button {
+    padding: 3px 10px;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    color: var(--mute);
     font:
-      600 14px ui-monospace,
+      600 13px ui-monospace,
       SFMono-Regular,
       Menlo,
       Consolas,
       monospace;
+  }
+  .seg button[aria-pressed="true"] {
+    background: color-mix(in srgb, var(--blue) 18%, transparent);
+    color: var(--ink);
+  }
+  .slices {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--mute);
+    font-size: 13px;
+  }
+  .slices input {
+    width: 4.5em;
+    padding: 2px 4px;
+    border: 1.5px solid var(--line);
+    border-radius: 6px;
+    background: var(--bg);
+    color: var(--ink);
+    /* 16px verhindert das automatische Zoomen auf iOS */
+    font-size: 16px;
+    text-align: center;
+  }
+  /* Sample (s) und Klang der Noten (.s) als feste Box im Stil der Effekt-Boxen (EffectList), ohne Griff und × */
+  .box {
+    display: flex;
+    flex-direction: column;
+    width: fit-content;
+    min-width: 64px;
+    max-width: 100%;
+    padding: 4px 4px 5px;
+    border: 1.5px solid var(--val-edge);
+    border-radius: 8px;
+    background: var(--panel);
+  }
+  .box.bad {
+    border-color: var(--red);
+  }
+  .box-name {
+    margin-bottom: 2px;
+    font:
+      600 12px ui-monospace,
+      SFMono-Regular,
+      Menlo,
+      Consolas,
+      monospace;
+  }
+  .box.off .box-name {
+    color: var(--mute);
   }
   .voice-desc {
     color: var(--mute);

@@ -129,9 +129,6 @@
     transform: scale(1.6);
     z-index: 10;
   }
-  :global(.compact) .slot {
-    display: none;
-  }
   svg {
     display: block;
     width: 100%;

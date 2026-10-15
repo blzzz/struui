@@ -11,7 +11,6 @@
     index,
     error,
     value = false,
-    readonly = false,
     spanned = false,
     last = false,
   }: {
@@ -20,8 +19,6 @@
     index: number;
     error: boolean;
     value?: boolean;
-    /** Eingeklappte Spur: kein Ablageziel, der Stein reagiert nicht. */
-    readonly?: boolean;
     /** Liegt im Bereich, den ein Klammerpaar beim Umschliessen fassen würde. */
     spanned?: boolean;
     /** Letzter Stein einer Reihe ohne Feld am Ende: zeigt auch das Einfügen dahinter. */
@@ -44,10 +41,10 @@
   class="col"
   class:hint
   class:hint-after={hintAfter}
-  data-drop-lane={readonly ? undefined : laneId}
-  data-drop-index={readonly ? undefined : index}
-  data-drop-kind={readonly ? undefined : 'col'}
-  data-drop-replaceable={readonly ? undefined : replaceable}
+  data-drop-lane={laneId}
+  data-drop-index={index}
+  data-drop-kind="col"
+  data-drop-replaceable={replaceable}
 >
   <!-- Zufall oben: nur wenn die Spur ihn zeigt (Würfel im Kanalzug), sonst ein roter Punkt am Stein -->
   <div class="top">
@@ -57,7 +54,7 @@
       <div class="spacer"></div>
     {/if}
   </div>
-  <TokenStone {token} {laneId} {error} {value} {readonly} {replacing} {spanned} />
+  <TokenStone {token} {laneId} {error} {value} {replacing} {spanned} />
   <!-- Drehknöpfe unten: nur wenn die Spur sie zeigt, sonst ein farbiger Balken am Stein -->
   <div class="bottom">
     {#if hasModifiers(token)}
@@ -84,15 +81,8 @@
   }
   .hint { box-shadow: -4px 0 0 0 var(--blue); }
   .hint-after { box-shadow: 4px 0 0 0 var(--blue); }
-  :global(.compact) .col {
-    gap: 0;
-    padding: 0 1px;
-  }
   :global(.norandom) .top,
   :global(.noknobs) .bottom {
-    display: none;
-  }
-  :global(.compact) .spacer {
     display: none;
   }
 </style>

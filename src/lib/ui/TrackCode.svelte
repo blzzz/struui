@@ -20,7 +20,7 @@
 
   function onInput(e: Event) {
     draft = (e.currentTarget as HTMLTextAreaElement).value;
-    const result = codeToTrack(draft);
+    const result = codeToTrack(draft, track.type);
     if (result.ok) {
       error = null;
       project.applyCode(track.id, result);

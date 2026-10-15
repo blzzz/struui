@@ -12,7 +12,8 @@
   import { session } from "../state/session.svelte.ts";
   import { reorder } from "../interaction/reorder.ts";
   import EffectBox from "./EffectBox.svelte";
-  import Lane from "./Lane.svelte";
+  import FitButton from "./FitButton.svelte";
+  import { watchFit } from "./fit.ts";
   import { PARSE_MESSAGES } from "./messages.ts";
   import type { Track } from "../domain/types.ts";
 
@@ -21,14 +22,10 @@
    * von links nach rechts umbrechend, darunter ein Suchfeld zum Hinzufügen. Ziehen am Titel verschiebt eine Box
    * (die Reihenfolge ist die im Code). Wertsteine verhalten sich wie Klangsteine (Tippen, Ziehen, Klammern, Zufall, Wiederholung).
    * `kind = 'noteOps'`: dieselbe Liste für die Rechenarten einer Notenspur (`add`, `div` …), direkt nach den Noten.
-   * `readonly` (eingeklappte Spur): Effekte folgen ohne eigene Zeile aufeinander, nur Name und Wertsteine.
-   * Kein Suchfeld, kein Entfernen, nichts lässt sich bearbeiten. Effekte ohne Wert fehlen, fehlerhafte sind rot markiert.
+   * Brechen die Boxen um, erscheint daneben eine Lupe: sie verkleinert alle auf eine Zeile (`fit.ts`).
+   * Standard ist hier die Originalgrösse (`session.fitEffects`), anders als bei den Steinreihen.
    */
-  let {
-    track,
-    kind = "effects",
-    readonly = false,
-  }: { track: Track; kind?: RowKind; readonly?: boolean } = $props();
+  let { track, kind = "effects" }: { track: Track; kind?: RowKind } = $props();
   const ops = $derived(kind === "noteOps");
 
   let query = $state("");
@@ -63,6 +60,24 @@
   }
 
   let boxes = $state<HTMLElement>();
+
+  /** Schlüssel für `session.fitEffects`: eine Spur hat bis zu zwei Listen (Effekte, Rechenarten). */
+  const fitKey = $derived(`${track.id}:${kind}`);
+  /** Verkleinerung, damit alle Boxen auf eine Zeile passen (1 = passen in Originalgrösse). */
+  let fit = $state(1);
+  /** Die Boxen brechen in Originalgrösse um: nur dann gibt es die Lupe. */
+  let overflows = $state(false);
+  const original = $derived(!session.fitEffects.has(fitKey));
+  const zoom = $derived(original ? 1 : fit);
+
+  $effect(() => {
+    if (!boxes) return;
+    void track[kind].map((fx) => fx.id);
+    return watchFit(boxes, zoom, (r) => {
+      overflows = r.overflows;
+      if (Math.abs(r.fit - fit) > 0.005) fit = r.fit;
+    });
+  });
   /** Einfügeposition beim Ziehen einer Box (vor dem Entfernen), null = kein Ziehen. */
   let hint = $state<number | null>(null);
 
@@ -107,138 +122,124 @@
   ];
 </script>
 
-<div class="effects" class:readonly>
-  {#if readonly}
-    {#each track[kind] as fx (fx.id)}
-      {@const info = valueInfo(fx.name)}
-      {@const errors = messages(fx.id)}
-      {#if fx.tokens.length > 0}
-        <div
-          class="fx"
-          class:bad={errors.length > 0}
-          title={errors.length > 0
-            ? `${errors.join(" ")} Dieser Effekt ist aus.`
-            : info?.description}
-        >
-          <span class="name">.{fx.name}</span>
-          <Lane laneId={fx.id} tokens={fx.tokens} value readonly />
-        </div>
-      {/if}
-    {/each}
-  {:else if track[kind].length > 0}
-    <div class="boxes" bind:this={boxes}>
-      {#each track[kind] as fx, i (fx.id)}
-        {@const info = valueInfo(fx.name)}
-        {@const errors = messages(fx.id)}
-        <div
-          class="box"
-          class:off={fx.tokens.length === 0}
-          class:bad={errors.length > 0}
-          class:wide={session.mini.has(fx.id) ||
-            (fx.tokens.length > 0 && singleValue(fx.tokens) === null)}
-          class:before={hint === i}
-          class:after={hint === i + 1 && i === track[kind].length - 1}
-          data-effect-id={fx.id}
-          animate:flip={{ duration: 150 }}
-        >
-          <div class="head">
-            <!-- Griff: Ziehen verschiebt die Box, mit der Tastatur Pfeil links/rechts -->
-            <span
-              class="name"
-              role="button"
-              tabindex="0"
-              title={info
-                ? `${info.description}${info.hint ? ` (${info.hint})` : ""}`
-                : undefined}
-              aria-label={`${fx.name} verschieben (Pfeil links/rechts)`}
-              onkeydown={(e) => onHandleKey(e, fx.id, i)}
-              {@attach reorder(() => ({
-                item: () =>
-                  boxes?.querySelector<HTMLElement>(
-                    `[data-effect-id="${fx.id}"]`,
-                  ) ?? null,
-                items: () => [
-                  ...(boxes?.querySelectorAll<HTMLElement>(":scope > .box") ??
-                    []),
-                ],
-                onHint: (index) => (hint = index),
-                onDrop: (index) =>
-                  project.moveEffect(track.id, fx.id, index, kind),
-              }))}>{fx.name}</span
-            >
-            <button
-              class="remove"
-              aria-label={`${fx.name} entfernen`}
-              onclick={() => project.removeEffect(track.id, fx.id, kind)}
-              >×</button
-            >
+<div class="effects">
+  {#if track[kind].length > 0}
+    <div class="fitrow">
+      <div class="boxes" bind:this={boxes} style:--fx-fit={zoom === 1 ? undefined : zoom}>
+        {#each track[kind] as fx, i (fx.id)}
+          {@const info = valueInfo(fx.name)}
+          {@const errors = messages(fx.id)}
+          <div
+            class="box"
+            class:off={fx.tokens.length === 0 && !info?.noValue}
+            class:bad={errors.length > 0}
+            class:wide={session.mini.has(fx.id) ||
+              (fx.tokens.length > 0 && singleValue(fx.tokens) === null)}
+            class:before={hint === i}
+            class:after={hint === i + 1 && i === track[kind].length - 1}
+            data-effect-id={fx.id}
+            animate:flip={{ duration: 150 }}
+          >
+            <div class="head">
+              <!-- Griff: Ziehen verschiebt die Box, mit der Tastatur Pfeil links/rechts -->
+              <span
+                class="name"
+                role="button"
+                tabindex="0"
+                title={info
+                  ? `${info.description}${info.hint ? ` (${info.hint})` : ""}`
+                  : undefined}
+                aria-label={`${fx.name} verschieben (Pfeil links/rechts)`}
+                onkeydown={(e) => onHandleKey(e, fx.id, i)}
+                {@attach reorder(() => ({
+                  item: () =>
+                    boxes?.querySelector<HTMLElement>(
+                      `[data-effect-id="${fx.id}"]`,
+                    ) ?? null,
+                  items: () => [
+                    ...(boxes?.querySelectorAll<HTMLElement>(":scope > .box") ??
+                      []),
+                  ],
+                  onHint: (index) => (hint = index),
+                  onDrop: (index) =>
+                    project.moveEffect(track.id, fx.id, index, kind),
+                }))}>{fx.name}</span
+              >
+              <button
+                class="remove"
+                aria-label={`${fx.name} entfernen`}
+                onclick={() => project.removeEffect(track.id, fx.id, kind)}
+                >×</button
+              >
+            </div>
+            <EffectBox {fx} />
+            {#if errors.length > 0}
+              <p class="error">{errors.join(" ")} Dieser Effekt ist aus.</p>
+            {/if}
           </div>
-          <EffectBox {fx} />
-          {#if errors.length > 0}
-            <p class="error">{errors.join(" ")} Dieser Effekt ist aus.</p>
-          {/if}
-        </div>
-      {/each}
+        {/each}
+      </div>
+      {#if overflows}
+        <FitButton {original} onclick={() => session.toggleFitEffects(fitKey)} />
+      {/if}
     </div>
   {/if}
 
-  {#if !readonly}
-    <div class="search" bind:this={search}>
-      <input
-        type="text"
-        role="combobox"
-        {placeholder}
-        aria-label={placeholder}
-        aria-autocomplete="list"
-        aria-expanded={open && options.length > 0}
-        aria-controls={listId}
-        aria-activedescendant={open && options[active]
-          ? `${listId}-${active}`
-          : undefined}
-        spellcheck="false"
-        autocomplete="off"
-        autocapitalize="off"
-        bind:value={query}
-        oninput={() => {
-          open = true;
-          active = 0;
-        }}
-        onfocus={() => (open = true)}
-        onblur={(e) => {
-          // Fokus wandert zu einem anderen Element (Tab); beim Tippen in die Liste ist relatedTarget leer
-          if (e.relatedTarget) open = false;
-        }}
-        onkeydown={onKeydown}
-      />
-      {#if open && options.length > 0}
-        <ul
-          id={listId}
-          role="listbox"
-          aria-label={ops ? "Rechenarten" : "Effekte"}
-        >
-          {#each options as info, i (info.name)}
-            <!-- Tastatur bedient das Suchfeld (Pfeile, Enter), die Optionen bekommen keinen Fokus -->
-            <!-- svelte-ignore a11y_click_events_have_key_events -->
-            <li
-              id={`${listId}-${i}`}
-              role="option"
-              aria-selected={i === active}
-              class:active={i === active}
-              onpointerdown={(e) => e.preventDefault()}
-              onpointerenter={() => (active = i)}
-              onclick={() => pick(info)}
-            >
-              <span class="opt-name">{info.name}</span>
-              {#if info.synonyms.length > 0}<span class="syn"
-                  >{info.synonyms.join(", ")}</span
-                >{/if}
-              <span class="opt-desc">{info.description}</span>
-            </li>
-          {/each}
-        </ul>
-      {/if}
-    </div>
-  {/if}
+  <div class="search" bind:this={search}>
+    <input
+      type="text"
+      role="combobox"
+      {placeholder}
+      aria-label={placeholder}
+      aria-autocomplete="list"
+      aria-expanded={open && options.length > 0}
+      aria-controls={listId}
+      aria-activedescendant={open && options[active]
+        ? `${listId}-${active}`
+        : undefined}
+      spellcheck="false"
+      autocomplete="off"
+      autocapitalize="off"
+      bind:value={query}
+      oninput={() => {
+        open = true;
+        active = 0;
+      }}
+      onfocus={() => (open = true)}
+      onblur={(e) => {
+        // Fokus wandert zu einem anderen Element (Tab); beim Tippen in die Liste ist relatedTarget leer
+        if (e.relatedTarget) open = false;
+      }}
+      onkeydown={onKeydown}
+    />
+    {#if open && options.length > 0}
+      <ul
+        id={listId}
+        role="listbox"
+        aria-label={ops ? "Rechenarten" : "Effekte"}
+      >
+        {#each options as info, i (info.name)}
+          <!-- Tastatur bedient das Suchfeld (Pfeile, Enter), die Optionen bekommen keinen Fokus -->
+          <!-- svelte-ignore a11y_click_events_have_key_events -->
+          <li
+            id={`${listId}-${i}`}
+            role="option"
+            aria-selected={i === active}
+            class:active={i === active}
+            onpointerdown={(e) => e.preventDefault()}
+            onpointerenter={() => (active = i)}
+            onclick={() => pick(info)}
+          >
+            <span class="opt-name">{info.name}</span>
+            {#if info.synonyms.length > 0}<span class="syn"
+                >{info.synonyms.join(", ")}</span
+              >{/if}
+            <span class="opt-desc">{info.description}</span>
+          </li>
+        {/each}
+      </ul>
+    {/if}
+  </div>
 </div>
 
 <style>
@@ -248,12 +249,26 @@
     gap: 8px;
     margin-top: 10px;
   }
-  /* Effekte als kleine Boxen, von links umbrechend */
+  /* Boxen und daneben die Lupe */
+  .fitrow {
+    display: flex;
+    align-items: flex-start;
+    gap: 4px;
+  }
+  /* Effekte als kleine Boxen, von links umbrechend, oder verkleinert auf einer Zeile */
   .boxes {
+    flex: 1;
+    min-width: 0;
+    zoom: var(--fx-fit, 1);
     display: flex;
     flex-wrap: wrap;
     align-items: flex-start;
     gap: 8px;
+  }
+  /* Beim Tippen in ein Zahlenfeld Originalgrösse (iOS zoomt sonst hinein). Schlägt den Wert im style-Attribut.
+     Nicht bei Wertsteinen: deren Feld hat selbst normale Grösse (TokenStone), die Boxen sollen dabei nicht springen. */
+  .boxes:has(:global(input.num:focus)) {
+    --fx-fit: 1 !important;
   }
   /* Eine Box: oben der Titel (Griff zum Verschieben) und ×, darunter Regler und Zahl. Mit Wertsteinen wird sie breiter. */
   .box {
@@ -295,23 +310,6 @@
   }
   .box.after::after {
     right: -7px;
-  }
-  /* Eingeklappt: keine eigene Zeile, die Effekte reihen sich in den Fluss der Spur ein (siehe `.main.compact` in TrackView) */
-  .effects.readonly {
-    display: contents;
-  }
-  .readonly .fx {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    padding-left: 6px;
-  }
-  .readonly .name {
-    font-size: 13px;
-  }
-  .readonly .fx.bad .name {
-    color: var(--red);
-    text-decoration: line-through;
   }
   .head {
     display: flex;

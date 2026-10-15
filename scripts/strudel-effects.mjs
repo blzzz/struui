@@ -1,5 +1,5 @@
 // Liest die Effekte aus den JSDoc-Kommentaren von `@strudel/core/controls.mjs`, statt sie abzuschreiben,
-// dazu die Rechenarten für Noten (`add`, `div` …) aus `@strudel/core/pattern.mjs`.
+// dazu die Sample-Funktionen (`chop`, `fit` …) und die Rechenarten für Noten (`add`, `div` …) aus `@strudel/core/pattern.mjs`.
 // Aufruf: npm run gen:effects (schreibt src/lib/domain/effects.generated.ts).
 // Der Test `effects.test.ts` prüft, dass die Datei zum installierten Strudel passt.
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -13,6 +13,7 @@ export const OUTPUT = fileURLToPath(new URL('../src/lib/domain/effects.generated
  * Was Strudel als Steuerparameter dokumentiert, aber kein Klangeffekt ist: Klangwahl, Routing und OSC.
  * Das ist ein Filter, keine Liste von Effekten. Neue Effekte in Strudel kommen ohne Zutun dazu.
  * `postgain` (Lautstärke), `orbit` und `midichan`/`midiport` stellt jede Spur selbst ein, deshalb sind sie keine eigenen Effekte.
+ * `scrub` steht zwar in controls.mjs, verändert aber das Muster wie `chop`: es kommt über `SAMPLE_OPS` dazu.
  */
 const NOT_EFFECTS = new Set(['postgain', 'orbit', 'midichan', 'midiport', 's', 'n', 'bank', 'source', 'label', 'bus', 'channel', 'channels', 'as', 'dictionary', 'mode', 'anchor', 'chord', 'unit', 'duration', 'control', 'scrub']);
 const NOT_EFFECT_PREFIX = /^(sysex|osc|byteBeat)/;
@@ -23,6 +24,19 @@ const NOT_EFFECT_PREFIX = /^(sysex|osc|byteBeat)/;
  */
 const PITCH = new Set(['note']);
 const MIDI_PREFIX = /^(midi|cc|nrp|prog)/;
+/**
+ * Funktionen, die Samples zerschneiden oder strecken. Im Code nach dem Muster wie Effekte (`s("brk").chop(4)`), aber sie
+ * verändern die Ereignisse statt einen Wert zu setzen. Eine Auswahl: nur, was höchstens einen Wert nimmt
+ * (`slice` und `splice` brauchen zwei). Beschreibung, Beispielwerte und die Zahl der Werte liest das Skript aus Strudel.
+ */
+const SAMPLE_OPS = ['chop', 'striate', 'scrub', 'loopAt', 'fit'];
+
+/**
+ * Wie eine Sampler-Spur ihre Wertsteine spielt: `scrub` (Positionen 0–1) oder `slice` (Abschnittsnummern, dazu die Zahl der
+ * Abschnitte). Hier nur Beschreibung und Zahl der Werte; die Werte von `slice` hängen von der Zahl der Abschnitte ab.
+ */
+const SAMPLER_MODES = { scrub: 1, slice: 2 };
+
 const groupOf = (name) => (PITCH.has(name) ? 'pitch' : MIDI_PREFIX.test(name) ? 'midi' : 'audio');
 
 function firstSentence(text) {
@@ -47,7 +61,9 @@ function exampleValues(text, names) {
     const call = new RegExp(`\\.${escape(n)}\\(\\s*(?:"([^"]*)"|'([^']*)'|(-?[\\d.]+))\\s*\\)`, 'g');
     for (const m of text.matchAll(call)) {
       // `1000:20` = Wert und Zusatzparameter (hier Resonanz), nur der Wert zählt
-      for (const part of (m[1] ?? m[2] ?? m[3]).split(/[\s<>[\]{}*!@?,~|%/()]+/)) {
+      // Zahlen hinter Modifiern (`!2`, `@3`, `*4`, `/2`, `%8`, `?0.3`) sind keine Werte
+      const mini = (m[1] ?? m[2] ?? m[3]).replace(/[*!@%/?]-?[\d.]*/g, ' ');
+      for (const part of mini.split(/[\s<>[\]{}*!@?,~|%/()]+/)) {
         const atom = part.split(':')[0];
         if (NUMBER.test(atom)) {
           if (!numbers.has(Number(atom))) numbers.set(Number(atom), atom);
@@ -80,7 +96,7 @@ function describe(name, group, { lines, tag }) {
   return { name, group, synonyms, description, hint, values: exampleValues(examples, [name, ...synonyms]) };
 }
 
-export function extractEffects(source = readFileSync(CONTROLS, 'utf8')) {
+export function extractEffects(source = readFileSync(CONTROLS, 'utf8'), patternSource = readFileSync(PATTERN, 'utf8')) {
   const effects = new Map();
   for (const doc of docComments(source)) {
     const [name] = doc.tag('name');
@@ -91,7 +107,46 @@ export function extractEffects(source = readFileSync(CONTROLS, 'utf8')) {
     if (doc.tag('param').some((p) => /^\{Object\}/.test(p))) continue;
     effects.set(name, describe(name, groupOf(name), doc));
   }
+  for (const op of extractSampleOps(source, patternSource)) effects.set(op.name, op);
   return [...effects.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/**
+ * Zahl der Werte einer mit `register` gebauten Funktion: ihre Parameter ohne das Muster am Schluss.
+ * `register('chop', function (n, pat)` → 1, `register('fit', (pat) =>` → 0. null, wenn der Aufruf fehlt.
+ */
+function arity(name, source) {
+  const m = new RegExp(`register\\(\\s*(?:'${name}'|\\[\\s*'${name}'[^\\]]*\\])\\s*,\\s*(?:function\\s*)?\\(([^)]*)\\)`).exec(source);
+  return m ? m[1].split(',').filter((p) => p.trim()).length - 1 : null;
+}
+
+/** Die Sample-Funktionen aus `SAMPLE_OPS`, gesucht in controls.mjs (`scrub`) und pattern.mjs. Fehlt eine, bricht das Skript ab. */
+export function extractSampleOps(controls = readFileSync(CONTROLS, 'utf8'), pattern = readFileSync(PATTERN, 'utf8')) {
+  return SAMPLE_OPS.map((name) => {
+    for (const source of [controls, pattern]) {
+      const n = arity(name, source);
+      const doc = [...docComments(source)].find((d) => d.tag('name')[0] === name);
+      if (n === null || !doc) continue;
+      if (n > 1) throw new Error(`${name} nimmt ${n} Werte, eine Box hat nur eine Wertreihe`);
+      const info = describe(name, 'sample', doc);
+      return n === 0 ? { ...info, noValue: true } : info;
+    }
+    throw new Error(`${name} fehlt in Strudel`);
+  });
+}
+
+/** Beschreibungen der Sampler-Arten (`SAMPLER_MODES`). Nimmt eine andere Werte als erwartet, bricht das Skript ab. */
+export function extractSamplerModes(controls = readFileSync(CONTROLS, 'utf8'), pattern = readFileSync(PATTERN, 'utf8')) {
+  return Object.entries(SAMPLER_MODES).map(([name, expected]) => {
+    for (const source of [controls, pattern]) {
+      const n = arity(name, source);
+      const doc = [...docComments(source)].find((d) => d.tag('name')[0] === name);
+      if (n === null || !doc) continue;
+      if (n !== expected) throw new Error(`${name} nimmt ${n} Werte statt ${expected}`);
+      return describe(name, 'sample', doc);
+    }
+    throw new Error(`${name} fehlt in Strudel`);
+  });
 }
 
 /**
@@ -109,19 +164,21 @@ export function extractNoteOps(source = readFileSync(PATTERN, 'utf8')) {
   return numeral.filter((n) => docs.has(n)).map((n) => docs.get(n));
 }
 
-export function renderModule(effects, noteOps) {
+export function renderModule(effects, noteOps, samplerModes) {
   return `// Erzeugt von scripts/strudel-effects.mjs aus @strudel/core/controls.mjs und pattern.mjs. Nicht von Hand ändern: npm run gen:effects
 import type { EffectInfo } from './effects.ts';
 
 export const EFFECTS: readonly EffectInfo[] = ${JSON.stringify(effects, null, 2)};
 
 export const NOTE_OPS: readonly EffectInfo[] = ${JSON.stringify(noteOps, null, 2)};
+
+export const SAMPLER_MODES: readonly EffectInfo[] = ${JSON.stringify(samplerModes, null, 2)};
 `;
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const effects = extractEffects();
   const noteOps = extractNoteOps();
-  writeFileSync(OUTPUT, renderModule(effects, noteOps));
+  writeFileSync(OUTPUT, renderModule(effects, noteOps, extractSamplerModes()));
   console.log(`${effects.length} Effekte und ${noteOps.length} Rechenarten für Noten nach ${OUTPUT}`);
 }

@@ -11,6 +11,7 @@
    * Ist der Wert mehr als ein einzelner Stein, bleiben die Wertsteine, bis nur noch einer übrig ist (nichts geht verloren).
    * Den Bereich des Reglers liefern Strudels Beispielwerte (`valueScale`); das Zahlenfeld nimmt auch Werte ausserhalb.
    * «edit» stellt min, max und step ein (`fx.slider`): dann ist der Regler linear wie Strudels `slider()`, das so im Code steht.
+   * Effekte ohne Wert (`fit`) zeigen nur einen Hinweis.
    */
   let { fx }: { fx: Effect } = $props();
 
@@ -65,7 +66,9 @@
   }
 </script>
 
-{#if mini}
+{#if info?.noValue}
+  <p class="hint none">ohne Wert</p>
+{:else if mini}
   <Lane laneId={fx.id} tokens={fx.tokens} value />
 {:else if scale.kind === 'number'}
   {#if range}
@@ -156,6 +159,7 @@
     {/if}
   </div>
 {/if}
+{#if !info?.noValue}
 <div class="pills">
   {#if !mini && scale.kind === 'number'}
     <button
@@ -178,6 +182,7 @@
   mini
 </button>
 </div>
+{/if}
 
 <style>
   .slider {
@@ -255,5 +260,8 @@
     color: var(--mute);
     font-size: 10px;
     line-height: 1.2;
+  }
+  .hint.none {
+    margin: 4px 0 2px;
   }
 </style>

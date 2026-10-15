@@ -181,6 +181,83 @@ try {
     console.log('ok: Rechenarten für Noten transponieren, Noten- und Wertsteine leuchten richtig');
   }
 
+  // Sample-Funktionen: s("brk").fit().chop(2).scrub("<0 .5>") läuft, scrub setzt begin, und seine Wertsteine leuchten
+  {
+    patterns.length = 0;
+    const brk = snd('brk');
+    const zero = snd('0');
+    const half = snd('.5');
+    const fx = [types.effect('fit'), types.effect('chop', [snd('2')]), types.effect('scrub', [open('<'), zero, half, close('<')])];
+    const program = codegen.toStrudelProgram([{ tokens: [brk], effects: fx }], { cps: 0.5 });
+    assert.match(program.code, /\$: s\("brk"\)\.fit\(\)\.chop\(2\)\.scrub\("<0 \.5>"\)$/, 'Sample-Funktionen im Code');
+    await transpiler.evaluate(program.code);
+    for (const [cycle, stone, begin] of [[0, zero, 0], [1, half, 0.5]]) {
+      const haps = patterns[0].queryArc(cycle, cycle + 1);
+      assert.equal(haps.length, 2, `Zyklus ${cycle}: chop(2) teilt in zwei`);
+      for (const hap of haps) {
+        assert.equal(hap.value.begin, begin, `Zyklus ${cycle}: scrub setzt begin`);
+        const lit = hap.context.locations.flatMap((loc) => program.ranges.filter((r) => loc.start >= r.start && loc.start < r.end)).map((r) => r.tokenId);
+        assert.ok(lit.includes(brk.id), `Zyklus ${cycle}: Klangstein leuchtet`);
+        assert.ok(lit.includes(stone.id), `Zyklus ${cycle}: Wertstein von scrub leuchtet`);
+      }
+    }
+    console.log('ok: Sample-Funktionen (fit, chop, scrub) laufen in Strudel, Klang- und Wertsteine leuchten');
+  }
+
+  // Sampler-Spur: s("<brk amen>").slice(4, "0 <1 3>") spielt die Abschnitte (begin/end), scrub die Positionen,
+  // und Sample- wie Wertsteine leuchten im richtigen Zyklus.
+  {
+    const brk = snd('brk');
+    const amen = snd('amen');
+    const zero = snd('0');
+    const one = snd('1');
+    const three = snd('3');
+    const sampler = (mode, tokens) => ({
+      type: 'sampler',
+      samplerMode: mode,
+      slices: 4,
+      sample: { tokens: [open('<'), brk, amen, close('<')] },
+      tokens,
+    });
+    const lit = (hap, program) =>
+      hap.context.locations.flatMap((loc) => program.ranges.filter((r) => loc.start >= r.start && loc.start < r.end)).map((r) => r.tokenId);
+
+    patterns.length = 0;
+    let program = codegen.toStrudelProgram([sampler('slice', [zero, open('<'), one, three, close('<')])], { cps: 0.5 });
+    assert.match(program.code, /\$: s\("<brk amen>"\)\.slice\(4, "0 <1 3>"\)$/, 'slice im Code');
+    await transpiler.evaluate(program.code);
+    const sliceExpected = [
+      ['brk', [0, 0.25], [0.25, 0.5]],
+      ['amen', [0, 0.25], [0.75, 1]],
+    ];
+    for (const cycle of [0, 1]) {
+      const haps = patterns[0].queryArc(cycle, cycle + 1).sort((a, b) => a.whole.begin - b.whole.begin);
+      const [name, ...spans] = sliceExpected[cycle];
+      assert.deepEqual(haps.map((h) => [h.value.begin, h.value.end]), spans, `Zyklus ${cycle}: Abschnitte`);
+      const stones = cycle === 0 ? [zero, one] : [zero, three];
+      haps.forEach((hap, i) => {
+        assert.equal(hap.value.s, name, `Zyklus ${cycle}: Sample`);
+        const ids = lit(hap, program);
+        assert.ok(ids.includes(cycle === 0 ? brk.id : amen.id), `Zyklus ${cycle}: Samplestein leuchtet`);
+        assert.ok(ids.includes(stones[i].id), `Zyklus ${cycle}: Abschnittsstein ${i} leuchtet`);
+      });
+    }
+
+    patterns.length = 0;
+    const quarter = snd('.25');
+    program = codegen.toStrudelProgram([sampler('scrub', [zero, quarter])], { cps: 0.5 });
+    assert.match(program.code, /\$: s\("<brk amen>"\)\.scrub\("0 \.25"\)$/, 'scrub im Code');
+    await transpiler.evaluate(program.code);
+    const haps = patterns[0].queryArc(0, 1).sort((a, b) => a.whole.begin - b.whole.begin);
+    assert.deepEqual(haps.map((h) => h.value.begin), [0, 0.25], 'scrub setzt die Position');
+    haps.forEach((hap, i) => {
+      const ids = lit(hap, program);
+      assert.ok(ids.includes(brk.id), 'Samplestein leuchtet');
+      assert.ok(ids.includes([zero, quarter][i].id), `Positionsstein ${i} leuchtet`);
+    });
+    console.log('ok: Sampler-Spur spielt Abschnitte (slice) und Positionen (scrub), Sample- und Wertsteine leuchten');
+  }
+
   // Zufallsabgleich: Der eigene Klammer-Parser muss dieselben Spuren akzeptieren wie Strudels Grammatik.
   const parser = await server.ssrLoadModule('/src/lib/domain/parse.ts');
   const syntax = await server.ssrLoadModule('/src/lib/syntax/validate.ts');

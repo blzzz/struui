@@ -4,7 +4,7 @@
   import type { Track, TrackType } from '../domain/types.ts';
 
   /**
-   * Drei Punkte am rechten Rand des Spurkopfs: Menü mit der Art der Spur (Klang, Noten, MIDI),
+   * Drei Punkte am rechten Rand des Spurkopfs: Menü mit der Art der Spur (Klang, Noten, MIDI, Sampler),
    * der Ansicht (Steine oder Code) und dem Entfernen der Spur.
    */
   let { track, index, showCode = $bindable() }: { track: Track; index: number; showCode: boolean } = $props();
@@ -17,6 +17,7 @@
     { type: 'sound', label: 'Klang', about: 's("…")' },
     { type: 'note', label: 'Noten', about: 'note("…").s("…")' },
     { type: 'midi', label: 'MIDI', about: '.midi()' },
+    { type: 'sampler', label: 'Sampler', about: 's("…").slice(…)' },
   ];
 
   $effect(() => {

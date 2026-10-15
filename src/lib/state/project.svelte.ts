@@ -1,7 +1,9 @@
 import { toStrudelCode, toStrudelProgram } from '../domain/codegen.ts';
 import { adoptIds, insertPair, moveToken, removeAt, replaceAt, setGroup, unwrapAt, wrapAt, wrapRange } from '../domain/edit.ts';
 import { defaultValue, effectInfo, noteOpInfo, singleValue, valueInfo } from '../domain/effects.ts';
-import type { Effect, SliderRange } from '../domain/effects.ts';
+import type { Effect, EffectInfo, SliderRange } from '../domain/effects.ts';
+import { DEFAULT_SAMPLE, clampSlices, samplerInfo, startValues } from '../domain/sampler.ts';
+import type { SamplerMode } from '../domain/sampler.ts';
 import { DEFAULT_VOICE } from '../domain/notes.ts';
 import type { ParseResult } from '../domain/parse.ts';
 import type { TempoUnit } from '../domain/tempo.ts';
@@ -23,7 +25,7 @@ import {
 import { analyze } from '../syntax/analyze.ts';
 import type { CodeLine, ValueRow } from '../syntax/from-code.ts';
 import type { CodeTrack } from '../domain/codegen.ts';
-import type { GroupType, Token, Track, TrackType } from '../domain/types.ts';
+import type { GroupType, Token, Track, TrackContent, TrackType } from '../domain/types.ts';
 import { sampleBank } from './sample-bank.svelte.ts';
 
 /** Erste Note einer neuen Notenspur und des + in einer leeren Notenreihe. */
@@ -50,18 +52,21 @@ function adoptRows(old: readonly Effect[], next: readonly ValueRow[]): Effect[] 
 export type PaletteItem = { kind: 'sound'; name: string };
 
 /** Was auf den Steinen einer Reihe liegt. Ziehen geht nur zwischen Reihen mit gleichem Inhalt. */
-export type LaneContent = 'sounds' | 'notes' | 'values';
+export type LaneContent = TrackContent;
 
 /**
- * Eine Steinreihe: die Klänge oder Noten einer Spur (ID der Spur), der Klang einer Notenspur (ID von `track.voice`)
- * oder die Werte eines Effekts (ID des Effekts). Alle bearbeiten sich gleich; nur was auf den Steinen steht, unterscheidet sich.
+ * Eine Steinreihe: die Klänge, Noten oder (Sampler-Spur) Werte einer Spur (ID der Spur), der Klang einer Notenspur
+ * (ID von `track.voice`), das Sample einer Sampler-Spur (ID von `track.sample`) oder die Werte eines Effekts (ID des Effekts).
+ * Alle bearbeiten sich gleich; nur was auf den Steinen steht, unterscheidet sich.
  */
 export interface Lane {
   tokens: Token[];
   track: Track;
-  /** null = Klang- bzw. Notenreihe der Spur. Beim Klang einer Notenspur `track.voice`. */
+  /** null = Hauptreihe der Spur. Beim Klang einer Notenspur `track.voice`, beim Sample einer Sampler-Spur `track.sample`. */
   effect: Effect | null;
   content: LaneContent;
+  /** Bei Werten: Beschreibung und Beispielwerte (Effekt, Rechenart oder Sampler-Art), sonst null. */
+  info: EffectInfo | null;
 }
 
 function startTracks(): Track[] {
@@ -95,6 +100,7 @@ class Project {
       this.tracks.flatMap((t) => [
         [t.id, analyze(t.tokens)] as const,
         [t.voice.id, analyze(t.voice.tokens)] as const,
+        [t.sample.id, analyze(t.sample.tokens)] as const,
         ...t.noteOps.map((o) => [o.id, analyze(o.tokens)] as const),
         ...t.effects.map((e) => [e.id, analyze(e.tokens)] as const),
       ]),
@@ -113,6 +119,9 @@ class Project {
       channel: t.channel,
       port: t.port,
       voice: this.parsed.get(t.voice.id)?.errors.length === 0 ? t.voice : null,
+      sample: this.parsed.get(t.sample.id)?.errors.length === 0 ? t.sample : null,
+      samplerMode: t.samplerMode,
+      slices: t.slices,
       noteOps: t.noteOps.filter((o) => this.parsed.get(o.id)?.errors.length === 0),
       effects: t.effects.filter((e) => this.parsed.get(e.id)?.errors.length === 0),
     })),
@@ -150,10 +159,14 @@ class Project {
 
   lane(laneId: string): Lane | null {
     for (const t of this.tracks) {
-      if (t.id === laneId) return { tokens: t.tokens, track: t, effect: null, content: contentOf(t.type) };
-      if (t.voice.id === laneId) return { tokens: t.voice.tokens, track: t, effect: t.voice, content: 'sounds' };
+      if (t.id === laneId) {
+        const info = t.type === 'sampler' ? samplerInfo(t.samplerMode, t.slices) : null;
+        return { tokens: t.tokens, track: t, effect: null, content: contentOf(t.type), info };
+      }
+      if (t.voice.id === laneId) return { tokens: t.voice.tokens, track: t, effect: t.voice, content: 'sounds', info: null };
+      if (t.sample.id === laneId) return { tokens: t.sample.tokens, track: t, effect: t.sample, content: 'sounds', info: null };
       const e = t.effects.find((x) => x.id === laneId) ?? t.noteOps.find((x) => x.id === laneId);
-      if (e) return { tokens: e.tokens, track: t, effect: e, content: 'values' };
+      if (e) return { tokens: e.tokens, track: t, effect: e, content: 'values', info: valueInfo(e.name) ?? null };
     }
     return null;
   }
@@ -167,9 +180,27 @@ class Project {
     return this.lane(laneId)?.tokens.findIndex((t) => t.id === tokenId) ?? -1;
   }
 
-  /** Neue Spur der gewählten Art ans Ende. Klangspuren sind leer, Notenspuren beginnen mit einem c. */
+  /** Neue Spur der gewählten Art ans Ende. Klangspuren sind leer, Notenspuren beginnen mit einem c, Sampler-Spuren mit vier Stellen. */
   addTrack(type: TrackType = 'sound'): void {
-    this.tracks.push({ ...track(contentOf(type) === 'notes' ? [soundToken(FIRST_NOTE)] : []), type });
+    const t = { ...track(), type };
+    t.tokens = this.startTokens(t);
+    this.tracks.push(t);
+  }
+
+  /** Steine einer Spur, die zum ersten Mal diesen Inhalt bekommt. */
+  private startTokens(t: Track): Token[] {
+    if (t.type === 'note') return [soundToken(FIRST_NOTE)];
+    if (t.type === 'sampler') return startValues(t.samplerMode).map((v) => soundToken(v));
+    return [];
+  }
+
+  /** Steine für den Inhalt einer anderen Art: die geparkten, die bisherigen kommen ins Parkfach. */
+  private swapContent(t: Track, next: TrackContent): void {
+    const now = contentOf(t.type);
+    if (now === next) return;
+    const back = t.parked[next];
+    t.parked = { ...t.parked, [now]: t.tokens, [next]: undefined };
+    t.tokens = back ?? [];
   }
 
   /** Neuer Name (bereinigt, siehe `trackName`). */
@@ -187,9 +218,15 @@ class Project {
     if (!t) return;
     t.name = line.name;
     t.muted = line.muted;
-    // Wechselt der Inhalt (Klänge ↔ Noten), die bisherigen Steine für das Zurückwechseln aufheben
-    if (contentOf(line.type) !== contentOf(t.type)) t.parked = t.tokens;
+    // Wechselt der Inhalt (Klänge, Noten, Werte), die bisherigen Steine für das Zurückwechseln aufheben
+    if (contentOf(line.type) !== contentOf(t.type)) t.parked = { ...t.parked, [contentOf(t.type)]: t.tokens };
     t.type = line.type;
+    if (line.sample) {
+      adoptIds(t.sample.tokens, line.sample.tokens);
+      t.sample.tokens = line.sample.tokens;
+      t.samplerMode = line.samplerMode;
+      t.slices = line.slices;
+    }
     if (line.voice) {
       adoptIds(t.voice.tokens, line.voice.tokens);
       t.voice.tokens = line.voice.tokens;
@@ -220,11 +257,35 @@ class Project {
   setType(trackId: string, type: TrackType): void {
     const t = this.find(trackId);
     if (!t) return;
-    // Klänge und Noten haben eigene Steine; die der anderen Art warten in `parked`
-    if (contentOf(type) !== contentOf(t.type)) [t.tokens, t.parked] = [t.parked, t.tokens];
-    // Zum ersten Mal Noten: wie eine neue Notenspur mit einem c beginnen
-    if (contentOf(type) === 'notes' && t.tokens.length === 0) t.tokens = [soundToken(FIRST_NOTE)];
+    // Klänge, Noten und Werte haben eigene Steine; die der anderen Arten warten in `parked`
+    const changed = contentOf(type) !== contentOf(t.type);
+    this.swapContent(t, contentOf(type));
     t.type = type;
+    // Zum ersten Mal Noten oder Werte: wie eine neue Spur dieser Art beginnen
+    if (changed && t.tokens.length === 0) t.tokens = this.startTokens(t);
+  }
+
+  /**
+   * Sampler-Spur: Positionen (`scrub`) oder Abschnitte (`slice`). Die Steine bleiben; nur Werte, die in der neuen Art keinen
+   * Sinn ergeben, werden umgerechnet: Abschnitt 2 von 8 wird Position 0.25 und umgekehrt (auf den nächsten Abschnitt gerundet).
+   */
+  setSamplerMode(trackId: string, mode: SamplerMode): void {
+    const t = this.find(trackId);
+    if (!t || t.samplerMode === mode) return;
+    const n = clampSlices(t.slices);
+    for (const token of t.tokens) {
+      if (token.kind !== 'sound' || token.sound === PAUSE) continue;
+      const v = Number(token.sound);
+      if (!Number.isFinite(v)) continue;
+      token.sound = mode === 'scrub' ? String(Math.round((v / n) * 1000) / 1000) : String(Math.min(n - 1, Math.max(0, Math.round(v * n))));
+    }
+    t.samplerMode = mode;
+  }
+
+  /** Sampler-Spur mit `slice`: Zahl der Abschnitte (1 bis `SLICES_MAX`). */
+  setSlices(trackId: string, slices: number): void {
+    const t = this.find(trackId);
+    if (t) t.slices = clampSlices(slices);
   }
 
   /** Orbit eins höher, nach dem letzten wieder 1. */
@@ -265,7 +326,7 @@ class Project {
     const start = defaultValue(info);
     const e = effect(name, start === null ? [] : [soundToken(start)]);
     t[kind].push(e);
-    return { id: e.id, empty: start === null };
+    return { id: e.id, empty: start === null && !info.noValue };
   }
 
   removeEffect(trackId: string, effectId: string, kind: RowKind = 'effects'): void {
@@ -315,8 +376,8 @@ class Project {
 
   /**
    * Klammerpaar anhängen, davor einfügen oder den Stein damit umschliessen.
-   * Ein neues Paar enthält eine Pause; in einer Effektreihe stattdessen einen Wert, denn `~` liesse dort die Klänge ausfallen,
-   * und im Klang einer Notenspur aus demselben Grund `sine`.
+   * Ein neues Paar enthält eine Pause; in Wertreihen (Effekt, Sampler-Spur) stattdessen einen Wert, denn `~` liesse dort
+   * die Klänge ausfallen, und im Klang einer Notenspur bzw. im Sample einer Sampler-Spur aus demselben Grund `sine` bzw. `brk`.
    */
   placePair(laneId: string, tokenId: string | null, mode: PlaceMode, group: GroupType): void {
     const lane = this.lane(laneId);
@@ -326,13 +387,10 @@ class Project {
     const at = index < 0 ? lane.tokens.length : index;
     insertPair(lane.tokens, at, group);
     const inner = lane.tokens[at + 1];
-    if (inner.kind !== 'sound' || !lane.effect) return;
-    if (lane.content === 'values') {
-      const info = valueInfo(lane.effect.name);
-      inner.sound = (info && defaultValue(info)) ?? '0';
-    } else {
-      inner.sound = DEFAULT_VOICE;
-    }
+    if (inner.kind !== 'sound') return;
+    if (lane.content === 'values') inner.sound = (lane.info && defaultValue(lane.info)) ?? '0';
+    else if (lane.effect === lane.track.sample) inner.sound = DEFAULT_SAMPLE;
+    else if (lane.effect) inner.sound = DEFAULT_VOICE;
   }
 
   removeToken(laneId: string, tokenId: string): void {
@@ -395,10 +453,9 @@ class Project {
   /** Wert ans Ende einer Effektreihe hängen: wie der letzte Wert, sonst Strudels Vorgabe. Gibt die ID zurück. */
   appendValue(laneId: string): string | null {
     const lane = this.lane(laneId);
-    if (!lane?.effect || lane.content !== 'values') return null;
+    if (!lane || lane.content !== 'values') return null;
     const last = [...lane.tokens].reverse().find((t) => t.kind === 'sound' && t.sound !== PAUSE);
-    const info = valueInfo(lane.effect.name);
-    const token = soundToken(last?.kind === 'sound' ? last.sound : ((info && defaultValue(info)) ?? '0'));
+    const token = soundToken(last?.kind === 'sound' ? last.sound : ((lane.info && defaultValue(lane.info)) ?? '0'));
     lane.tokens.push(token);
     return token.id;
   }

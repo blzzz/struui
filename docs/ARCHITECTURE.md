@@ -45,7 +45,7 @@ von `codegen` stammt, kennen wir die Position jedes Klangnamens und finden so de
 - **Drei Ebenen pro Stein:** oben Zufall (rot), Mitte Klang, unten Wiederholung (blau `*`, grün `!`, orange `@`).
   Tippen auf die untere Ebene schaltet aus → `*` → `!` → `@` → aus.
   Die obere Ebene (Zufall) ist pro Spur zuschaltbar: Würfel links vom Notationseditor der Spur (`session.random`, flüchtig,
-  Standard aus). Aus: keine Zufallsknöpfe, Steine mit Zufall tragen einen roten Punkt wie in der Kompaktansicht, nicht änderbar. Die Position bestimmt die Bedeutung. Fehlende Steine bedeuten Standardwerte.
+  Standard aus). Aus: keine Zufallsknöpfe, Steine mit Zufall tragen einen roten Punkt, nicht änderbar. Die Position bestimmt die Bedeutung. Fehlende Steine bedeuten Standardwerte.
 - **Drei Klammerarten:** `[ ]` Gruppe, `< >` Wechsel, `{ }` Polymeter (eigene Farbe `--br3`). Unter `}` liegt statt Zufall und
   Wiederholung nur der **Modulowert** (`{a b c}%4`, Drehknopf 1–8, aus = so viele Schritte wie Elemente). Zufall und Wiederholung
   einer Klammer bleiben gespeichert, wenn sie zu `{` wechselt, und kommen beim Weiterschalten zurück. Kommas (`{a b, c d e}`) gibt es nicht als Stein.
@@ -73,12 +73,11 @@ von `codegen` stammt, kennen wir die Position jedes Klangnamens und finden so de
   `touch-action: pan-x`). Antippen legt nichts ab, Steine kommen nur durch Ziehen in eine Spur. Langes Drücken spielt den Klang an (`StrudelEngine.preview`, direkt über Strudels `superdough`,
   lädt Strudel beim ersten Mal; auf iOS evtl. still, bis einmal getippt wurde, weil der Audiokontext eine Geste braucht). Klangreihen haben kein `+` mehr; Effektreihen behalten es (für Werte gibt es keine Palette).
 - **Darstellung:** Wrap-Layout; passt eine Steinreihe nicht auf eine Zeile, verkleinert `Lane` sie per CSS `zoom` (bis 0,5,
-  darunter Umbruch). Ein Knopf daneben schaltet pro Reihe auf Originalgrösse (`session.unfit`). Beim Tippen in einen Stein gilt
-  Originalgrösse (iOS zoomt sonst ins Feld), Menüs im Stein heben den Zoom auf (ungeprüft im Browser, vor allem Safari).
-  Kompaktansicht pro Spur (schmale Striche, Schalter im Spurkopf, flüchtig in `session`;
-  eingeklappt nur zum Ansehen: kein `+`, keine Suchfelder, Steine reagieren nicht und sind kein Ablageziel
-  (`readonly` an `Lane`, `TokenColumn`, `TokenStone`, `EffectList`). Steine, Rechenarten, `.s` und Effekte folgen
-  in einer umbrechenden Zeile aufeinander, Effekte ohne Wert fehlen, fehlerhafte sind durchgestrichen; sie leuchten weiter auf),
+  darunter Umbruch). Ein Knopf daneben schaltet pro Reihe auf Originalgrösse (`session.unfit`). Beim Tippen in einen Stein bleibt
+  die Reihe verkleinert (zurücksetzen liess sie unter dem Finger springen, das Feld schloss gleich wieder), Feld und Menüs im Stein heben den Zoom auf (ungeprüft im Browser, vor allem Safari).
+  Dasselbe für die Effekt-Boxen einer Spur (`EffectList`, `--fx-fit`), dort ist Originalgrösse der Standard und die Lupe
+  verkleinert (`session.fitEffects`). Messung in `ui/fit.ts`, der Knopf (Lupe mit + oder −) ist `ui/FitButton.svelte`.
+  Die frühere Kompaktansicht pro Spur ist entfernt.
   Gruppen ohne Hinterlegung, nur die farbigen Klammersteine zeigen sie (die Tiefe aus `parse` nutzt die Darstellung nicht mehr). Klammern sind quadratische Steine wie Klänge.
 - **Operatoren als Drehknöpfe:** Jeder Operator ist ein runder Knopf. In der Mitte steht nur das Zeichen (`?`, `*`, `!`, `@`, `%`),
   rundherum markieren Punkte die Raststufen, an der aktuellen steht klein der Wert (Brüche als `½`, Zufall als `.25`).
@@ -133,8 +132,15 @@ von `codegen` stammt, kennen wir die Position jedes Klangnamens und finden so de
   (Name, Synonyme, erster Satz, Wertangabe, Werte aus den `@example`-Aufrufen) und schreibt `effects.generated.ts`.
   Ausgefiltert werden nur `@superdirtOnly`, Objekt-Parameter (`env`, `lfo` …) und eine kurze Liste von Nicht-Effekten
   (Klangwahl, Routing, Sysex/OSC, dazu was die Spur selbst einstellt: `postgain`, `orbit`, `midichan`, `midiport`).
-  Jeder Eintrag hat eine **Gruppe** (`audio`, `pitch` = `note`, `midi` = `ccn`, `ccv`, `progNum`, `midibend` …). Klangspuren bieten
-  Audio und Tonhöhe an, MIDI-Spuren MIDI, Tonhöhe sowie `velocity` und `gain` (`offersEffect`). Der Rückweg aus Code nimmt jeden bekannten Effekt. Ein Test schlägt fehl, wenn die Datei nicht mehr zum installierten Strudel passt.
+  Jeder Eintrag hat eine **Gruppe** (`audio`, `pitch` = `note`, `midi` = `ccn`, `ccv`, `progNum`, `midibend` …, `sample`). Klangspuren bieten
+  Audio, Tonhöhe und Sample-Funktionen an, MIDI-Spuren MIDI, Tonhöhe sowie `velocity` und `gain` (`offersEffect`).
+  **Sample-Funktionen** (Gruppe `sample`, nur Klangspuren): `chop`, `striate`, `scrub`, `loopAt`, `fit`. Sie verändern die
+  Ereignisse statt einen Wert zu setzen, stehen im Code aber wie Effekte nach dem Muster (`s("brk").fit().scrub("<0 .5>")`),
+  in der Reihenfolge der Boxen. Die Auswahl (`SAMPLE_OPS` im Skript) ist von Hand, Beschreibung, Beispielwerte und die Zahl
+  der Werte liest das Skript aus Strudel (`register('chop', function (n, pat)`). `fit` nimmt keinen Wert (`noValue`): seine Box
+  hat keine Wertreihe, im Code steht immer `.fit()`. `test:strudel` prüft, dass `fit().chop(2).scrub(…)` läuft und die
+  Wertsteine von `scrub` leuchten. Offen: `slice`/`splice` (zwei Werte), `scrub` mit Geschwindigkeit (`"0.8:1.5"`, wie `bd:3`),
+  Rechnen in Wertreihen (`"0 4 8".div(16)`). Zahlen hinter Modifiern in Strudels Beispielen (`!2`, `@3`, `%8`) gelten nicht als Werte. Der Rückweg aus Code nimmt jeden bekannten Effekt. Ein Test schlägt fehl, wenn die Datei nicht mehr zum installierten Strudel passt.
   Beschreibungen sind Strudels englische Texte. Für 44 Effekte zeigt Strudel keine Beispielwerte; dort zählen −/+ in Einer- bzw. Zehntelschritten.
   **Effekte als Boxen** (`ui/EffectBox.svelte`): je Effekt eine rund 64 px breite Box, von links umbrechend. Oben der Titel
   (Beschreibung als Tooltip, Ziehen daran verschiebt die Box, Tastatur Pfeil links/rechts, `interaction/reorder.ts`,
@@ -153,8 +159,7 @@ von `codegen` stammt, kennen wir die Position jedes Klangnamens und finden so de
   den Code und wertet neu aus (Strudels Weg ohne Neuauswerten, `cm-slider`-Nachrichten, ist ungenutzt).
   Ungeprüft im Browser, vor allem Regler und Ziehen am Titel auf iOS.
   Offen: Effekte als physische Steine für die Kamera, Effekte auf einzelnen Steinen statt der ganzen Spur.
-- **Kanalzug pro Spur** (`ui/TrackView.svelte`): vor dem Namen ein Pfeil (aus-/eingeklappt = Kompaktansicht), rechts vom
-  Namen waagrecht `M` (stumm), Orbit bzw. MIDI-Kanal und der Lautstärkeregler (höchstens 120 px breit). Am rechten Rand des Spurkopfs drei Punkte (`ui/TrackMenu.svelte`): Menü mit Art der Spur (Klang, Noten, MIDI), Ansicht (Steine oder Code) und «Spur entfernen». In der Code-Ansicht fallen Pfeil,
+- **Kanalzug pro Spur** (`ui/TrackView.svelte`): rechts vom Namen waagrecht `M` (stumm), Orbit bzw. MIDI-Kanal und der Lautstärkeregler (höchstens 120 px breit). Am rechten Rand des Spurkopfs drei Punkte (`ui/TrackMenu.svelte`): Menü mit Art der Spur (Klang, Noten, MIDI), Ansicht (Steine oder Code) und «Spur entfernen». In der Code-Ansicht fallen
   Regler und `M` weg, Lautstärke und Stummschaltung stehen dann im Text. Die Lautstärke (`Track.volume`, 0–1.5) ist Strudels `postgain`
   (wirkt nach allen Effekten, Standard 1) und steht nur im Code, wenn sie nicht 1 ist, als letzter Aufruf der Zeile.
   `postgain` ist deshalb aus der Effektliste gefiltert; der Rückweg aus Code liest `.postgain(Zahl)` als Lautstärke.
@@ -173,11 +178,15 @@ von `codegen` stammt, kennen wir die Position jedes Klangnamens und finden so de
   Noten statt Klängen (`note("f <d a4> ~")`), danach folgt eine feste Reihe für den Klang (`Track.voice`, im Code `.s("sine")`,
   vor den Effekten). Notensteine kommen aus einer Notenpalette (Stammtöne c–b, Pause); Tippen bearbeitet sie direkt
   wie Wertsteine (`domain/notes.ts`: Strudels Schreibweise `c#4`, `eb`, MIDI-Zahlen; ↑/↓ = Halbton, aufwärts `#`, abwärts `b`,
-  Oktave nur wenn nicht 3), langes Drücken öffnet das Menü (Entfernen, Umschliessen). Der Klang kommt aus der Klangpalette (ohne Pause);
+  Oktave nur wenn nicht 3), langes Drücken öffnet das Menü (Entfernen, Umschliessen). Klangsteine bearbeiten sich genauso: Tippen öffnet ein Feld für den Namen
+  (`isSoundName`: nur ein Wort, auch unbekannte Namen, keine Pause und kein `bd:3`;
+  ↑/↓ = Nachbar in der Palettengruppe, `stepSound`), langes Drücken öffnet das Menü.
+  Ohne Wiedergabe spielt Tippen (und ↑/↓) den Stein einmal an (`playback.preview`, wie langes Drücken in der Palette):
+  Klänge direkt, Noten mit dem Klang der Spur (`superdough` mit `note`). Nicht bei Pausen, Werten und MIDI-Spuren. Der Klang kommt aus der Klangpalette (ohne Pause);
   Ziehen ersetzt oder fügt ein, Klammern ergeben
   Wechsel (`.s("<sine sawtooth>")`). Ohne Klangstein fehlt `.s()` und Strudel spielt `triangle`. Lautstärke und Orbit wie bei
   Klangspuren. Effektliste: nur Audio (keine `note`, kein MIDI). Klänge und Noten haben getrennte Steine: beim Wechsel zwischen
-  Klang/MIDI und Noten warten die anderen in `Track.parked`. Reihen tragen einen Inhalt (`Lane.content`: Klänge, Noten, Werte),
+  Klang/MIDI, Noten und Sampler warten die anderen in `Track.parked` (je Inhalt). Reihen tragen einen Inhalt (`Lane.content`: Klänge, Noten, Werte),
   Ziehen und Paletten wirken nur zwischen gleichem Inhalt. `test:strudel` prüft die Zuordnung von Noten- und Klangsteinen.
   Bewusst nicht: Notenspuren an MIDI (`note().midi()`, MIDI-Spuren bleiben Klangsteine plus `.note()`).
 - **Rechenarten für Noten** (`Track.noteOps`, Liste direkt unter der Notenpalette, vor `.s`). `add`, `sub`, `mul`, `div`:
@@ -186,6 +195,21 @@ von `codegen` stammt, kennen wir die Position jedes Klangnamens und finden so de
   `note("f d".add("<0 3>").div(2))`. Als Methode nach `note(…)` wirkten sie nicht auf die Noten (Strudel legt die Zahl dann
   in ein eigenes Feld `value`). Strudel rechnet mit MIDI-Zahlen (`c3` = 48); `test:strudel` prüft, dass `add` transponiert und
   die Wertsteine im richtigen Zyklus leuchten. Bei Klang- und MIDI-Spuren bleiben sie gespeichert, aber nicht im Code.
+- **Sampler-Spuren** (`Track.type = 'sampler'`, vierte Art, im Menü der Spur und als «+ Sampler-Spur»; `domain/sampler.ts`).
+  Oben eine feste Reihe für das Sample (`Track.sample`, Klangsteine aus der Palette, `<brk amen>` wechselt, Standard `brk`
+  aus Strudels Drumkit), darunter die Art und die Wertsteine der Spur (`Track.tokens`, Inhalt `values`, bedient wie Effektwerte).
+  Zwei Arten (`Track.samplerMode`): **slice** teilt das Sample in `Track.slices` gleich lange Abschnitte (1–64, Standard 8),
+  die Steine sind Abschnittsnummern: `$x: s("brk").slice(8, "0 3 <1 2>")`; **scrub** nimmt Positionen 0–1:
+  `$x: s("brk").scrub("0 .25")`. Beim Umschalten werden Zahlen umgerechnet (Abschnitt 2 von 8 = Position 0.25).
+  Danach Effekte, Orbit und Lautstärke wie bei Klangspuren; die Sample-Funktionen (`chop`, `fit` …) bleiben auch dort wählbar.
+  Ohne Sample oder ohne Wertsteine steht die Spur nicht im Code. Beschreibungen kommen aus Strudel (`SAMPLER_MODES` in
+  `effects.generated.ts`), die Werte von slice sind die Abschnittsnummern. Rückweg aus Code: `.slice(n, "…")` direkt nach
+  `s(…)` macht immer eine Sampler-Spur, `.scrub(…)` an dieser Stelle nur, wenn die Spur schon eine ist (sonst ist es ein
+  Effekt der Klangspur, `codeToTrack(code, prefer)`). `test:strudel` prüft, dass slice die richtigen Abschnitte und scrub die
+  richtigen Positionen spielt und Sample- wie Wertsteine leuchten. Klänge, Noten und Werte haben getrennte Steine:
+  beim Wechsel der Art warten die anderen in `Track.parked`, je Inhalt.
+  Offen: `splice` (wie slice, passt aber die Geschwindigkeit an den Schritt an), scrub mit Geschwindigkeit (`"0.8:1.5"`),
+  ungleiche Abschnitte (`slice([0, .25, .5], …)`).
 - **Spurnamen** (`Track.name`): im Code nach dem `$` (`$drums:`, stumm `_$drums:`). Strudel hängt an jedes Label mit `$`
   eine laufende Nummer, gleiche Namen stören sich also nicht. Erlaubt sind Buchstaben, Ziffern und `_`, aber nicht am Ende
   (`drums_:` schaltet in Strudel stumm). Leerer Name = `$:`.

@@ -37,3 +37,24 @@ export const SOUND_GROUPS: ReadonlyArray<readonly [string, readonly string[]]> =
   ['Instrumente', source('vcsl')],
   ['ZZFX', source('zzfx')],
 ];
+
+/**
+ * Was man in einen Klangstein tippen darf: ein Name wie Strudels Klänge (`bd`, `gm_piano`, `rec1`).
+ * Auch unbekannte Namen (eigene Aufnahmen, später geladene Samples), aber keine Pause und keine Mini-Notation (`bd:3` wäre ein roher Stein).
+ */
+export function isSoundName(text: string): boolean {
+  return /^[A-Za-z]\w*$/.test(text);
+}
+
+/**
+ * Nächster (`dir` 1) oder vorheriger (-1) Klang in der Palettengruppe des Klangs, im Kreis, für ↑/↓ beim Bearbeiten.
+ * Pausen und Klänge ausserhalb der Palette bleiben unverändert.
+ */
+export function stepSound(current: string, dir: 1 | -1): string {
+  for (const [, names] of SOUND_GROUPS) {
+    const i = names.indexOf(current);
+    if (i < 0 || current === '~') continue;
+    return names[(i + dir + names.length) % names.length];
+  }
+  return current;
+}

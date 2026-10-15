@@ -33,7 +33,10 @@
       </dd>
       <dt>Tippen</dt>
       <dd>
-        Öffnet über dem Stein ein Menü: Mülleimer entfernt. Bei Klammern: Paar auflösen oder die Klammerart wählen.
+        Ohne Wiedergabe spielt der Stein dabei einmal an (Noten mit dem Klang ihrer Spur).
+        Auf einem Klangstein: den Namen eintippen, ↑/↓ oder −/+ wechseln zum Nachbarn aus der Palette.
+        Darüber ein Menü: Mülleimer entfernt. Langes Drücken öffnet nur das Menü.
+        Bei Klammern: Paar auflösen oder die Klammerart wählen.
       </dd>
       <dt>Ziehen</dt>
       <dd>Stein an eine andere Stelle schieben, auch in eine andere Spur.</dd>

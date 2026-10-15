@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ALL_SOUNDS, QUICK_SOUNDS, SOUND_GROUPS, SOUND_SOURCES } from './sounds.ts';
+import { ALL_SOUNDS, QUICK_SOUNDS, SOUND_GROUPS, SOUND_SOURCES, isSoundName, stepSound } from './sounds.ts';
 // @ts-expect-error reines JavaScript ohne Typen
 import { prebakeUrls, sourceId, synthSources } from '../../../scripts/strudel-sounds.mjs';
 
@@ -32,4 +32,19 @@ test('sounds: jeder Klang der Palette und der Schnellauswahl ist Strudel bekannt
 test('sounds: Namen, die Strudel nicht kennt, sind nicht dabei', () => {
   for (const n of ['juno', '808', 'bass', 'arpy', 'noise', 'superpiano']) assert.ok(!ALL_SOUNDS.has(n), n);
   for (const n of ['bd', 'sd', 'hh', 'casio', 'piano', 'white', 'supersaw']) assert.ok(ALL_SOUNDS.has(n), n);
+});
+
+test('sounds: getippte Klangnamen, unbekannte erlaubt, Mini-Notation nicht', () => {
+  for (const n of ['bd', 'gm_piano', 'rec1', 'AkaiLinn_bd', 'unbekannt']) assert.ok(isSoundName(n), n);
+  for (const n of ['', '~', 'bd:3', 'bd*2', '1bd', 'bd sd', '[bd']) assert.ok(!isSoundName(n), n);
+  for (const n of ALL_SOUNDS) assert.ok(isSoundName(n), n);
+});
+
+test('sounds: ↑/↓ gehen in der Palettengruppe weiter, im Kreis', () => {
+  const drums = SOUND_GROUPS.find(([g]) => g === 'Schlagzeug')![1];
+  assert.equal(stepSound(drums[0], 1), drums[1]);
+  assert.equal(stepSound(drums[0], -1), drums[drums.length - 1]);
+  assert.equal(stepSound(drums[drums.length - 1], 1), drums[0]);
+  assert.equal(stepSound('unbekannt', 1), 'unbekannt');
+  assert.equal(stepSound('~', 1), '~');
 });

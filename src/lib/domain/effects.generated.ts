@@ -51,8 +51,7 @@ export const EFFECTS: readonly EffectInfo[] = [
       ".01",
       ".1",
       ".25",
-      ".5",
-      "4"
+      ".5"
     ]
   },
   {
@@ -75,8 +74,7 @@ export const EFFECTS: readonly EffectInfo[] = [
       "0",
       ".1",
       ".25",
-      ".5",
-      "4"
+      ".5"
     ]
   },
   {
@@ -171,8 +169,7 @@ export const EFFECTS: readonly EffectInfo[] = [
       "0",
       ".1",
       ".25",
-      ".5",
-      "4"
+      ".5"
     ]
   },
   {
@@ -203,8 +200,7 @@ export const EFFECTS: readonly EffectInfo[] = [
       "0",
       ".25",
       ".5",
-      "1",
-      "4"
+      "1"
     ]
   },
   {
@@ -240,6 +236,16 @@ export const EFFECTS: readonly EffectInfo[] = [
     "description": "MIDI control value: Sends a MIDI control change message.",
     "hint": "control value (0-127)",
     "values": []
+  },
+  {
+    "name": "chop",
+    "group": "sample",
+    "synonyms": [],
+    "description": "Cuts each sample into the given number of parts, allowing you to explore a technique known as 'granular synthesis'.",
+    "hint": "",
+    "values": [
+      "4"
+    ]
   },
   {
     "name": "chorus",
@@ -572,6 +578,15 @@ export const EFFECTS: readonly EffectInfo[] = [
     ]
   },
   {
+    "name": "fit",
+    "group": "sample",
+    "synonyms": [],
+    "description": "Makes the sample fit its event duration.",
+    "hint": "",
+    "values": [],
+    "noValue": true
+  },
+  {
     "name": "fmattack",
     "group": "audio",
     "synonyms": [
@@ -710,8 +725,7 @@ export const EFFECTS: readonly EffectInfo[] = [
     "hint": "gain",
     "values": [
       ".4",
-      "1",
-      "2"
+      "1"
     ]
   },
   {
@@ -726,8 +740,7 @@ export const EFFECTS: readonly EffectInfo[] = [
       ".01",
       ".1",
       ".25",
-      ".5",
-      "4"
+      ".5"
     ]
   },
   {
@@ -750,8 +763,7 @@ export const EFFECTS: readonly EffectInfo[] = [
       "0",
       ".1",
       ".25",
-      ".5",
-      "4"
+      ".5"
     ]
   },
   {
@@ -848,8 +860,7 @@ export const EFFECTS: readonly EffectInfo[] = [
       "0",
       ".1",
       ".25",
-      ".5",
-      "4"
+      ".5"
     ]
   },
   {
@@ -880,8 +891,7 @@ export const EFFECTS: readonly EffectInfo[] = [
       "0",
       ".25",
       ".5",
-      "1",
-      "4"
+      "1"
     ]
   },
   {
@@ -904,7 +914,6 @@ export const EFFECTS: readonly EffectInfo[] = [
       "0",
       ".5",
       ".75",
-      "2",
       "swpad"
     ]
   },
@@ -940,6 +949,16 @@ export const EFFECTS: readonly EffectInfo[] = [
     "hint": "If 1, the sample is looped",
     "values": [
       "1"
+    ]
+  },
+  {
+    "name": "loopAt",
+    "group": "sample",
+    "synonyms": [],
+    "description": "Makes the sample fit the given number of cycles by changing the speed.",
+    "hint": "",
+    "values": [
+      "2"
     ]
   },
   {
@@ -983,8 +1002,7 @@ export const EFFECTS: readonly EffectInfo[] = [
       ".01",
       ".1",
       ".25",
-      ".5",
-      "4"
+      ".5"
     ]
   },
   {
@@ -1007,8 +1025,7 @@ export const EFFECTS: readonly EffectInfo[] = [
       "0",
       ".1",
       ".25",
-      ".5",
-      "4"
+      ".5"
     ]
   },
   {
@@ -1116,8 +1133,7 @@ export const EFFECTS: readonly EffectInfo[] = [
       "0",
       ".1",
       ".25",
-      ".5",
-      "4"
+      ".5"
     ]
   },
   {
@@ -1148,8 +1164,7 @@ export const EFFECTS: readonly EffectInfo[] = [
       "0",
       ".25",
       ".5",
-      "1",
-      "4"
+      "1"
     ]
   },
   {
@@ -1471,8 +1486,7 @@ export const EFFECTS: readonly EffectInfo[] = [
       ".1",
       ".4",
       ".6",
-      "1",
-      "2"
+      "1"
     ]
   },
   {
@@ -1546,6 +1560,19 @@ export const EFFECTS: readonly EffectInfo[] = [
     ]
   },
   {
+    "name": "scrub",
+    "group": "sample",
+    "synonyms": [],
+    "description": "Allows you to scrub an audio file like a tape loop by passing values that represents the position in the audio file in the optional array syntax ex: \"0.5:2\", the second value controls the speed of playback",
+    "hint": "",
+    "values": [
+      "0.1",
+      ".25",
+      "0.7",
+      "0.8"
+    ]
+  },
+  {
     "name": "shape",
     "group": "audio",
     "synonyms": [],
@@ -1595,6 +1622,16 @@ export const EFFECTS: readonly EffectInfo[] = [
       ".5",
       "1",
       "2"
+    ]
+  },
+  {
+    "name": "striate",
+    "group": "sample",
+    "synonyms": [],
+    "description": "Cuts each sample into the given number of parts, triggering progressive portions of each sample at each loop.",
+    "hint": "",
+    "values": [
+      "6"
     ]
   },
   {
@@ -1851,7 +1888,6 @@ export const EFFECTS: readonly EffectInfo[] = [
     "description": "Type of warp (alteration of the waveform) to apply to the wavetable oscillator.",
     "hint": "Warp mode",
     "values": [
-      "2",
       "asym",
       "bendp",
       "spin",
@@ -2083,6 +2119,30 @@ export const NOTE_OPS: readonly EffectInfo[] = [
     "group": "arith",
     "synonyms": [],
     "description": "Divides each number by the given factor.",
+    "hint": "",
+    "values": []
+  }
+];
+
+export const SAMPLER_MODES: readonly EffectInfo[] = [
+  {
+    "name": "scrub",
+    "group": "sample",
+    "synonyms": [],
+    "description": "Allows you to scrub an audio file like a tape loop by passing values that represents the position in the audio file in the optional array syntax ex: \"0.5:2\", the second value controls the speed of playback",
+    "hint": "",
+    "values": [
+      "0.1",
+      ".25",
+      "0.7",
+      "0.8"
+    ]
+  },
+  {
+    "name": "slice",
+    "group": "sample",
+    "synonyms": [],
+    "description": "Chops samples into the given number of slices, triggering those slices with a given pattern of slice numbers.",
     "hint": "",
     "values": []
   }

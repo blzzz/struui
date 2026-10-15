@@ -35,6 +35,7 @@
       <button class="addtrack" onclick={() => project.addTrack('sound')}>+ Klangspur</button>
       <button class="addtrack" onclick={() => project.addTrack('note')}>+ Notenspur</button>
       <button class="addtrack" onclick={() => project.addTrack('midi')}>+ MIDI-Spur</button>
+      <button class="addtrack" onclick={() => project.addTrack('sampler')}>+ Sampler-Spur</button>
     </div>
   {:else}
     <div class="pad">

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { isValueAtom, valueInfo } from '../domain/effects.ts';
+  import { isValueAtom } from '../domain/effects.ts';
   import { project } from '../state/project.svelte.ts';
   import type { PlaceMode } from '../state/project.svelte.ts';
   import { session } from '../state/session.svelte.ts';
@@ -12,8 +12,9 @@
   const editing = $derived(target !== null && target.tokenId !== null);
   /** In einer Effektreihe: Werte statt Klänge. */
   const lane = $derived(target ? project.lane(target.laneId) : null);
-  const fx = $derived(lane?.effect ?? null);
-  const info = $derived(fx ? valueInfo(fx.name) : undefined);
+  /** Beschreibung der Wertreihe: Effekt, Rechenart oder Sampler-Art (`scrub`, `slice`). */
+  const info = $derived(lane?.info ?? undefined);
+  const fx = $derived(info ? { name: info.name } : null);
   /** Eingabe für einen eigenen Wert. */
   let draft = $state('');
   const draftOk = $derived(isValueAtom(draft.trim()));

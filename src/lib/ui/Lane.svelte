@@ -4,24 +4,24 @@
   import { project } from '../state/project.svelte.ts';
   import { session } from '../state/session.svelte.ts';
   import { flushSync } from 'svelte';
+  import FitButton from './FitButton.svelte';
   import TokenColumn from './TokenColumn.svelte';
+  import { watchFit } from './fit.ts';
   import type { Token } from '../domain/types.ts';
 
   /**
    * Eine Steinreihe: die Klänge einer Spur oder die Werte eines Effekts (`value`).
    * Klänge kommen aus der Klangpalette (ziehen), Werte und Noten über das + am Ende (hängt einen Stein an und öffnet sein Feld).
-   * `readonly` (eingeklappte Spur): nur anzeigen und aufleuchten. Kein Tippen, Ziehen oder Ablegen, kein +.
    *
-   * Passt die Reihe nicht auf eine Zeile, wird sie verkleinert (CSS `zoom`, bis `MIN_FIT`, darunter bricht sie wieder um).
+   * Passt die Reihe nicht auf eine Zeile, wird sie verkleinert (`fit.ts`, bis `MIN_FIT`, darunter bricht sie wieder um).
    * Daneben erscheint dann ein Knopf für die Originalgrösse (`session.unfit`), dort einer zum Verkleinern.
-   * Beim Tippen in einen Stein gilt Originalgrösse, sonst zoomt iOS ins zu kleine Eingabefeld.
+   * Die Reihe bleibt auch beim Tippen in einen Stein verkleinert, nur sein Feld hat normale Grösse (`TokenStone`).
    */
   let {
     laneId,
     tokens,
     value = false,
-    readonly = false,
-  }: { laneId: string; tokens: Token[]; value?: boolean; readonly?: boolean } = $props();
+  }: { laneId: string; tokens: Token[]; value?: boolean } = $props();
 
   const parsed = $derived(project.parsedOf(laneId));
   const endHint = $derived(session.dropHint?.laneId === laneId && session.dropHint.index === tokens.length);
@@ -37,12 +37,7 @@
     return wrapSpan(tokens, from, to < 0 ? from : to);
   });
   let row = $state<HTMLElement>();
-  let box = $state<HTMLElement>();
 
-  /** Kleinste Verkleinerung, darunter wären die Steine kaum noch zu treffen. */
-  const MIN_FIT = 0.5;
-  /** Platz rechts vom letzten Stein einer Klangreihe, damit man dort ans Ende ablegen kann. */
-  const END_WIDTH = 24;
   /** Verkleinerung, damit die Reihe auf eine Zeile passt (1 = passt in Originalgrösse). */
   let fit = $state(1);
   /** Die Reihe ist in Originalgrösse breiter als der Platz: nur dann gibt es den Knopf. */
@@ -50,31 +45,25 @@
   const original = $derived(session.unfit.has(laneId));
   const zoom = $derived(original ? 1 : fit);
 
-  // Breite in Originalgrösse aus den Spalten messen (gezeichnete Breite durch den aktuellen Zoom) und mit dem Platz vergleichen
   $effect(() => {
-    if (readonly || !row || !box) return;
+    if (!row) return;
     void tokens.map((t) => t.id);
-    const el = row;
     const applied = zoom;
-    const reserve = endcol ? 0 : END_WIDTH;
-    const measure = () => {
-      if (el.querySelector('input:focus')) return;
-      let natural = reserve;
-      for (const child of el.children) {
-        if (child.classList.contains('wraphint')) continue;
+    return watchFit(
+      row,
+      applied,
+      (r) => {
+        overflows = r.overflows;
+        if (Math.abs(r.fit - fit) > 0.005) fit = r.fit;
+      },
+      (child) => {
         // Der Hinweis einer leeren Klangreihe füllt den Rest, es gibt nichts zu verkleinern
-        if (child.classList.contains('empty')) continue;
-        natural += child.getBoundingClientRect().width / applied;
-      }
-      const avail = el.getBoundingClientRect().width;
-      overflows = natural > avail + 1;
-      const next = overflows ? Math.max(MIN_FIT, Math.floor((avail / natural) * 100) / 100) : 1;
-      if (Math.abs(next - fit) > 0.005) fit = next;
-    };
-    const observer = new ResizeObserver(measure);
-    observer.observe(el);
-    for (const child of el.children) observer.observe(child);
-    return () => observer.disconnect();
+        if (child.classList.contains('wraphint') || child.classList.contains('empty')) return null;
+        // Das Feld mit dem + dehnt sich, es zählt nur bis zum rechten Rand des Knopfs
+        const plus = child.classList.contains('pluscol') ? child.querySelector<HTMLElement>('.plus') : null;
+        return plus ? plus.offsetLeft - child.offsetLeft + plus.offsetWidth : child.offsetWidth;
+      },
+    );
   });
 
   /** Notenreihe: das + am Ende hängt eine Note an, in einer Effektreihe einen Wert. Klangreihen füllt die Palette. */
@@ -84,7 +73,7 @@
    * Eine Klangreihe mit Steinen hat keins. Dort legt die Reihe selbst am Ende ab (`data-lane-end`),
    * den Strich dafür zeichnet der letzte Stein rechts.
    */
-  const endcol = $derived(!readonly && (value || notes || tokens.length === 0));
+  const endcol = $derived(value || notes || tokens.length === 0);
 
   function addStone() {
     const id = value ? project.appendValue(laneId) : project.appendNote(laneId);
@@ -112,13 +101,13 @@
   });
 </script>
 
-<div class="lane" class:readonly bind:this={box}>
+<div class="lane">
 <div
   bind:this={row}
   class="row"
   style:--fit={zoom === 1 ? undefined : zoom}
-  data-lane={readonly ? undefined : laneId}
-  data-lane-end={readonly ? undefined : tokens.length}
+  data-lane={laneId}
+  data-lane-end={tokens.length}
 >
   {#if wrap}
     <div class="wraphint" role="status">
@@ -131,7 +120,6 @@
       {token}
       {laneId}
       {value}
-      {readonly}
       index={i}
       last={!endcol && i === tokens.length - 1}
       spanned={span !== null && i >= span[0] && i <= span[1]}
@@ -157,21 +145,8 @@
     </div>
   {/if}
 </div>
-{#if !readonly && overflows}
-  <button
-    class="fit"
-    aria-pressed={original}
-    aria-label={original ? 'Auf eine Zeile verkleinern' : 'Originalgrösse'}
-    title={original ? 'Auf eine Zeile verkleinern' : 'Originalgrösse'}
-    onclick={() => session.toggleFit(laneId)}
-  >
-    <!-- Lupe: − verkleinert auf eine Zeile, + zeigt die Originalgrösse -->
-    <svg viewBox="0 0 16 16" aria-hidden="true">
-      <circle cx="6.5" cy="6.5" r="4.5" />
-      <path d="M10 10l4.5 4.5M4.5 6.5h4" />
-      {#if !original}<path d="M6.5 4.5v4" />{/if}
-    </svg>
-  </button>
+{#if overflows}
+  <FitButton {original} onclick={() => session.toggleFit(laneId)} />
 {/if}
 </div>
 
@@ -180,10 +155,6 @@
     display: flex;
     align-items: flex-start;
     gap: 4px;
-  }
-  /* Eingeklappte Spur: die Reihe fügt sich in den Fluss der Spur ein */
-  .lane.readonly {
-    display: contents;
   }
   .row {
     flex: 1;
@@ -194,49 +165,12 @@
     gap: 6px 0;
     align-items: flex-start;
   }
-  /* Beim Tippen in einen Stein Originalgrösse (iOS zoomt sonst ins Eingabefeld). Schlägt den Wert im style-Attribut. */
-  .row:has(:global(input:focus)) {
-    --fit: 1 !important;
-  }
-  /* Knopf für Original- bzw. verkleinerte Grösse, auf Höhe der Steine.
-     Gleich zurückhaltend wie die Schalter links vom Editor (TrackView): nur das Symbol, aus blass, an weiss. */
-  .fit {
-    flex: none;
-    width: 28px;
-    height: 28px;
+  /* Lupe auf Höhe der Steine, über ihnen liegt die Zufallsreihe, wenn die Spur sie zeigt */
+  .lane > :global(.fit) {
     margin-top: calc(var(--s) + 2px);
-    padding: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border: none;
-    color: var(--mute);
-    background: transparent;
-    opacity: 0.6;
   }
-  .fit:hover {
-    opacity: 1;
-  }
-  .fit[aria-pressed='true'] {
-    background: transparent;
-    color: var(--ink);
-    opacity: 1;
-  }
-  @media (prefers-color-scheme: dark) {
-    .fit[aria-pressed='true'] {
-      color: #fff;
-    }
-  }
-  :global(.norandom) .fit {
+  :global(.norandom) .lane > :global(.fit) {
     margin-top: 0;
-  }
-  .fit svg {
-    width: 16px;
-    height: 16px;
-    fill: none;
-    stroke: currentColor;
-    stroke-width: 1.5;
-    stroke-linecap: round;
   }
   /* + der Noten- und Wertreihen: auf Höhe der Steine, über ihnen liegt die Zufallsreihe, wenn die Spur sie zeigt */
   .pluscol {
@@ -293,8 +227,5 @@
     padding: 2px 10px;
     font-size: 13px;
     border-color: var(--line);
-  }
-  :global(.compact) .row {
-    row-gap: 4px;
   }
 </style>

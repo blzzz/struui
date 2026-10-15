@@ -24,10 +24,10 @@ import { quickSwitch } from './edit.ts';
 import { closeToken, effect, nextInCycle, openToken, soundToken, trackName } from './types.ts';
 import type { TrackType } from './types.ts';
 // @ts-expect-error reines JavaScript ohne Typen
-import { OUTPUT, extractEffects, extractNoteOps, renderModule } from '../../../scripts/strudel-effects.mjs';
+import { OUTPUT, extractEffects, extractNoteOps, extractSamplerModes, renderModule } from '../../../scripts/strudel-effects.mjs';
 
 test('effects: die erzeugte Liste passt zum installierten Strudel (sonst npm run gen:effects)', () => {
-  assert.equal(readFileSync(OUTPUT, 'utf8'), renderModule(extractEffects(), extractNoteOps()));
+  assert.equal(readFileSync(OUTPUT, 'utf8'), renderModule(extractEffects(), extractNoteOps(), extractSamplerModes()));
 });
 
 test('effects: übliche Effekte sind dabei, Klangwahl und MIDI nicht', () => {
@@ -172,6 +172,25 @@ test('effects: Rechenarten für Noten aus Strudels Quelltext, getrennt von den E
   assert.equal(valueInfo('div')?.name, 'div');
   assert.equal(valueInfo('lpf')?.name, 'lpf');
   assert.equal(searchNoteOps('di')[0].name, 'div');
+});
+
+test('effects: Sample-Funktionen aus Strudels Quelltext, nur in Klangspuren', () => {
+  for (const n of ['chop', 'striate', 'scrub', 'loopAt', 'fit']) assert.equal(effectInfo(n)?.group, 'sample', n);
+  assert.equal(effectInfo('slice'), undefined, 'slice braucht zwei Werte');
+  assert.equal(effectInfo('fit')?.noValue, true);
+  assert.equal(effectInfo('chop')?.noValue, undefined);
+  assert.deepEqual(effectInfo('scrub')?.values, ['0.1', '.25', '0.7', '0.8'], 'ohne Zahlen hinter !, @, %');
+  const offered = (type: TrackType) => searchEffects('', type, 1000).some((e) => e.name === 'scrub');
+  assert.ok(offered('sound'));
+  assert.ok(!offered('note') && !offered('midi'));
+});
+
+test('codegen: Sample-Funktionen wie Effekte, fit() ohne Wert', () => {
+  const t = {
+    tokens: [soundToken('brk')],
+    effects: [effect('fit'), effect('chop', [soundToken('4')]), effect('scrub', [openToken('<'), soundToken('0'), soundToken('.5'), closeToken('<')]), effect('striate')],
+  };
+  assert.equal(trackToCode(t).text, '$: s("brk").fit().chop(4).scrub("<0 .5>")');
 });
 
 test('codegen: Rechenarten stehen an der Mini-Notation der Noten, nur bei Notenspuren', () => {
