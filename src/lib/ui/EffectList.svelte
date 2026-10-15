@@ -21,6 +21,18 @@
   let query = $state('');
   let open = $state(false);
   let active = $state(0);
+  let search = $state<HTMLElement>();
+
+  // Schliessen beim Tippen ausserhalb statt beim Blur: iOS nimmt dem Feld den Fokus vor dem Klick auf eine Option,
+  // die Liste verschwände sonst, bevor der Klick ankommt.
+  $effect(() => {
+    if (!open) return;
+    const onDown = (e: PointerEvent) => {
+      if (!search?.contains(e.target as Node)) open = false;
+    };
+    document.addEventListener('pointerdown', onDown);
+    return () => document.removeEventListener('pointerdown', onDown);
+  });
 
   const listId = $derived(`${kind}-list-${track.id}`);
   const options = $derived(ops ? searchNoteOps(query) : searchEffects(query, track.type));
@@ -86,7 +98,7 @@
   {/each}
 
   {#if !readonly}
-    <div class="search">
+    <div class="search" bind:this={search}>
       <input
         type="text"
         role="combobox"
@@ -105,7 +117,10 @@
           active = 0;
         }}
         onfocus={() => (open = true)}
-        onblur={() => (open = false)}
+        onblur={(e) => {
+          // Fokus wandert zu einem anderen Element (Tab); beim Tippen in die Liste ist relatedTarget leer
+          if (e.relatedTarget) open = false;
+        }}
         onkeydown={onKeydown}
       />
       {#if open && options.length > 0}

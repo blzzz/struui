@@ -299,7 +299,7 @@
     grid-template-columns: 1fr auto;
     gap: 6px;
     align-items: center;
-    margin: 0 0 6px;
+    margin: 0 0 20px;
   }
   .left {
     display: flex;

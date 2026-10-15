@@ -32,7 +32,7 @@
   --code-bg: #1b201d;
   --code-ink: #d9e6d6;
 
-  --s: 36px;
+  --s: 44px;
   /* Gruppenfarben: viel Transparenz, damit der Grund im hellen Modus dunkler und im dunklen heller wird */
 }
 
@@ -64,6 +64,9 @@
 }
 
 html {
+  /* iOS vergrössert sonst Text in manchen Blöcken eigenmächtig, gleiche Schriftgrössen sähen verschieden aus */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
   scroll-padding-top: calc(var(--bar-h) + env(safe-area-inset-top, 0px));
 }
 
@@ -71,7 +74,11 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--ink);
-  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-family:
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    sans-serif;
   line-height: 1.4;
 }
 
@@ -87,13 +94,13 @@ button {
   cursor: pointer;
 }
 button:focus-visible,
-[role='button']:focus-visible,
+[role="button"]:focus-visible,
 a:focus-visible {
   outline: 3px solid var(--blue);
   outline-offset: 2px;
 }
 button.primary,
-button[aria-pressed='true'] {
+button[aria-pressed="true"] {
   background: var(--ink);
   color: var(--bg);
 }
