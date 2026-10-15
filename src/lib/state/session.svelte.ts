@@ -50,6 +50,16 @@ class Session {
    * farbige Balken am Stein wie in der Kompaktansicht. Standard: Knöpfe sichtbar (Menge leer).
    */
   noKnobs = $state<ReadonlySet<string>>(new Set());
+  /**
+   * Steinreihen in Originalgrösse. Sonst wird eine Reihe, die nicht auf eine Zeile passt, verkleinert (`Lane`).
+   * Standard: verkleinern (Menge leer).
+   */
+  unfit = $state<ReadonlySet<string>>(new Set());
+  /**
+   * Effekte, deren Box die Wertsteine (Mini-Notation) statt des Reglers zeigt. Ist der Wert mehr als ein einzelner Stein,
+   * zeigt die Box die Wertsteine ohnehin. Standard: Regler (Menge leer).
+   */
+  mini = $state<ReadonlySet<string>>(new Set());
   lit = $state<ReadonlySet<string>>(new Set());
   /** Position in Zyklen, solange abgespielt wird. */
   cycle = $state<number | null>(null);
@@ -59,7 +69,9 @@ class Session {
   menu = $state<{ laneId: string; tokenId: string } | null>(null);
   dropHint = $state<DropHint | null>(null);
   wrap = $state<WrapPick | null>(null);
-  /** Eben über das + angehängter Notenstein: öffnet sich beim Erscheinen gleich zum Tippen. */
+  /** Klangpalette unter der oberen Leiste ausgeklappt. */
+  paletteOpen = $state(true);
+  /** Eben über das + angehängter Noten- oder Wertstein: öffnet sich beim Erscheinen gleich zum Tippen. */
   editNew = $state<string | null>(null);
 
   startWrap(laneId: string, tokenId: string, group: GroupType): void {
@@ -88,6 +100,18 @@ class Session {
     const next = new Set(this.noKnobs);
     if (!next.delete(trackId)) next.add(trackId);
     this.noKnobs = next;
+  }
+  /** Steinreihe zwischen «auf eine Zeile verkleinert» und Originalgrösse umschalten. */
+  toggleFit(laneId: string): void {
+    const next = new Set(this.unfit);
+    if (!next.delete(laneId)) next.add(laneId);
+    this.unfit = next;
+  }
+  /** Effekt-Box zwischen Regler und Wertsteinen (Mini-Notation) umschalten. */
+  toggleMini(effectId: string): void {
+    const next = new Set(this.mini);
+    if (!next.delete(effectId)) next.add(effectId);
+    this.mini = next;
   }
   /** Ein- oder ausklappen. Eingeklappt lässt sich nichts bearbeiten, ein offenes Steinmenü geht zu. */
   toggleCompact(trackId: string): void {

@@ -1,24 +1,37 @@
 <script lang="ts">
-  import { searchEffects, searchNoteOps, valueInfo } from '../domain/effects.ts';
-  import type { EffectInfo } from '../domain/effects.ts';
-  import { project } from '../state/project.svelte.ts';
-  import type { RowKind } from '../state/project.svelte.ts';
-  import { session } from '../state/session.svelte.ts';
-  import Lane from './Lane.svelte';
-  import { PARSE_MESSAGES } from './messages.ts';
-  import type { Track } from '../domain/types.ts';
+  import { flip } from "svelte/animate";
+  import {
+    searchEffects,
+    searchNoteOps,
+    singleValue,
+    valueInfo,
+  } from "../domain/effects.ts";
+  import type { EffectInfo } from "../domain/effects.ts";
+  import { project } from "../state/project.svelte.ts";
+  import type { RowKind } from "../state/project.svelte.ts";
+  import { session } from "../state/session.svelte.ts";
+  import { reorder } from "../interaction/reorder.ts";
+  import EffectBox from "./EffectBox.svelte";
+  import Lane from "./Lane.svelte";
+  import { PARSE_MESSAGES } from "./messages.ts";
+  import type { Track } from "../domain/types.ts";
 
   /**
-   * Effekte einer Spur: eine Zeile pro Effekt mit seinen Wertsteinen, darunter ein Suchfeld zum Hinzufügen.
-   * Wertsteine verhalten sich wie Klangsteine (Tippen, Doppeltippen, Ziehen, Klammern, Zufall, Wiederholung).
+   * Effekte einer Spur: eine kleine Box pro Effekt (Titel, darunter Regler und Zahl oder die Wertsteine, siehe `EffectBox`),
+   * von links nach rechts umbrechend, darunter ein Suchfeld zum Hinzufügen. Ziehen am Titel verschiebt eine Box
+   * (die Reihenfolge ist die im Code). Wertsteine verhalten sich wie Klangsteine (Tippen, Ziehen, Klammern, Zufall, Wiederholung).
    * `kind = 'noteOps'`: dieselbe Liste für die Rechenarten einer Notenspur (`add`, `div` …), direkt nach den Noten.
    * `readonly` (eingeklappte Spur): Effekte folgen ohne eigene Zeile aufeinander, nur Name und Wertsteine.
    * Kein Suchfeld, kein Entfernen, nichts lässt sich bearbeiten. Effekte ohne Wert fehlen, fehlerhafte sind rot markiert.
    */
-  let { track, kind = 'effects', readonly = false }: { track: Track; kind?: RowKind; readonly?: boolean } = $props();
-  const ops = $derived(kind === 'noteOps');
+  let {
+    track,
+    kind = "effects",
+    readonly = false,
+  }: { track: Track; kind?: RowKind; readonly?: boolean } = $props();
+  const ops = $derived(kind === "noteOps");
 
-  let query = $state('');
+  let query = $state("");
   let open = $state(false);
   let active = $state(0);
   let search = $state<HTMLElement>();
@@ -30,72 +43,144 @@
     const onDown = (e: PointerEvent) => {
       if (!search?.contains(e.target as Node)) open = false;
     };
-    document.addEventListener('pointerdown', onDown);
-    return () => document.removeEventListener('pointerdown', onDown);
+    document.addEventListener("pointerdown", onDown);
+    return () => document.removeEventListener("pointerdown", onDown);
   });
 
   const listId = $derived(`${kind}-list-${track.id}`);
-  const options = $derived(ops ? searchNoteOps(query) : searchEffects(query, track.type));
-  const placeholder = $derived(ops ? 'Mit Noten rechnen (add, div …)' : 'Effekt hinzufügen …');
+  const options = $derived(
+    ops ? searchNoteOps(query) : searchEffects(query, track.type),
+  );
+  const placeholder = $derived(
+    ops ? "Mit Noten rechnen (add, div …)" : "Effekt hinzufügen …",
+  );
 
   function pick(info: EffectInfo) {
-    const added = project.addEffect(track.id, info.name, kind);
-    query = '';
+    project.addEffect(track.id, info.name, kind);
+    query = "";
     open = false;
     active = 0;
-    // Zeigt Strudel keine Beispielwerte, gleich nach einem Wert fragen
-    if (added?.empty) session.openSheet(added.id, null);
+  }
+
+  let boxes = $state<HTMLElement>();
+  /** Einfügeposition beim Ziehen einer Box (vor dem Entfernen), null = kein Ziehen. */
+  let hint = $state<number | null>(null);
+
+  function onHandleKey(e: KeyboardEvent, id: string, i: number) {
+    const dir = e.key === "ArrowLeft" ? -1 : e.key === "ArrowRight" ? 1 : 0;
+    if (dir === 0) return;
+    e.preventDefault();
+    const to = dir < 0 ? i - 1 : i + 2;
+    if (to < 0 || to > track[kind].length) return;
+    project.moveEffect(track.id, id, to, kind);
+    // Fokus bleibt am Griff, auch nachdem die Box umgezogen ist
+    requestAnimationFrame(() =>
+      boxes
+        ?.querySelector<HTMLElement>(`[data-effect-id="${id}"] .name`)
+        ?.focus(),
+    );
   }
 
   function onKeydown(e: KeyboardEvent) {
-    if (e.key === 'ArrowDown') {
+    if (e.key === "ArrowDown") {
       e.preventDefault();
       open = true;
       active = Math.min(active + 1, options.length - 1);
-    } else if (e.key === 'ArrowUp') {
+    } else if (e.key === "ArrowUp") {
       e.preventDefault();
       active = Math.max(active - 1, 0);
-    } else if (e.key === 'Enter') {
+    } else if (e.key === "Enter") {
       if (open && options[active]) {
         e.preventDefault();
         pick(options[active]);
       }
-    } else if (e.key === 'Escape') {
+    } else if (e.key === "Escape") {
       if (open) open = false;
-      else query = '';
+      else query = "";
     }
   }
 
-  const messages = (effectId: string) => [...new Set(project.parsedOf(effectId).errors.map((e) => PARSE_MESSAGES[e.code]))];
+  const messages = (effectId: string) => [
+    ...new Set(
+      project.parsedOf(effectId).errors.map((e) => PARSE_MESSAGES[e.code]),
+    ),
+  ];
 </script>
 
 <div class="effects" class:readonly>
-  {#each track[kind] as fx (fx.id)}
-    {@const info = valueInfo(fx.name)}
-    {@const errors = messages(fx.id)}
-    {#if readonly}
+  {#if readonly}
+    {#each track[kind] as fx (fx.id)}
+      {@const info = valueInfo(fx.name)}
+      {@const errors = messages(fx.id)}
       {#if fx.tokens.length > 0}
-        <div class="fx" class:bad={errors.length > 0} title={errors.length > 0 ? `${errors.join(' ')} Dieser Effekt ist aus.` : info?.description}>
+        <div
+          class="fx"
+          class:bad={errors.length > 0}
+          title={errors.length > 0
+            ? `${errors.join(" ")} Dieser Effekt ist aus.`
+            : info?.description}
+        >
           <span class="name">.{fx.name}</span>
           <Lane laneId={fx.id} tokens={fx.tokens} value readonly />
         </div>
       {/if}
-    {:else}
-      <div class="fx" class:off={fx.tokens.length === 0} data-effect-id={fx.id}>
-        <div class="head">
-          <span class="name">.{fx.name}</span>
-          <span class="desc" title={info?.hint}>{info?.description ?? ''}</span>
-          <button class="remove" aria-label={`${fx.name} entfernen`} onclick={() => project.removeEffect(track.id, fx.id, kind)}>×</button>
+    {/each}
+  {:else if track[kind].length > 0}
+    <div class="boxes" bind:this={boxes}>
+      {#each track[kind] as fx, i (fx.id)}
+        {@const info = valueInfo(fx.name)}
+        {@const errors = messages(fx.id)}
+        <div
+          class="box"
+          class:off={fx.tokens.length === 0}
+          class:bad={errors.length > 0}
+          class:wide={session.mini.has(fx.id) ||
+            (fx.tokens.length > 0 && singleValue(fx.tokens) === null)}
+          class:before={hint === i}
+          class:after={hint === i + 1 && i === track[kind].length - 1}
+          data-effect-id={fx.id}
+          animate:flip={{ duration: 150 }}
+        >
+          <div class="head">
+            <!-- Griff: Ziehen verschiebt die Box, mit der Tastatur Pfeil links/rechts -->
+            <span
+              class="name"
+              role="button"
+              tabindex="0"
+              title={info
+                ? `${info.description}${info.hint ? ` (${info.hint})` : ""}`
+                : undefined}
+              aria-label={`${fx.name} verschieben (Pfeil links/rechts)`}
+              onkeydown={(e) => onHandleKey(e, fx.id, i)}
+              {@attach reorder(() => ({
+                item: () =>
+                  boxes?.querySelector<HTMLElement>(
+                    `[data-effect-id="${fx.id}"]`,
+                  ) ?? null,
+                items: () => [
+                  ...(boxes?.querySelectorAll<HTMLElement>(":scope > .box") ??
+                    []),
+                ],
+                onHint: (index) => (hint = index),
+                onDrop: (index) =>
+                  project.moveEffect(track.id, fx.id, index, kind),
+              }))}>{fx.name}</span
+            >
+            <button
+              class="remove"
+              aria-label={`${fx.name} entfernen`}
+              onclick={() => project.removeEffect(track.id, fx.id, kind)}
+              >×</button
+            >
+          </div>
+          <EffectBox {fx} />
+          {#if errors.length > 0}
+            <p class="error">{errors.join(" ")} Dieser Effekt ist aus.</p>
+          {/if}
         </div>
-        <Lane laneId={fx.id} tokens={fx.tokens} value />
-        {#if errors.length > 0}
-          <p class="error">{errors.join(' ')} Dieser Effekt ist aus.</p>
-        {:else if fx.tokens.length === 0}
-          <p class="note">Ohne Wert ist der Effekt aus.</p>
-        {/if}
-      </div>
-    {/if}
-  {/each}
+      {/each}
+    </div>
+  {/if}
 
   {#if !readonly}
     <div class="search" bind:this={search}>
@@ -107,7 +192,9 @@
         aria-autocomplete="list"
         aria-expanded={open && options.length > 0}
         aria-controls={listId}
-        aria-activedescendant={open && options[active] ? `${listId}-${active}` : undefined}
+        aria-activedescendant={open && options[active]
+          ? `${listId}-${active}`
+          : undefined}
         spellcheck="false"
         autocomplete="off"
         autocapitalize="off"
@@ -124,7 +211,11 @@
         onkeydown={onKeydown}
       />
       {#if open && options.length > 0}
-        <ul id={listId} role="listbox" aria-label={ops ? 'Rechenarten' : 'Effekte'}>
+        <ul
+          id={listId}
+          role="listbox"
+          aria-label={ops ? "Rechenarten" : "Effekte"}
+        >
           {#each options as info, i (info.name)}
             <!-- Tastatur bedient das Suchfeld (Pfeile, Enter), die Optionen bekommen keinen Fokus -->
             <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -138,7 +229,9 @@
               onclick={() => pick(info)}
             >
               <span class="opt-name">{info.name}</span>
-              {#if info.synonyms.length > 0}<span class="syn">{info.synonyms.join(', ')}</span>{/if}
+              {#if info.synonyms.length > 0}<span class="syn"
+                  >{info.synonyms.join(", ")}</span
+                >{/if}
               <span class="opt-desc">{info.description}</span>
             </li>
           {/each}
@@ -155,10 +248,53 @@
     gap: 8px;
     margin-top: 10px;
   }
-  /* Eine Effektzeile: Name, Beschreibung, ×, darunter die Wertsteine. Links ein Strich hält beides zusammen. */
-  .fx {
-    padding-left: 10px;
-    border-left: 3px solid var(--val-edge);
+  /* Effekte als kleine Boxen, von links umbrechend */
+  .boxes {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  /* Eine Box: oben der Titel (Griff zum Verschieben) und ×, darunter Regler und Zahl. Mit Wertsteinen wird sie breiter. */
+  .box {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    width: 96px;
+    padding: 4px 4px 5px;
+    border: 1.5px solid var(--val-edge);
+    border-radius: 8px;
+    background: var(--panel);
+  }
+  .box.wide {
+    width: auto;
+    min-width: 64px;
+    max-width: 100%;
+  }
+  .box.bad {
+    border-color: var(--red);
+  }
+  .box:global([data-dragging]) {
+    z-index: 20;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22);
+    pointer-events: none;
+  }
+  /* Einfügemarke beim Verschieben: ein Strich vor (oder nach der letzten) Box */
+  .box.before::before,
+  .box.after::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 3px;
+    border-radius: 2px;
+    background: var(--blue);
+  }
+  .box.before::before {
+    left: -7px;
+  }
+  .box.after::after {
+    right: -7px;
   }
   /* Eingeklappt: keine eigene Zeile, die Effekte reihen sich in den Fluss der Spur ein (siehe `.main.compact` in TrackView) */
   .effects.readonly {
@@ -179,44 +315,45 @@
   }
   .head {
     display: flex;
-    align-items: baseline;
-    gap: 10px;
+    align-items: center;
+    gap: 2px;
     margin-bottom: 2px;
-    font-size: 14px;
   }
   .name {
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     font-weight: 600;
   }
-  .fx.off .name {
-    color: var(--mute);
-  }
-  .desc {
+  .box .name {
     flex: 1;
     min-width: 0;
-    color: var(--mute);
-    font-size: 13px;
+    font-size: 12px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    cursor: grab;
+    /* Am Titel zieht der Finger die Box, die Seite scrollt hier nicht */
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  .box:global([data-dragging]) .name {
+    cursor: grabbing;
+  }
+  .box.off .name {
+    color: var(--mute);
   }
   .remove {
-    padding: 0 8px;
-    font-size: 18px;
-    line-height: 1.4;
+    padding: 0 3px;
+    font-size: 14px;
+    line-height: 1.1;
     border-color: transparent;
     color: var(--mute);
   }
-  .error,
-  .note {
-    font-size: 13px;
-    margin: 4px 0 0;
-  }
   .error {
+    max-width: 200px;
+    margin: 4px 0 0;
+    font-size: 11px;
     color: var(--red);
-  }
-  .note {
-    color: var(--mute);
   }
   input {
     width: 100%;
@@ -227,7 +364,12 @@
     background: transparent;
     color: var(--ink);
     /* 16px verhindert das automatische Zoomen auf iOS */
-    font: 16px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font:
+      16px ui-monospace,
+      SFMono-Regular,
+      Menlo,
+      Consolas,
+      monospace;
   }
   input:focus {
     outline: none;

@@ -1,6 +1,6 @@
 import { PAUSE, hasModifiers, hasSteps, label } from './types.ts';
 import type { Modifiers, Token, TrackType } from './types.ts';
-import type { Effect } from './effects.ts';
+import type { Effect, SliderRange } from './effects.ts';
 import { tempoCode } from './tempo.ts';
 import type { TempoUnit } from './tempo.ts';
 
@@ -77,14 +77,14 @@ export interface CodeTrack {
   /** Spurname nach dem `$`. Fehlt er, steht nur `$:`. */
   name?: string;
   /** Effekte ohne Wertsteine werden übersprungen. */
-  effects?: readonly Pick<Effect, 'name' | 'tokens'>[];
+  effects?: readonly Pick<Effect, 'name' | 'tokens' | 'slider'>[];
   muted?: boolean;
   /** Lautstärke nach allen Effekten. Fehlt sie oder ist sie 1, steht nichts im Code. Nur bei Klangspuren. */
   volume?: number;
   /** Fehlt sie, ist es eine Klangspur. */
   type?: TrackType;
   /** Notenspur: Rechenarten an der Mini-Notation (`note("c e".add(3))`). Ohne Wertsteine übersprungen. */
-  noteOps?: readonly { name: string; tokens: readonly Token[] }[];
+  noteOps?: readonly { name: string; tokens: readonly Token[]; slider?: SliderRange | null }[];
   /** Notenspur: Klang der Noten (`.s("sine")`). Ohne Steine steht kein `.s()` im Code. */
   voice?: { readonly tokens: readonly Token[] } | null;
   /** Klangspur: Orbit. Fehlt er oder ist er 1, steht nichts im Code. */
@@ -104,13 +104,20 @@ const NUMBER = /^-?(\d+\.?\d*|\.\d+)$/;
 
 /**
  * Ein Effekt als Code, oder null ohne Wertsteine. Ein einzelner Zahlenstein ohne Modifier geht als Zahl hinein (`.lpf(800)`),
+ * mit eingestelltem Regler als Strudels `slider()` (`.lpf(slider(800, 100, 8000, 10))`, auf strudel.cc ein Regler im Code),
  * alles andere als Mini-Notation (`.lpf("<200 800>")`). Dann meldet Strudel auch hier Positionen und die Wertsteine leuchten.
  */
-export function effectToCode(e: { name: string; tokens: readonly Token[] }): { text: string; ranges: TokenRange[] } | null {
+export function effectToCode(e: {
+  name: string;
+  tokens: readonly Token[];
+  slider?: SliderRange | null;
+}): { text: string; ranges: TokenRange[] } | null {
   const [only] = e.tokens;
   if (!only) return null;
   if (e.tokens.length === 1 && only.kind === 'sound' && NUMBER.test(only.sound) && only.random === null && only.repeat === null) {
-    return { text: `.${e.name}(${Number(only.sound)})`, ranges: [] };
+    const n = Number(only.sound);
+    const s = e.slider;
+    return { text: `.${e.name}(${s ? `slider(${n}, ${s.min}, ${s.max}, ${s.step})` : n})`, ranges: [] };
   }
   const head = `.${e.name}("`;
   const { text, ranges } = trackToMiniWithRanges(e.tokens);

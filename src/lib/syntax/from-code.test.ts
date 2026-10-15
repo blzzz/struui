@@ -89,3 +89,24 @@ test('code: Notenspur mit Klang in .s()', () => {
   assert.ok(none.ok);
   assert.equal(none.voice, null);
 });
+
+test('code: slider(wert, min, max, step) wird zum Regler und zurück', () => {
+  const cases: [string, string][] = [
+    ['$a: s("bd").lpf(slider(800, 100, 8000, 10))', '$a: s("bd").lpf(slider(800, 100, 8000, 10))'],
+    ['$a: s("bd").room( slider( .5 , 0 , 1 , .01 ) )', '$a: s("bd").room(slider(0.5, 0, 1, 0.01))'],
+    ['$a: s("bd").room(slider(.5))', '$a: s("bd").room(slider(0.5, 0, 1, 0.01))'],
+    ['$a: s("bd").lpf(slider(800, 0, 2000))', '$a: s("bd").lpf(slider(800, 0, 2000, 20))'],
+    ['$n: note("c e".add(slider(3, 0, 12, 1))).s("sine")', '$n: note("c e".add(slider(3, 0, 12, 1))).s("sine")'],
+  ];
+  for (const [input, expected] of cases) assert.equal(roundTrip(input), expected, input);
+  const r = codeToTrack('$a: s("bd").lpf(slider(800, 100, 8000, 10)).room(.5)');
+  assert.ok(r.ok);
+  assert.deepEqual(r.effects[0].slider, { min: 100, max: 8000, step: 10 });
+  assert.equal(r.effects[0].tokens.length, 1);
+  assert.equal(r.effects[1].slider, null);
+
+  const bad = codeToTrack('$a: s("bd").lpf(slider(800, 900, 100))');
+  assert.ok(!bad.ok);
+  assert.equal(bad.offset, '$a: s("bd").lpf('.length);
+  assert.ok(!codeToTrack('$a: s("bd").lpf(slider("<1 2>"))').ok, 'slider nimmt nur Zahlen');
+});

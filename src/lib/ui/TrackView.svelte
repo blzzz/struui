@@ -5,7 +5,6 @@
   import { session } from "../state/session.svelte.ts";
   import EffectList from "./EffectList.svelte";
   import Lane from "./Lane.svelte";
-  import SoundPalette from "./SoundPalette.svelte";
   import TrackCode from "./TrackCode.svelte";
   import TrackMenu from "./TrackMenu.svelte";
   import { VOLUME_MAX } from "../domain/types.ts";
@@ -265,11 +264,8 @@
                 Ohne Klang spielt Strudel die Noten als triangle.
               </p>
             {/if}
-            <SoundPalette trackId={track.id} mode="voice" />
           </div>
         {/if}
-      {:else if !compact}
-        <SoundPalette trackId={track.id} />
       {/if}
       <EffectList {track} readonly={compact} />
       {#if withoutNote && !compact}
@@ -423,7 +419,7 @@
     align-items: flex-start;
     gap: 6px;
   }
-  .editor > :global(.row) {
+  .editor > :global(.lane) {
     flex: 1;
     min-width: 0;
   }

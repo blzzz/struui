@@ -1,6 +1,7 @@
 import type { EngineHost } from '../audio/engine.ts';
 import { StrudelEngine } from '../audio/strudel-engine.ts';
 import { project } from './project.svelte.ts';
+import { sampleBank } from './sample-bank.svelte.ts';
 import { session } from './session.svelte.ts';
 
 const host: EngineHost = {
@@ -34,6 +35,16 @@ export const playback = {
       session.playing = true;
     } catch (e) {
       session.status = { kind: 'error', text: `Start fehlgeschlagen: ${(e as Error)?.message ?? e}` };
+    }
+  },
+
+  /** Einen Klang einmal anspielen (Palette). Lädt Strudel beim ersten Mal. */
+  async preview(name: string): Promise<void> {
+    engine ??= new StrudelEngine(host);
+    try {
+      await engine.preview(name, sampleBank.dataUrls.get(name));
+    } catch (e) {
+      session.status = { kind: 'error', text: `Anspielen fehlgeschlagen: ${(e as Error)?.message ?? e}` };
     }
   },
 

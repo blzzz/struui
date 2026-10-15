@@ -1,7 +1,24 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { EFFECTS, NOTE_OPS, defaultValue, effectInfo, isValueAtom, noteOpInfo, searchEffects, searchNoteOps, stepValue, valueInfo } from './effects.ts';
+import {
+  EFFECTS,
+  NOTE_OPS,
+  defaultValue,
+  effectInfo,
+  fromSlider,
+  isSliderRange,
+  suggestSliderRange,
+  isValueAtom,
+  noteOpInfo,
+  searchEffects,
+  searchNoteOps,
+  singleValue,
+  stepValue,
+  toSlider,
+  valueInfo,
+  valueScale,
+} from './effects.ts';
 import { effectToCode, toStrudelCode, toStrudelProgram, trackToCode } from './codegen.ts';
 import { quickSwitch } from './edit.ts';
 import { closeToken, effect, nextInCycle, openToken, soundToken, trackName } from './types.ts';
@@ -210,4 +227,70 @@ test('effects: Pfeiltasten springen zum nächsten Beispielwert', () => {
   assert.equal(stepValue('3', [], 1), '4');
   assert.equal(stepValue('0.5', [], -1), '0.4');
   assert.equal(stepValue('', lpf, 1), '100');
+});
+
+test('effects: Regler nur für einen einzelnen Stein ohne Zufall und Wiederholung', () => {
+  assert.equal(singleValue([soundToken('800')]), '800');
+  assert.equal(singleValue([soundToken('sine')]), 'sine');
+  assert.equal(singleValue([]), null);
+  assert.equal(singleValue([soundToken('200'), soundToken('800')]), null);
+  assert.equal(singleValue([soundToken('800', { random: 0.5 })]), null);
+  assert.equal(singleValue([soundToken('800', { repeat: { op: '*', value: 2 } })]), null);
+  assert.equal(singleValue([openToken('<'), soundToken('800'), closeToken('<')]), null);
+});
+
+test('effects: Reglerbereich aus Strudels Beispielwerten', () => {
+  const info = (values: string[]) => ({ name: 'x', group: 'audio' as const, synonyms: [], description: '', hint: '', values });
+  assert.deepEqual(valueScale(info(['100', '200', '500'])), { kind: 'number', stops: [100, 200, 500] });
+  assert.deepEqual(valueScale(info(['.5'])), { kind: 'number', stops: [0, 1] });
+  assert.deepEqual(valueScale(info(['4'])), { kind: 'number', stops: [0, 8] });
+  assert.deepEqual(valueScale(info(['-2'])), { kind: 'number', stops: [-4, 0] });
+  assert.deepEqual(valueScale(info([])), { kind: 'number', stops: [0, 1] });
+  assert.deepEqual(valueScale(undefined), { kind: 'number', stops: [0, 1] });
+  assert.deepEqual(valueScale(info(['a', 'e', 'i'])), { kind: 'words', words: ['a', 'e', 'i'] });
+  // Jeder Effekt aus Strudel bekommt einen brauchbaren Regler
+  for (const e of [...EFFECTS, ...NOTE_OPS]) {
+    const s = valueScale(e);
+    if (s.kind === 'number') assert.ok(s.stops.length >= 2 && s.stops[0] < s.stops[s.stops.length - 1], e.name);
+    else assert.ok(s.words.length > 0, e.name);
+  }
+});
+
+test('effects: Regler verteilt Beispielwerte gleichmässig, rastet ein und rundet passend', () => {
+  const stops = [100, 200, 500, 1000, 2000];
+  assert.equal(toSlider(100, stops), 0);
+  assert.equal(toSlider(500, stops), 0.5);
+  assert.equal(toSlider(2000, stops), 1);
+  assert.equal(toSlider(5, stops), 0);
+  assert.equal(toSlider(9000, stops), 1);
+  assert.equal(toSlider(350, stops), 0.375);
+  for (const v of stops) assert.equal(fromSlider(toSlider(v, stops), stops), v);
+  assert.equal(fromSlider(0.505, stops), 500, 'rastet nahe einem Beispielwert ein');
+  assert.equal(fromSlider(0.375, stops), 350);
+  assert.equal(fromSlider(0.1, [0, 1]), 0.1);
+  assert.equal(fromSlider(0.333333, [0, 1]), 0.33);
+  assert.equal(fromSlider(-1, stops), 100);
+  assert.equal(fromSlider(2, stops), 2000);
+});
+
+test('effects: mit eingestelltem Regler steht slider() im Code, nur bei einer einzelnen Zahl', () => {
+  const slider = { min: 100, max: 8000, step: 10 };
+  assert.equal(effectToCode({ ...effect('lpf', [soundToken('800')]), slider })?.text, '.lpf(slider(800, 100, 8000, 10))');
+  assert.equal(effectToCode({ ...effect('lpf', [soundToken('800')]), slider: null })?.text, '.lpf(800)');
+  assert.equal(
+    effectToCode({ ...effect('lpf', [openToken('<'), soundToken('200'), soundToken('800'), closeToken('<')]), slider })?.text,
+    '.lpf("<200 800>")',
+    'Mini-Notation behält den Bereich, schreibt ihn aber nicht',
+  );
+  assert.equal(effectToCode({ ...effect('vowel', [soundToken('a')]), slider })?.text, '.vowel("a")', 'Namen nie als slider()');
+});
+
+test('effects: Vorschlag für den Regler aus den Beispielwerten, mit rundem Schritt', () => {
+  assert.deepEqual(suggestSliderRange(effectInfo('lpf'), 800), { min: 100, max: 4000, step: 10 });
+  assert.deepEqual(suggestSliderRange(effectInfo('lpf'), 20000), { min: 100, max: 20000, step: 100 });
+  assert.deepEqual(suggestSliderRange(undefined, null), { min: 0, max: 1, step: 0.01 });
+  for (const e of EFFECTS) assert.ok(isSliderRange(suggestSliderRange(e, null)), e.name);
+  assert.ok(!isSliderRange({ min: 1, max: 1, step: 1 }));
+  assert.ok(!isSliderRange({ min: 0, max: 1, step: 0 }));
+  assert.ok(!isSliderRange({ min: 0, max: NaN, step: 1 }));
 });

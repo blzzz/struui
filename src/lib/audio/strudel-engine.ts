@@ -22,6 +22,7 @@ type Webaudio = typeof import('@strudel/webaudio');
  */
 export class StrudelEngine {
   private mod: Webaudio | null = null;
+  private loading: Promise<void> | null = null;
   private repl: Repl | null = null;
   private note: string | null = null;
   private evalError: Error | null = null;
@@ -34,7 +35,7 @@ export class StrudelEngine {
   constructor(private host: EngineHost) {}
 
   async start(): Promise<void> {
-    if (!this.mod) await this.load();
+    await this.ensureLoaded();
     await this.run();
     this.raf = requestAnimationFrame(this.highlight);
   }
@@ -63,6 +64,33 @@ export class StrudelEngine {
   changed(): void {
     window.clearTimeout(this.timer);
     this.timer = window.setTimeout(() => void this.run(), 200);
+  }
+
+  /**
+   * Einen Klang einmal anspielen (langes Drücken in der Palette), unabhängig von der Wiedergabe.
+   * `url`: eigener Klang, der vorher bei Strudel angemeldet wird. Ein unbekannter Name bleibt still.
+   */
+  async preview(name: string, url?: string): Promise<void> {
+    const wasLoaded = this.mod !== null;
+    await this.ensureLoaded();
+    const mod = this.mod as Webaudio;
+    // Hat das Anspielen Strudel geladen, die Ladeanzeige wieder wegnehmen (beim Abspielen erledigt das `run`)
+    if (!wasLoaded) this.host.setStatus(this.note ? { kind: 'info', text: this.note } : null);
+    // iOS: ausserhalb einer Geste (langes Drücken läuft über einen Zeitgeber) springt der Kontext evtl. nicht an
+    const ctx = mod.getAudioContext();
+    if (ctx.state !== 'running') await ctx.resume().catch(() => {});
+    if (url) await mod.samples({ [name]: url });
+    this.applyVolume();
+    await mod.superdough({ s: name }, mod.getAudioContextCurrentTime() + 0.05, 0.5);
+  }
+
+  /** Strudel nur einmal laden, auch wenn Abspielen und Anspielen gleichzeitig kommen. */
+  private ensureLoaded(): Promise<void> {
+    this.loading ??= this.load().catch((e) => {
+      this.loading = null;
+      throw e;
+    });
+    return this.loading;
   }
 
   private async load(): Promise<void> {

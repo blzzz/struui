@@ -1,4 +1,5 @@
-import { NOTE_OPS, effectInfo, noteOpInfo } from '../domain/effects.ts';
+import { NOTE_OPS, effectInfo, isSliderRange, noteOpInfo } from '../domain/effects.ts';
+import type { SliderRange } from '../domain/effects.ts';
 import { CHANNEL_MAX, ORBIT_MAX, soundToken, trackName } from '../domain/types.ts';
 import type { Token, TrackType } from '../domain/types.ts';
 import { textToTokens } from './from-text.ts';
@@ -28,8 +29,15 @@ export interface CodeLine {
   /** Notenspur: die Steine aus `.s(…)`, null ohne `.s()` oder bei anderen Spuren. */
   voice: { tokens: Token[] } | null;
   /** Notenspur: Rechenarten an der Mini-Notation, in ihrer Reihenfolge. */
-  noteOps: { name: string; tokens: Token[] }[];
-  effects: { name: string; tokens: Token[] }[];
+  noteOps: ValueRow[];
+  effects: ValueRow[];
+}
+
+/** Ein Effekt oder eine Rechenart: Name, Wertsteine und, aus `slider(wert, min, max, step)`, der Bereich des Reglers. */
+export interface ValueRow {
+  name: string;
+  tokens: Token[];
+  slider: SliderRange | null;
 }
 
 export type CodeResult = ({ ok: true } & CodeLine) | { ok: false; offset: number; message: string };
@@ -71,19 +79,46 @@ export function codeToTrack(code: string): CodeResult {
     return r.tokens;
   };
 
-  /** Wert eines Aufrufs nach der öffnenden Klammer: eine Zahl als ein Stein oder Mini-Notation. Liest bis nach `)`. */
-  const value = (): Token[] => {
+  const NUMBER = /^-?(\d+\.?\d*|\.\d+)/;
+  /** Eine Zahl, sonst Fehler mit `what`. */
+  const number = (what: string): string => {
     space();
-    const number = /^-?(\d+\.?\d*|\.\d+)/.exec(code.slice(pos));
+    const m = NUMBER.exec(code.slice(pos));
+    if (!m) throw new CodeError(`${what} ist eine Zahl.`, pos);
+    pos += m[0].length;
+    return m[0];
+  };
+
+  /**
+   * Wert eines Aufrufs nach der öffnenden Klammer: eine Zahl als ein Stein, Mini-Notation, oder Strudels Regler
+   * `slider(wert, min, max, step)` (fehlen min und max, gilt wie bei Strudel 0 und 1, ohne step ein Hundertstel). Liest bis nach `)`.
+   */
+  const value = (name: string): ValueRow => {
+    space();
     let tokens: Token[];
-    if (number) {
-      pos += number[0].length;
-      tokens = [soundToken(number[0])];
+    let slider: SliderRange | null = null;
+    if (NUMBER.test(code.slice(pos))) {
+      tokens = [soundToken(number('Der Wert'))];
+    } else if (/^slider\s*\(/.test(code.slice(pos))) {
+      const at = pos;
+      pos = code.indexOf('(', pos) + 1;
+      tokens = [soundToken(number('Der Wert des Reglers'))];
+      const rest: number[] = [];
+      for (const what of ['Das Minimum', 'Das Maximum', 'Der Schritt']) {
+        space();
+        if (code[pos] !== ',') break;
+        pos += 1;
+        rest.push(Number(number(what)));
+      }
+      expect(')');
+      const [min = 0, max = 1] = rest;
+      slider = { min, max, step: rest[2] ?? (max - min) / 100 };
+      if (!isSliderRange(slider)) throw new CodeError('Im Regler muss das Minimum unter dem Maximum liegen, der Schritt über 0.', at);
     } else {
       tokens = mini();
     }
     expect(')');
-    return tokens;
+    return { name, tokens, slider };
   };
 
   try {
@@ -111,7 +146,7 @@ export function codeToTrack(code: string): CodeResult {
       if (!notes) throw new CodeError('Rechnen mit Noten (add, div …) gibt es nur in note(…).', at - 1);
       if (!noteOpInfo(op)) throw new CodeError(`Unbekannte Rechenart «${op}» (möglich: ${NOTE_OPS.map((o) => o.name).join(', ')}).`, at);
       expect('(');
-      noteOps.push({ name: op, tokens: value() });
+      noteOps.push(value(op));
     }
     expect(')');
 
@@ -174,17 +209,14 @@ export function codeToTrack(code: string): CodeResult {
         expect(')');
         continue;
       }
-      const number = /^-?(\d+\.?\d*|\.\d+)/.exec(code.slice(pos));
       // `.postgain()` ist der Lautstärkeregler der Spur: nur eine Zahl
       if (fx === 'postgain') {
-        if (!number) throw new CodeError('Die Lautstärke (postgain) ist eine Zahl.', pos);
-        pos += number[0].length;
-        volume = Number(number[0]);
+        volume = Number(number('Die Lautstärke (postgain)'));
         expect(')');
         soundOnly ??= { at, what: '.postgain()' };
         continue;
       }
-      effects.push({ name: fx, tokens: value() });
+      effects.push(value(fx));
     }
     const type: TrackType = notes ? 'note' : port === null ? 'sound' : 'midi';
     if (type === 'midi' && soundOnly) throw new CodeError(`${soundOnly.what} gibt es nicht mit .midi().`, soundOnly.at);

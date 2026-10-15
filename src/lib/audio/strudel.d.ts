@@ -29,6 +29,11 @@ declare module '@strudel/webaudio' {
   export const webaudioOutput: OutputFn;
   export function initAudioOnFirstClick(): Promise<void>;
   export function getAudioContextCurrentTime(): number;
+  export function getAudioContext(): AudioContext;
+  /** Spielt einen Klang (Wert wie in einem Ereignis, z. B. `{ s: 'bd' }`) zur Zeit `t` auf der Audio-Uhr. */
+  export function superdough(value: Record<string, unknown>, t: number, duration: number): Promise<void>;
+  /** Meldet Klänge an: Name zu Adresse (auch Data-URL). */
+  export function samples(map: Record<string, string>): Promise<void>;
   /** Aus superdough: Ausgang mit der Hauptlautstärke. */
   export function getSuperdoughAudioController(): { output: { destinationGain: GainNode | null } };
 }

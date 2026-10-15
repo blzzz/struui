@@ -136,11 +136,12 @@ export function tokenGestures(get: () => TokenGestureOptions): Attachment<HTMLEl
       window.clearTimeout(pressTimer);
       window.clearTimeout(tapTimer);
       tapTimer = undefined;
-      const rect = el.getBoundingClientRect();
+      // Masse ohne Zoom: der Geist hängt am Fenster, auch wenn die Reihe verkleinert ist (Lane)
+      const { width, height } = getComputedStyle(el);
       ghost = el.cloneNode(true) as HTMLElement;
       ghost.classList.add('ghost');
-      ghost.style.width = `${rect.width}px`;
-      ghost.style.height = `${rect.height}px`;
+      ghost.style.width = width;
+      ghost.style.height = height;
       document.body.append(ghost);
       el.classList.add('dragging');
       return true;

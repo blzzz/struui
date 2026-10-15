@@ -13,6 +13,7 @@
     value = false,
     readonly = false,
     spanned = false,
+    last = false,
   }: {
     token: Token;
     laneId: string;
@@ -23,12 +24,18 @@
     readonly?: boolean;
     /** Liegt im Bereich, den ein Klammerpaar beim Umschliessen fassen würde. */
     spanned?: boolean;
+    /** Letzter Stein einer Reihe ohne Feld am Ende: zeigt auch das Einfügen dahinter. */
+    last?: boolean;
   } = $props();
 
   const over = $derived(session.dropHint?.laneId === laneId && session.dropHint.index === index);
   /** Strich davor (einfügen) oder Hervorhebung des Steins (ersetzen). */
   const hint = $derived(over && !session.dropHint?.replace);
   const replacing = $derived(over && !!session.dropHint?.replace);
+  /** Strich danach: Einfügen am Ende der Reihe. */
+  const hintAfter = $derived(
+    last && session.dropHint?.laneId === laneId && session.dropHint.index === index + 1 && !session.dropHint.replace,
+  );
   /** Klänge und rohe Steine lassen sich durch einen Klang aus der Palette ersetzen, Klammern nicht. */
   const replaceable = $derived(!value && (token.kind === 'sound' || token.kind === 'raw'));
 </script>
@@ -36,6 +43,7 @@
 <div
   class="col"
   class:hint
+  class:hint-after={hintAfter}
   data-drop-lane={readonly ? undefined : laneId}
   data-drop-index={readonly ? undefined : index}
   data-drop-kind={readonly ? undefined : 'col'}
@@ -75,6 +83,7 @@
     height: var(--s);
   }
   .hint { box-shadow: -4px 0 0 0 var(--blue); }
+  .hint-after { box-shadow: 4px 0 0 0 var(--blue); }
   :global(.compact) .col {
     gap: 0;
     padding: 0 1px;

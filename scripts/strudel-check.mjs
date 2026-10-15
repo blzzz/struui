@@ -134,6 +134,28 @@ try {
     console.log(`ok: ${noteHits} Noten einer Notenspur korrekt Noten- und Klangsteinen zugeordnet`);
   }
 
+  // Regler: .lpf(slider(…)) wird vom Transpiler zu sliderWithID(…). Das liefert @strudel/codemirror (lädt das Prebake),
+  // hier dasselbe Modul. Der Wert muss im Ereignis ankommen; der Rückweg aus Code liest den Bereich wieder.
+  {
+    patterns.length = 0;
+    const { createRequire } = await import('node:module');
+    const fromRepl = createRequire(createRequire(import.meta.url).resolve('@strudel/repl/prebake.mjs'));
+    const sliders = await server.ssrLoadModule(fromRepl.resolve('@strudel/codemirror/slider.mjs'));
+    await core.evalScope(sliders);
+    const fx = [{ ...types.effect('lpf', [snd('800')]), slider: { min: 100, max: 8000, step: 10 } }];
+    const program = codegen.toStrudelProgram([{ tokens: [snd('bd'), snd('sd')], effects: fx }], { cps: 0.5 });
+    assert.match(program.code, /\$: s\("bd sd"\)\.lpf\(slider\(800, 100, 8000, 10\)\)$/, 'slider() im Code');
+    await transpiler.evaluate(program.code);
+    const haps = patterns[0].queryArc(0, 1);
+    assert.equal(haps.length, 2);
+    for (const hap of haps) assert.equal(hap.value.cutoff, 800, 'Wert aus slider() kommt an');
+    const fromCode = await server.ssrLoadModule('/src/lib/syntax/from-code.ts');
+    const back = fromCode.codeToTrack(program.code.split('\n').at(-1));
+    assert.ok(back.ok);
+    assert.deepEqual(back.effects[0].slider, { min: 100, max: 8000, step: 10 });
+    console.log('ok: slider(wert, min, max, step) läuft in Strudel und kommt als Regler zurück');
+  }
+
   // Rechenarten: note("c3 e3".add("<0 12>")) transponiert wirklich (als Methode nach note() täte es das nicht),
   // und die Wertsteine von add leuchten im richtigen Zyklus.
   {

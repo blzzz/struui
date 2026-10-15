@@ -4,14 +4,17 @@
   import { project } from '../state/project.svelte.ts';
   import { session } from '../state/session.svelte.ts';
   import { flushSync } from 'svelte';
-  import AddMenu from './AddMenu.svelte';
   import TokenColumn from './TokenColumn.svelte';
   import type { Token } from '../domain/types.ts';
 
   /**
    * Eine Steinreihe: die Klänge einer Spur oder die Werte eines Effekts (`value`).
-   * Klänge kommen aus der Palette darunter (ziehen oder tippen), Werte und Noten über das + am Ende.
+   * Klänge kommen aus der Klangpalette (ziehen), Werte und Noten über das + am Ende (hängt einen Stein an und öffnet sein Feld).
    * `readonly` (eingeklappte Spur): nur anzeigen und aufleuchten. Kein Tippen, Ziehen oder Ablegen, kein +.
+   *
+   * Passt die Reihe nicht auf eine Zeile, wird sie verkleinert (CSS `zoom`, bis `MIN_FIT`, darunter bricht sie wieder um).
+   * Daneben erscheint dann ein Knopf für die Originalgrösse (`session.unfit`), dort einer zum Verkleinern.
+   * Beim Tippen in einen Stein gilt Originalgrösse, sonst zoomt iOS ins zu kleine Eingabefeld.
    */
   let {
     laneId,
@@ -34,12 +37,57 @@
     return wrapSpan(tokens, from, to < 0 ? from : to);
   });
   let row = $state<HTMLElement>();
+  let box = $state<HTMLElement>();
 
-  /** Notenreihe: das + am Ende hängt eine Note an. Klangreihen füllt die Palette. */
+  /** Kleinste Verkleinerung, darunter wären die Steine kaum noch zu treffen. */
+  const MIN_FIT = 0.5;
+  /** Platz rechts vom letzten Stein einer Klangreihe, damit man dort ans Ende ablegen kann. */
+  const END_WIDTH = 24;
+  /** Verkleinerung, damit die Reihe auf eine Zeile passt (1 = passt in Originalgrösse). */
+  let fit = $state(1);
+  /** Die Reihe ist in Originalgrösse breiter als der Platz: nur dann gibt es den Knopf. */
+  let overflows = $state(false);
+  const original = $derived(session.unfit.has(laneId));
+  const zoom = $derived(original ? 1 : fit);
+
+  // Breite in Originalgrösse aus den Spalten messen (gezeichnete Breite durch den aktuellen Zoom) und mit dem Platz vergleichen
+  $effect(() => {
+    if (readonly || !row || !box) return;
+    void tokens.map((t) => t.id);
+    const el = row;
+    const applied = zoom;
+    const reserve = endcol ? 0 : END_WIDTH;
+    const measure = () => {
+      if (el.querySelector('input:focus')) return;
+      let natural = reserve;
+      for (const child of el.children) {
+        if (child.classList.contains('wraphint')) continue;
+        // Der Hinweis einer leeren Klangreihe füllt den Rest, es gibt nichts zu verkleinern
+        if (child.classList.contains('empty')) continue;
+        natural += child.getBoundingClientRect().width / applied;
+      }
+      const avail = el.getBoundingClientRect().width;
+      overflows = natural > avail + 1;
+      const next = overflows ? Math.max(MIN_FIT, Math.floor((avail / natural) * 100) / 100) : 1;
+      if (Math.abs(next - fit) > 0.005) fit = next;
+    };
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    for (const child of el.children) observer.observe(child);
+    return () => observer.disconnect();
+  });
+
+  /** Notenreihe: das + am Ende hängt eine Note an, in einer Effektreihe einen Wert. Klangreihen füllt die Palette. */
   const notes = $derived(!value && project.contentOf(laneId) === 'notes');
+  /**
+   * Feld am Ende: + der Werte- und Notenreihen, Hinweis der leeren Klangreihe.
+   * Eine Klangreihe mit Steinen hat keins. Dort legt die Reihe selbst am Ende ab (`data-lane-end`),
+   * den Strich dafür zeichnet der letzte Stein rechts.
+   */
+  const endcol = $derived(!readonly && (value || notes || tokens.length === 0));
 
-  function addNote() {
-    const id = project.appendNote(laneId);
+  function addStone() {
+    const id = value ? project.appendValue(laneId) : project.appendNote(laneId);
     if (!id) return;
     session.editNew = id;
     // Noch in der Geste fokussieren, sonst öffnet iOS keine Tastatur
@@ -64,7 +112,14 @@
   });
 </script>
 
-<div bind:this={row} class="row" data-lane={readonly ? undefined : laneId} data-lane-end={readonly ? undefined : tokens.length}>
+<div class="lane" class:readonly bind:this={box}>
+<div
+  bind:this={row}
+  class="row"
+  style:--fit={zoom === 1 ? undefined : zoom}
+  data-lane={readonly ? undefined : laneId}
+  data-lane-end={readonly ? undefined : tokens.length}
+>
   {#if wrap}
     <div class="wraphint" role="status">
       <span>{wrap.group} {CLOSING[wrap.group]} bis zu welchem Stein? Antippen.</span>
@@ -78,48 +133,116 @@
       {value}
       {readonly}
       index={i}
+      last={!endcol && i === tokens.length - 1}
       spanned={span !== null && i >= span[0] && i <= span[1]}
       error={parsed.errorIds.has(token.id)}
     />
   {/each}
-  {#if !readonly}
+  {#if endcol}
     <div
       class="endcol"
-      class:pluscol={value}
-      class:notecol={notes}
-      class:empty={tokens.length === 0 && !value && !notes}
+      class:pluscol={value || notes}
+      class:empty={!value && !notes}
       class:hint={endHint}
       data-drop-lane={laneId}
       data-drop-index={tokens.length}
       data-drop-kind="end"
     >
-      {#if value}
-        <AddMenu {laneId} />
-      {:else if notes}
-        <button class="plus" aria-label="Note anhängen" title="Note anhängen" onclick={addNote}>+</button>
-      {:else if tokens.length === 0}
-        Steine von unten hierher ziehen
+      {#if value || notes}
+        {@const what = value ? 'Wert anhängen' : 'Note anhängen'}
+        <button class="plus" aria-label={what} title={what} onclick={addStone}>+</button>
+      {:else}
+        Steine aus der Klangpalette hierher ziehen
       {/if}
     </div>
   {/if}
 </div>
+{#if !readonly && overflows}
+  <button
+    class="fit"
+    aria-pressed={original}
+    aria-label={original ? 'Auf eine Zeile verkleinern' : 'Originalgrösse'}
+    title={original ? 'Auf eine Zeile verkleinern' : 'Originalgrösse'}
+    onclick={() => session.toggleFit(laneId)}
+  >
+    <!-- Lupe: − verkleinert auf eine Zeile, + zeigt die Originalgrösse -->
+    <svg viewBox="0 0 16 16" aria-hidden="true">
+      <circle cx="6.5" cy="6.5" r="4.5" />
+      <path d="M10 10l4.5 4.5M4.5 6.5h4" />
+      {#if !original}<path d="M6.5 4.5v4" />{/if}
+    </svg>
+  </button>
+{/if}
+</div>
 
 <style>
+  .lane {
+    display: flex;
+    align-items: flex-start;
+    gap: 4px;
+  }
+  /* Eingeklappte Spur: die Reihe fügt sich in den Fluss der Spur ein */
+  .lane.readonly {
+    display: contents;
+  }
   .row {
+    flex: 1;
+    min-width: 0;
+    zoom: var(--fit, 1);
     display: flex;
     flex-wrap: wrap;
     gap: 6px 0;
     align-items: flex-start;
   }
-  .pluscol {
-    padding-top: calc(var(--s) + 2px);
-    padding-left: 2px;
+  /* Beim Tippen in einen Stein Originalgrösse (iOS zoomt sonst ins Eingabefeld). Schlägt den Wert im style-Attribut. */
+  .row:has(:global(input:focus)) {
+    --fit: 1 !important;
   }
-  /* + der Notenreihe: auf Höhe der Steine, über ihnen liegt die Zufallsreihe, wenn die Spur sie zeigt */
-  .notecol {
+  /* Knopf für Original- bzw. verkleinerte Grösse, auf Höhe der Steine.
+     Gleich zurückhaltend wie die Schalter links vom Editor (TrackView): nur das Symbol, aus blass, an weiss. */
+  .fit {
+    flex: none;
+    width: 28px;
+    height: 28px;
+    margin-top: calc(var(--s) + 2px);
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    color: var(--mute);
+    background: transparent;
+    opacity: 0.6;
+  }
+  .fit:hover {
+    opacity: 1;
+  }
+  .fit[aria-pressed='true'] {
+    background: transparent;
+    color: var(--ink);
+    opacity: 1;
+  }
+  @media (prefers-color-scheme: dark) {
+    .fit[aria-pressed='true'] {
+      color: #fff;
+    }
+  }
+  :global(.norandom) .fit {
+    margin-top: 0;
+  }
+  .fit svg {
+    width: 16px;
+    height: 16px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.5;
+    stroke-linecap: round;
+  }
+  /* + der Noten- und Wertreihen: auf Höhe der Steine, über ihnen liegt die Zufallsreihe, wenn die Spur sie zeigt */
+  .pluscol {
     padding: calc(var(--s) + 2px) 0 0 4px;
   }
-  :global(.norandom) .notecol {
+  :global(.norandom) .pluscol {
     padding-top: 0;
   }
   .plus {
@@ -132,8 +255,8 @@
     font-size: 22px;
     line-height: 1;
   }
-  /* Ablage am Ende einer Klangreihe: so hoch wie eine Spalte (Würfel und Drehknöpfe nur, wenn die Spur sie zeigt),
-     damit man dorthin ziehen kann. Eine leere Reihe ist gleich hoch, so springt sie beim ersten Stein nicht. */
+  /* Feld am Ende (leere Klangreihe, + der Noten- und Wertreihen): so hoch wie eine Spalte (Würfel und Drehknöpfe nur,
+     wenn die Spur sie zeigt). So springt eine leere Reihe beim ersten Stein nicht. */
   .endcol {
     flex: 1;
     min-width: 24px;
@@ -145,10 +268,6 @@
   }
   :global(.norandom.noknobs) .endcol {
     min-height: var(--s);
-  }
-  .endcol.pluscol {
-    flex: none;
-    min-height: 0;
   }
   .endcol.empty {
     display: flex;

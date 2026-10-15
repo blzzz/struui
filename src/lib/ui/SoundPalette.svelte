@@ -3,6 +3,8 @@
   import { ALL_SOUNDS, SOUND_GROUPS } from "../domain/sounds.ts";
   import { PAUSE } from "../domain/types.ts";
   import { tokenGestures } from "../interaction/token-gestures.ts";
+  import type { DropTarget } from "../interaction/token-gestures.ts";
+  import { playback } from "../state/playback.svelte.ts";
   import { project } from "../state/project.svelte.ts";
   import type { PaletteItem } from "../state/project.svelte.ts";
   import { recording } from "../state/recording.svelte.ts";
@@ -10,23 +12,19 @@
   import { session } from "../state/session.svelte.ts";
 
   /**
-   * Zweizeilige Palette unter dem Klangeditor. Oben eine schmale feste Zeile: Titel, rechts Suchen, Datei laden
-   * und Aufnehmen. Die Lupe verwandelt den Titel in ein Suchfeld.
+   * Die eine Klangpalette, fest unter der oberen Leiste. Der Pfeil klappt sie ein (nur noch die Kopfzeile).
+   * Oben eine schmale Zeile: Pfeil, Titel, rechts Suchen, Datei laden und Aufnehmen.
+   * Die Lupe verwandelt den Titel in ein Suchfeld.
    * Unten waagrecht scrollbar: Pause, eigene Klänge, dann alle Steine nach Gruppen mit Überschrift.
-   * Steine von hier in eine Spur ziehen (nach oben/unten ziehen, seitwärts scrollt die Zeile) oder antippen,
-   * dann kommen sie ans Ende dieser Spur.
-   * Über der Mitte eines Klangsteins losgelassen, ersetzt ein Klang ihn. Klammerpaare kommen über das Menü eines Steins (Umschliessen).
+   * Steine von hier in eine Klangreihe ziehen (nach oben/unten ziehen, seitwärts scrollt die Zeile): in eine Klangspur
+   * oder in den Klang einer Notenspur (`.s`). Über der Mitte eines Klangsteins losgelassen, ersetzt ein Klang ihn.
+   * Steine kommen nur durch Ziehen in eine Spur, Antippen legt nichts ab. Langes Drücken spielt den Klang an.
+   * Pause gibt es im Klang einer Notenspur nicht (`.s("~")` wäre still). Notensteine kommen über das + der Reihe.
+   * Klammerpaare kommen über das Menü eines Steins (Umschliessen).
    * Das Suchfeld filtert eigene und mitgelieferte Klänge, die Pause bleibt immer sichtbar.
    * Ohne Suche stehen die Klänge nach Gruppen (`SOUND_GROUPS`), mit Suche alle Klänge, die Strudel kennt
    * (auch die Drum Machines wie `AkaiLinn_bd`), die aus den Gruppen zuerst.
-   *
-   * `mode`: `sounds` füllt die Klangsteine der Spur. `voice` füllt den Klang einer Notenspur (`.s`): Antippen ersetzt ihn,
-   * Pause gibt es dort nicht (`.s("~")` wäre still). Notensteine kommen nicht aus der Palette, sondern über das + der Reihe.
    */
-  let { trackId, mode = "sounds" }: { trackId: string; mode?: "sounds" | "voice" } = $props();
-
-  /** Die Reihe, in die Antippen ablegt: die Spur selbst oder ihr Klang. */
-  const laneId = $derived(mode === "voice" ? (project.lane(trackId)?.track.voice.id ?? trackId) : trackId);
 
   let fileInput = $state<HTMLInputElement>();
   let query = $state("");
@@ -37,9 +35,6 @@
     query = "";
     searchOpen = false;
   }
-  /** Die Meldung gehört zu der Spur, in der die Aufnahme gestartet wurde. */
-  let mine = $state(false);
-
   const groups = SOUND_GROUPS.map(
     ([label, names]) => [label, names.filter((n) => n !== PAUSE)] as const,
   ).filter(([, names]) => names.length > 0);
@@ -61,34 +56,29 @@
     searching ? searchable.filter(matches).slice(0, MAX_HITS) : [],
   );
 
-  /** Ablegen nur in Reihen mit passendem Inhalt: Klänge zu Klängen, Noten zu Noten, nie in Effektreihen. */
-  const fits = (target: { laneId: string } | null) =>
-    target !== null && project.contentOf(target.laneId) === "sounds";
+  const isPause = (item: PaletteItem) => item.kind === "sound" && item.name === PAUSE;
 
-  function tap(item: PaletteItem) {
-    if (mode === "voice" && item.kind === "sound") project.setVoice(trackId, item.name);
-    else project.insertItem(laneId, null, item);
-  }
+  /** Ablegen nur in Klangreihen (nie Noten, nie Effekte), die Pause nicht in den Klang einer Notenspur. */
+  const fits = (drop: DropTarget | null, item: PaletteItem): drop is DropTarget => {
+    const lane = drop && project.lane(drop.laneId);
+    return !!lane && lane.content === "sounds" && !(lane.effect && isPause(item));
+  };
 
   function gestures(item: PaletteItem) {
     return tokenGestures(() => ({
-      onTap: () => tap(item),
-      onDoubleTap: () => tap(item),
+      onTap: () => {},
+      onDoubleTap: () => {},
       immediateTap: true,
+      onLongPress: item.kind === "sound" && !isPause(item) ? () => void playback.preview(item.name) : undefined,
       replaces: true,
       canDrag: (dx, dy) => Math.abs(dy) > Math.abs(dx),
-      onDragMove: (target) => (session.dropHint = fits(target) ? target : null),
-      onDrop: (target) => {
-        if (!target || !fits(target)) return;
-        if (target.replace) project.replaceWithItem(target.laneId, target.index, item);
-        else project.insertItem(target.laneId, target.index, item);
+      onDragMove: (drop) => (session.dropHint = fits(drop, item) ? drop : null),
+      onDrop: (drop) => {
+        if (!fits(drop, item)) return;
+        if (drop.replace) project.replaceWithItem(drop.laneId, drop.index, item);
+        else project.insertItem(drop.laneId, drop.index, item);
       },
     }));
-  }
-
-  async function record() {
-    mine = true;
-    await recording.toggle();
   }
 
   async function onFile(e: Event) {
@@ -96,19 +86,31 @@
     const file = input.files?.[0];
     input.value = "";
     if (!file) return;
-    mine = true;
     await recording.load(file);
   }
 </script>
 
 <div
   class="palette"
+  class:closed={!session.paletteOpen}
   role="toolbar"
-  aria-label={mode === "voice" ? "Klang der Noten" : "Steine zum Hineinziehen"}
+  aria-label="Klangpalette"
 >
-  <!-- Obere Zeile, fest und schmal: Titel links, Suchen, Laden und Aufnehmen als kleine Knöpfe rechts.
-       Die Lupe macht aus dem Titel ein Suchfeld. -->
+  <!-- Obere Zeile, fest und schmal: Pfeil und Titel links, Suchen, Laden und Aufnehmen als kleine Knöpfe rechts.
+       Die Lupe macht aus dem Titel ein Suchfeld. Eingeklappt bleiben nur Pfeil und Titel. -->
   <div class="head">
+    <button
+      class="fold"
+      aria-expanded={session.paletteOpen}
+      aria-label={session.paletteOpen ? "Klangpalette einklappen" : "Klangpalette ausklappen"}
+      title={session.paletteOpen ? "Klangpalette einklappen" : "Klangpalette ausklappen"}
+      onclick={() => {
+        session.paletteOpen = !session.paletteOpen;
+        if (!session.paletteOpen) closeSearch();
+      }}
+    >
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6l4 4 4-4" /></svg>
+    </button>
     {#if searchOpen}
       <div class="search-box">
         <input
@@ -140,6 +142,7 @@
     {:else}
       <span class="title">Klangpalette</span>
     {/if}
+    {#if session.paletteOpen}
       <div class="tools">
         {#if !searchOpen}
           <button
@@ -173,7 +176,7 @@
         <button
           class="tool rec"
           class:on={recording.active}
-          onclick={record}
+          onclick={() => recording.toggle()}
           aria-label={recording.active
             ? "Aufnahme beenden"
             : "Aufnehmen (bis 3 Sekunden)"}
@@ -182,6 +185,7 @@
           {#if recording.active}■ {recording.seconds.toFixed(1)}{:else}●{/if}
         </button>
       </div>
+    {/if}
   </div>
 
   {#snippet sound(name: string)}
@@ -210,9 +214,9 @@
   {/snippet}
 
   <!-- Untere Zeile, waagrecht scrollbar: Pause, eigene Klänge, dann alle Steine, jeweils mit Gruppentitel -->
+  {#if session.paletteOpen}
   <div class="stones">
-    {#if mode !== "voice"}
-      {#snippet pause()}
+    {#snippet pause()}
         <div
           class="item pause"
           role="button"
@@ -223,8 +227,7 @@
           ~
         </div>
       {/snippet}
-      {@render group("Pause", pause)}
-    {/if}
+    {@render group("Pause", pause)}
     {#if shownOwn.length > 0}
       {#snippet own()}
         {#each shownOwn as name (name)}
@@ -265,23 +268,53 @@
       {/each}
     {/if}
   </div>
+  {/if}
+  {#if recording.message}
+    <p class="message" role="alert">{recording.message}</p>
+  {/if}
 </div>
-{#if mine && recording.message}
-  <p class="message" role="alert">{recording.message}</p>
-{/if}
 
 <style>
   .palette {
     display: flex;
     flex-direction: column;
     gap: 4px;
-    margin-top: 8px;
-    /* Gehört nicht zur Spur: über deren Innenabstand hinaus bis an den Rand des Fensters */
+    /* Klebt beim Scrollen unter der oberen Leiste, über den Spuren */
+    position: sticky;
+    top: calc(var(--bar-h) + env(safe-area-inset-top, 0px));
+    z-index: 10;
     --edge-l: max(12px, env(safe-area-inset-left, 0px));
     --edge-r: max(12px, env(safe-area-inset-right, 0px));
-    margin-inline: calc(-1 * var(--edge-l)) calc(-1 * var(--edge-r));
     padding: 4px 0 8px;
     background: var(--palette);
+    border-bottom: 1.5px solid var(--line);
+  }
+  .palette.closed {
+    padding-bottom: 4px;
+  }
+  .fold {
+    width: 32px;
+    height: 28px;
+    margin-left: -8px;
+    padding: 0;
+    border: none;
+    color: var(--mute);
+    background: transparent;
+    flex: none;
+  }
+  .fold svg {
+    width: 16px;
+    height: 16px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    transition: transform 0.15s ease-out;
+  }
+  /* Eingeklappt: Pfeil nach rechts wie bei den Spuren */
+  .closed .fold svg {
+    transform: rotate(-90deg);
   }
   .head {
     padding: 0 var(--edge-r) 0 var(--edge-l);
@@ -473,6 +506,7 @@
   .message {
     color: var(--red);
     font-size: 13px;
-    margin: 4px 0 0;
+    margin: 0;
+    padding: 0 var(--edge-r) 0 var(--edge-l);
   }
 </style>

@@ -1,7 +1,7 @@
 import { toStrudelCode, toStrudelProgram } from '../domain/codegen.ts';
 import { adoptIds, insertPair, moveToken, removeAt, replaceAt, setGroup, unwrapAt, wrapAt, wrapRange } from '../domain/edit.ts';
-import { defaultValue, effectInfo, noteOpInfo, valueInfo } from '../domain/effects.ts';
-import type { Effect } from '../domain/effects.ts';
+import { defaultValue, effectInfo, noteOpInfo, singleValue, valueInfo } from '../domain/effects.ts';
+import type { Effect, SliderRange } from '../domain/effects.ts';
 import { DEFAULT_VOICE } from '../domain/notes.ts';
 import type { ParseResult } from '../domain/parse.ts';
 import type { TempoUnit } from '../domain/tempo.ts';
@@ -21,7 +21,7 @@ import {
   trackName,
 } from '../domain/types.ts';
 import { analyze } from '../syntax/analyze.ts';
-import type { CodeLine } from '../syntax/from-code.ts';
+import type { CodeLine, ValueRow } from '../syntax/from-code.ts';
 import type { CodeTrack } from '../domain/codegen.ts';
 import type { GroupType, Token, Track, TrackType } from '../domain/types.ts';
 import { sampleBank } from './sample-bank.svelte.ts';
@@ -35,12 +35,14 @@ export type PlaceMode = 'replace' | 'insert';
 export type RowKind = 'effects' | 'noteOps';
 
 /** Wertreihen aus geparstem Code übernehmen. Gleicher Name an gleicher Stelle behält die IDs von Reihe und Steinen. */
-function adoptRows(old: readonly Effect[], next: readonly { name: string; tokens: Token[] }[]): Effect[] {
+function adoptRows(old: readonly Effect[], next: readonly ValueRow[]): Effect[] {
   return next.map((n, i) => {
     const o = old[i];
-    if (o?.name !== n.name) return effect(n.name, n.tokens);
+    if (o?.name !== n.name) return { ...effect(n.name, n.tokens), slider: n.slider };
     adoptIds(o.tokens, n.tokens);
-    return { id: o.id, name: n.name, tokens: n.tokens };
+    // Ohne slider() im Code bleibt ein eingestellter Bereich, solange der Wert Mini-Notation ist (dort steht er nie im Code)
+    const keep = n.slider ?? (singleValue(n.tokens) === null ? (o.slider ?? null) : null);
+    return { id: o.id, name: n.name, tokens: n.tokens, slider: keep };
   });
 }
 
@@ -225,17 +227,6 @@ class Project {
     t.type = type;
   }
 
-  /**
-   * Klang einer Notenspur aus der Palette (Antippen): Liegt höchstens ein Stein da, wird er ersetzt (der Normalfall),
-   * sonst kommt der Klang ans Ende.
-   */
-  setVoice(trackId: string, name: string): void {
-    const t = this.find(trackId);
-    if (!t) return;
-    if (t.voice.tokens.length <= 1) t.voice.tokens = [soundToken(name)];
-    else t.voice.tokens.push(soundToken(name));
-  }
-
   /** Orbit eins höher, nach dem letzten wieder 1. */
   cycleOrbit(trackId: string): void {
     const t = this.find(trackId);
@@ -280,6 +271,35 @@ class Project {
   removeEffect(trackId: string, effectId: string, kind: RowKind = 'effects'): void {
     const t = this.find(trackId);
     if (t) t[kind] = t[kind].filter((e) => e.id !== effectId);
+  }
+
+  /** Effekt innerhalb der Spur verschieben. `toIndex` ist die Einfügeposition vor dem Entfernen. */
+  moveEffect(trackId: string, effectId: string, toIndex: number, kind: RowKind = 'effects'): void {
+    const list = this.find(trackId)?.[kind];
+    const from = list?.findIndex((e) => e.id === effectId) ?? -1;
+    if (!list || from < 0) return;
+    const [e] = list.splice(from, 1);
+    list.splice(Math.max(0, from < toIndex ? toIndex - 1 : toIndex), 0, e);
+  }
+
+  /** Wert eines Effekts über den Regler: danach liegt genau ein Stein darin. Ein einzelner Stein behält seine ID. */
+  setEffectValue(effectId: string, value: string): void {
+    const lane = this.lane(effectId);
+    if (!lane?.effect) return;
+    const only = lane.tokens.length === 1 ? lane.tokens[0] : null;
+    if (only?.kind === 'sound') {
+      only.sound = value;
+      only.random = null;
+      only.repeat = null;
+    } else {
+      lane.effect.tokens = [soundToken(value)];
+    }
+  }
+
+  /** Bereich des Reglers setzen (danach steht der Wert als `slider()` im Code) oder entfernen (null, wieder eine Zahl). */
+  setEffectSlider(effectId: string, range: SliderRange | null): void {
+    const e = this.lane(effectId)?.effect;
+    if (e) e.slider = range;
   }
 
   /** Klang oder Wert anhängen (tokenId null), davor einfügen oder den Stein ersetzen. */
@@ -368,6 +388,17 @@ class Project {
     if (!lane || lane.content !== 'notes') return null;
     const last = [...lane.tokens].reverse().find((t) => t.kind === 'sound' && t.sound !== PAUSE);
     const token = soundToken(last?.kind === 'sound' ? last.sound : FIRST_NOTE);
+    lane.tokens.push(token);
+    return token.id;
+  }
+
+  /** Wert ans Ende einer Effektreihe hängen: wie der letzte Wert, sonst Strudels Vorgabe. Gibt die ID zurück. */
+  appendValue(laneId: string): string | null {
+    const lane = this.lane(laneId);
+    if (!lane?.effect || lane.content !== 'values') return null;
+    const last = [...lane.tokens].reverse().find((t) => t.kind === 'sound' && t.sound !== PAUSE);
+    const info = valueInfo(lane.effect.name);
+    const token = soundToken(last?.kind === 'sound' ? last.sound : ((info && defaultValue(info)) ?? '0'));
     lane.tokens.push(token);
     return token.id;
   }

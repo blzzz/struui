@@ -1,6 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import CodeView from './lib/ui/CodeView.svelte';
+  import SoundPalette from './lib/ui/SoundPalette.svelte';
   import SnapshotDock from './lib/ui/SnapshotDock.svelte';
   import HelpDialog from './lib/ui/HelpDialog.svelte';
   import ValueSheet from './lib/ui/ValueSheet.svelte';
@@ -25,6 +26,7 @@
   {/if}
 
   {#if session.view === 'ui'}
+    <SoundPalette />
     {#each project.tracks as track, i (track.id)}
       <TrackView {track} index={i} />
     {/each}

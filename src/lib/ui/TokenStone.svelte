@@ -65,7 +65,7 @@
   let before = '';
   let input = $state<HTMLInputElement>();
 
-  // Eben über das + angehängt: gleich offen. Das + fokussiert das Feld noch in seiner Geste (iOS-Tastatur).
+  // Eben über das + angehängt (Note oder Wert): gleich offen. Das + fokussiert das Feld noch in seiner Geste (iOS-Tastatur).
   untrack(() => {
     if (editable && token.kind === 'sound' && session.editNew === token.id) {
       session.editNew = null;
@@ -327,6 +327,11 @@
     outline-color: var(--red);
   }
   /* Menü über dem Stein, mittig */
+  /* Menü und ± in einer verkleinerten Reihe (Lane) in normaler Grösse */
+  .menu,
+  .steps {
+    zoom: calc(1 / var(--fit, 1));
+  }
   .menu {
     position: absolute;
     bottom: calc(100% + 6px);

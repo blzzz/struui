@@ -66,12 +66,17 @@ von `codegen` stammt, kennen wir die Position jedes Klangnamens und finden so de
   Spuren). Kein Doppeltippen und keine Verzögerung mehr; per Tastatur öffnet Enter den Dialog.
   Ziehen hört nach dem Drücken am ganzen Fenster zu (nicht über Pointer Capture am Stein), wertet höchstens einmal pro Bild aus
   und bricht bei `Escape`, verlorenem Fokus oder `pointercancel` sauber ab. Vorher konnte der Geisterstein hängen bleiben.
-- **Palette unter dem Klangeditor** (`ui/SoundPalette.svelte`): waagrecht scrollbare Zeile mit Aufnehmen, Datei laden, eigenen
-  Klängen, Pause und den Klängen aus `SOUND_GROUPS` (mit Suche: alle Klänge, auch Drum Machines). Nach oben/unten ziehen legt den Stein in eine Spur
-  (auch eine andere), seitwärts scrollt die Zeile (`canDrag` in `token-gestures.ts`, `touch-action: pan-x`). Antippen hängt
-  ihn ans Ende dieser Spur. Klangreihen haben kein `+` mehr; Effektreihen behalten es (für Werte gibt es keine Palette).
-- **Darstellung:** Wrap-Layout, Kompaktansicht pro Spur (schmale Striche, Schalter im Spurkopf, flüchtig in `session`;
-  eingeklappt nur zum Ansehen: keine Paletten, kein `+`, keine Suchfelder, Steine reagieren nicht und sind kein Ablageziel
+- **Eine Klangpalette unter der oberen Leiste** (`ui/SoundPalette.svelte`, in `App.svelte`, klebt beim Scrollen, Pfeil klappt
+  sie ein: `session.paletteOpen`): waagrecht scrollbare Zeile mit Aufnehmen, Datei laden, eigenen
+  Klängen, Pause und den Klängen aus `SOUND_GROUPS` (mit Suche: alle Klänge, auch Drum Machines). Nach oben/unten ziehen legt den Stein in eine
+  Klangreihe (Klangspur oder `.s` einer Notenspur, dort ohne Pause), seitwärts scrollt die Zeile (`canDrag` in `token-gestures.ts`,
+  `touch-action: pan-x`). Antippen legt nichts ab, Steine kommen nur durch Ziehen in eine Spur. Langes Drücken spielt den Klang an (`StrudelEngine.preview`, direkt über Strudels `superdough`,
+  lädt Strudel beim ersten Mal; auf iOS evtl. still, bis einmal getippt wurde, weil der Audiokontext eine Geste braucht). Klangreihen haben kein `+` mehr; Effektreihen behalten es (für Werte gibt es keine Palette).
+- **Darstellung:** Wrap-Layout; passt eine Steinreihe nicht auf eine Zeile, verkleinert `Lane` sie per CSS `zoom` (bis 0,5,
+  darunter Umbruch). Ein Knopf daneben schaltet pro Reihe auf Originalgrösse (`session.unfit`). Beim Tippen in einen Stein gilt
+  Originalgrösse (iOS zoomt sonst ins Feld), Menüs im Stein heben den Zoom auf (ungeprüft im Browser, vor allem Safari).
+  Kompaktansicht pro Spur (schmale Striche, Schalter im Spurkopf, flüchtig in `session`;
+  eingeklappt nur zum Ansehen: kein `+`, keine Suchfelder, Steine reagieren nicht und sind kein Ablageziel
   (`readonly` an `Lane`, `TokenColumn`, `TokenStone`, `EffectList`). Steine, Rechenarten, `.s` und Effekte folgen
   in einer umbrechenden Zeile aufeinander, Effekte ohne Wert fehlen, fehlerhafte sind durchgestrichen; sie leuchten weiter auf),
   Gruppen ohne Hinterlegung, nur die farbigen Klammersteine zeigen sie (die Tiefe aus `parse` nutzt die Darstellung nicht mehr). Klammern sind quadratische Steine wie Klänge.
@@ -114,7 +119,7 @@ von `codegen` stammt, kennen wir die Position jedes Klangnamens und finden so de
   (`getSuperdoughAudioController().output.destinationGain`), steht also nicht im Code und gilt auch für Snapshots nicht.
   Hängt an einem internen Detail von superdough, nach Strudel-Updates prüfen. Spuren gehen über die volle Breite. Die Code-Ansicht zeigt das ganze Programm, oben der Link zu Strudel.
 - **Effekte pro Spur** (`domain/effects.ts`, `Track.effects`, `ui/EffectList.svelte`). Unter den Steinen ein Suchfeld mit
-  Autovervollständigung; die Wahl fügt eine Zeile an. **Der Wert eines Effekts ist eine Steinreihe wie eine Spur**
+  Autovervollständigung; die Wahl fügt eine Box an. **Der Wert eines Effekts ist eine Steinreihe wie eine Spur**
   (`Effect.tokens`), nur stehen Werte statt Klängen auf den Steinen (`sound` = `800`, `.5`, `a`). Klammern, Zufall,
   Wiederholung und Ziehen (nur zwischen Wertreihen) wirken gleich. **Werte werden direkt bearbeitet:** Tippen öffnet sofort
   (ohne Warten auf Doppeltippen) ein Feld im Stein, jede gültige Eingabe gilt sofort; ↑/↓ und −/+ springen zum nächsten Wert
@@ -131,7 +136,23 @@ von `codegen` stammt, kennen wir die Position jedes Klangnamens und finden so de
   Jeder Eintrag hat eine **Gruppe** (`audio`, `pitch` = `note`, `midi` = `ccn`, `ccv`, `progNum`, `midibend` …). Klangspuren bieten
   Audio und Tonhöhe an, MIDI-Spuren MIDI, Tonhöhe sowie `velocity` und `gain` (`offersEffect`). Der Rückweg aus Code nimmt jeden bekannten Effekt. Ein Test schlägt fehl, wenn die Datei nicht mehr zum installierten Strudel passt.
   Beschreibungen sind Strudels englische Texte. Für 44 Effekte zeigt Strudel keine Beispielwerte; dort zählen −/+ in Einer- bzw. Zehntelschritten.
-  Offen: Effekte als physische Steine für die Kamera, Effekte auf einzelnen Steinen statt der ganzen Spur, Drehknöpfe mit Wertebereich.
+  **Effekte als Boxen** (`ui/EffectBox.svelte`): je Effekt eine rund 64 px breite Box, von links umbrechend. Oben der Titel
+  (Beschreibung als Tooltip, Ziehen daran verschiebt die Box, Tastatur Pfeil links/rechts, `interaction/reorder.ts`,
+  `project.moveEffect`; die Reihenfolge ist die im Code), darunter Regler und Zahlenfeld. Ein Regler pro Box, also pro Effekt ein
+  Wert: Strudels Unterparameter (`lpf("800:10")` = cutoff:resonance) sind bewusst nicht dabei (entschieden). Der Bereich kommt aus
+  Strudels Beispielwerten (`valueScale`): sie liegen gleichmässig auf dem Regler, dazwischen linear, nahe daran rastet er ein; mit
+  einem Beispiel 0 bis zum Doppelten, ohne Beispiel 0–1. Das Zahlenfeld nimmt auch Werte ausserhalb. Effekte mit Namen statt
+  Zahlen (`vowel`) bekommen eine Auswahl. Der Schalter «mini» zeigt stattdessen die Wertsteine (`session.mini`, flüchtig);
+  ist der Wert mehr als ein einzelner Stein ohne Zufall und Wiederholung (`singleValue`), bleibt er an, damit nichts verloren geht.
+  **Strudels `slider()`:** «edit» in der Box stellt min, max und step ein (`Effect.slider`, Vorschlag aus den Beispielwerten,
+  `suggestSliderRange`). Erst dann steht der Wert als `.lpf(slider(800, 100, 8000, 10))` im Code (entschieden: nur nach Bearbeiten),
+  und der Regler der Box ist linear wie der von Strudel. «kein slider» schreibt wieder die Zahl. Bei Mini-Notation bleibt der
+  Bereich gespeichert, steht aber nicht im Code. Der Rückweg aus Code liest `slider(wert[, min, max, step])` (fehlend wie bei Strudel
+  0, 1, ohne step ein Hundertstel). `sliderWithID`, das der Transpiler daraus macht, kommt aus `@strudel/codemirror`, das das Prebake
+  lädt; `test:strudel` prüft mit genau diesem Modul. Auf strudel.cc erscheint der Wert als Regler im Code. Ziehen am Regler ändert
+  den Code und wertet neu aus (Strudels Weg ohne Neuauswerten, `cm-slider`-Nachrichten, ist ungenutzt).
+  Ungeprüft im Browser, vor allem Regler und Ziehen am Titel auf iOS.
+  Offen: Effekte als physische Steine für die Kamera, Effekte auf einzelnen Steinen statt der ganzen Spur.
 - **Kanalzug pro Spur** (`ui/TrackView.svelte`): vor dem Namen ein Pfeil (aus-/eingeklappt = Kompaktansicht), rechts vom
   Namen waagrecht `M` (stumm), Orbit bzw. MIDI-Kanal und der Lautstärkeregler (höchstens 120 px breit). Am rechten Rand des Spurkopfs drei Punkte (`ui/TrackMenu.svelte`): Menü mit Art der Spur (Klang, Noten, MIDI), Ansicht (Steine oder Code) und «Spur entfernen». In der Code-Ansicht fallen Pfeil,
   Regler und `M` weg, Lautstärke und Stummschaltung stehen dann im Text. Die Lautstärke (`Track.volume`, 0–1.5) ist Strudels `postgain`
@@ -152,8 +173,8 @@ von `codegen` stammt, kennen wir die Position jedes Klangnamens und finden so de
   Noten statt Klängen (`note("f <d a4> ~")`), danach folgt eine feste Reihe für den Klang (`Track.voice`, im Code `.s("sine")`,
   vor den Effekten). Notensteine kommen aus einer Notenpalette (Stammtöne c–b, Pause); Tippen bearbeitet sie direkt
   wie Wertsteine (`domain/notes.ts`: Strudels Schreibweise `c#4`, `eb`, MIDI-Zahlen; ↑/↓ = Halbton, aufwärts `#`, abwärts `b`,
-  Oktave nur wenn nicht 3), langes Drücken öffnet das Menü (Entfernen, Umschliessen). Der Klang hat eine eigene Klangpalette ohne Pause;
-  Antippen ersetzt den einen Klangstein (bei mehreren wird angehängt), Ziehen ersetzt oder fügt ein, Klammern ergeben
+  Oktave nur wenn nicht 3), langes Drücken öffnet das Menü (Entfernen, Umschliessen). Der Klang kommt aus der Klangpalette (ohne Pause);
+  Ziehen ersetzt oder fügt ein, Klammern ergeben
   Wechsel (`.s("<sine sawtooth>")`). Ohne Klangstein fehlt `.s()` und Strudel spielt `triangle`. Lautstärke und Orbit wie bei
   Klangspuren. Effektliste: nur Audio (keine `note`, kein MIDI). Klänge und Noten haben getrennte Steine: beim Wechsel zwischen
   Klang/MIDI und Noten warten die anderen in `Track.parked`. Reihen tragen einen Inhalt (`Lane.content`: Klänge, Noten, Werte),
