@@ -19,7 +19,8 @@ dieselbe Datenstruktur füllen. Lies zuerst `docs/ARCHITECTURE.md`.
 - `src/lib/domain/` – reine TypeScript-Logik. Kein Svelte, kein DOM, kein Audio. Importe nur untereinander.
   Hier liegt die Wahrheit über Steine, Klammer-Parser und Code-Erzeugung (inkl. Positionen der Klangnamen für das Aufleuchten). Tests daneben (`*.test.ts`).
 - `src/lib/syntax/` – Abgleich mit Strudels Grammatik (`analyze` = eigener Parser plus Strudels Urteil) und
-  Text zu Steinen (`from-text.ts`, Strudels Syntaxbaum, Unbekanntes wird ein roher Stein). Der Parser in `domain/parse.ts`
+  Text zu Steinen (`from-text.ts`, Strudels Syntaxbaum, Unbekanntes wird ein roher Stein), ganzer Code zu Spuren
+  (`from-program.ts`, mit acorn; Unbekanntes wird eine Spur mit rohem Code oder bleibt als Rahmen stehen). Der Parser in `domain/parse.ts`
   muss mit Strudel übereinstimmen: nach Änderungen `npm run test:strudel` laufen lassen.
 - `src/lib/audio/` – `StrudelEngine` ist die einzige Klang-Engine (keine eigenen Synths, keine eigene Auswertung).
   Sie kennt den Svelte-Zustand nicht, nur `EngineHost` (`engine.ts`).

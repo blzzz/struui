@@ -119,8 +119,9 @@
     document.documentElement.style.setProperty("--dock-h", `${h}px`);
   });
 
-  const playing = (tracks: { tokens: unknown[]; muted: boolean }[]) =>
-    tracks.filter((t) => t.tokens.length > 0 && !t.muted).length;
+  // Roher Code zählt mit, wenn er nicht leer ist
+  const playing = (tracks: { tokens: unknown[]; muted: boolean; code: string | null }[]) =>
+    tracks.filter((t) => (t.code !== null ? t.code.trim() !== "" : t.tokens.length > 0) && !t.muted).length;
 </script>
 
 <!-- Feste Leiste unten: Szenen des ganzen Projekts -->

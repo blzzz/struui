@@ -23,6 +23,9 @@ importers:
       '@strudel/webaudio':
         specifier: 1.3.0
         version: 1.3.0
+      acorn:
+        specifier: 8.19.0
+        version: 8.19.0
     devDependencies:
       '@sveltejs/vite-plugin-svelte':
         specifier: ^7.3.1

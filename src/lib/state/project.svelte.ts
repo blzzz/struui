@@ -1,4 +1,6 @@
-import { toStrudelCode, toStrudelProgram } from '../domain/codegen.ts';
+import { EMPTY_FRAME, inCode, toStrudelCode, toStrudelProgram } from '../domain/codegen.ts';
+import type { Frame } from '../domain/codegen.ts';
+import { arrangeTracks, matchTracks } from '../domain/program.ts';
 import { adoptIds, insertAt, insertPair, moveToken, removeAt, replaceAt, setGroup, stackAt, unwrapAt, wrapAt, wrapRange } from '../domain/edit.ts';
 import { defaultValue, effectInfo, noteOpInfo, singleValue, valueInfo } from '../domain/effects.ts';
 import type { Effect, EffectInfo, SliderRange } from '../domain/effects.ts';
@@ -25,6 +27,7 @@ import {
 } from '../domain/types.ts';
 import { analyze } from '../syntax/analyze.ts';
 import type { CodeLine, ValueRow } from '../syntax/from-code.ts';
+import type { ProgramEntry } from '../syntax/from-program.ts';
 import type { CodeTrack } from '../domain/codegen.ts';
 import type { GroupType, Token, Track, TrackContent, TrackType } from '../domain/types.ts';
 import { sampleBank } from './sample-bank.svelte.ts';
@@ -108,6 +111,7 @@ export function codeTracksOf(tracks: readonly Track[], ok: (laneId: string) => b
     slices: t.slices,
     noteOps: t.noteOps.filter((o) => ok(o.id)),
     effects: t.effects.filter((e) => ok(e.id)),
+    code: t.code,
   }));
 }
 
@@ -117,6 +121,8 @@ class Project {
   cps = $state(0.5);
   /** Einheit, in der das Tempo angezeigt, eingegeben und in den Code geschrieben wird. */
   tempoUnit = $state<TempoUnit>('bpm');
+  /** Eigener Code rund um die Spuren, aus der Code-Ansicht. Gilt für alle Szenen. */
+  frame = $state<Frame>(EMPTY_FRAME);
 
   /** Pro Reihe (Spur oder Effekt): Baum, Fehler und Gruppentiefe. */
   parsed = $derived(
@@ -135,14 +141,22 @@ class Project {
   codeTracks = $derived<CodeTrack[]>(codeTracksOf(this.tracks, (id) => this.parsed.get(id)?.errors.length === 0));
 
   /** Code samt Positionen der Klang- und Wertsteine. Das spielt Strudel ab. */
-  program = $derived(toStrudelProgram(this.codeTracks, { cps: this.cps, tempoUnit: this.tempoUnit, samples: sampleBank.dataUrls }));
+  program = $derived(
+    toStrudelProgram(this.codeTracks, { cps: this.cps, tempoUnit: this.tempoUnit, samples: sampleBank.dataUrls, frame: this.frame }),
+  );
 
   /** Voller Code zum Kopieren und für den Link. */
   codeFull = $derived(this.program.code);
 
   /** Gekürzter Code für die Anzeige. */
   codeDisplay = $derived(
-    toStrudelCode(this.codeTracks, { cps: this.cps, tempoUnit: this.tempoUnit, samples: sampleBank.dataUrls, elideSamples: true }),
+    toStrudelCode(this.codeTracks, {
+      cps: this.cps,
+      tempoUnit: this.tempoUnit,
+      samples: sampleBank.dataUrls,
+      elideSamples: true,
+      frame: this.frame,
+    }),
   );
 
   /** Ganzen Zustand ersetzen (Szene wählen). */
@@ -235,6 +249,7 @@ class Project {
   applyCode(trackId: string, line: CodeLine): void {
     const t = this.find(trackId);
     if (!t) return;
+    t.code = null;
     // Ohne Kommentar im Code: Standardname der Art (`Klangspur_1`)
     t.name = line.name || this.freeName(line.type, t);
     t.muted = line.muted;
@@ -266,6 +281,38 @@ class Project {
     t.effects = adoptRows(t.effects, line.effects);
     // Rechenarten stehen nur bei Notenspuren im Code; sonst bleiben die gespeicherten
     if (line.type === 'note') t.noteOps = adoptRows(t.noteOps, line.noteOps);
+  }
+
+  /** Roher Code für die Spur (`Track.code`): Name, Stummschaltung und der Ausdruck, siehe `rawLine`. */
+  setRaw(trackId: string, raw: { name: string; muted: boolean; code: string }): void {
+    const t = this.find(trackId);
+    if (!t) return;
+    t.code = raw.code;
+    t.name = raw.name || this.freeName(t.type, t);
+    t.muted = raw.muted;
+  }
+
+  /**
+   * Den ganzen Code aus der Code-Ansicht übernehmen (`programToTracks`). Zeilen übernehmen die bisherige Spur mit gleichem
+   * Namen, sonst an gleicher Stelle (`matchTracks`), und behalten so ihre IDs. Spuren ohne Steine standen nicht im Code und
+   * bleiben, ans Ende gestellt; Spuren, deren Zeile fehlt, fallen weg. Tempo nur, wenn es im Code steht.
+   */
+  applyProgram(r: { entries: ProgramEntry[]; frame: Frame; tempo: { cps: number; unit: TempoUnit } | null }): void {
+    const shown = this.codeTracks.map(inCode);
+    const old = this.tracks.map((t, i) => ({ name: t.name, shown: shown[i] }));
+    const names = r.entries.map((e) => (e.kind === 'raw' ? e.name : e.line.name));
+    const order = arrangeTracks(old, matchTracks(old, names));
+    this.tracks = order.map((i) => (i === null ? track() : this.tracks[i]));
+    r.entries.forEach((e, i) => {
+      const id = this.tracks[i].id;
+      if (e.kind === 'raw') this.setRaw(id, e);
+      else this.applyCode(id, e.line);
+    });
+    this.frame = r.frame;
+    if (r.tempo) {
+      this.cps = r.tempo.cps;
+      this.tempoUnit = r.tempo.unit;
+    }
   }
 
   setVolume(trackId: string, volume: number): void {

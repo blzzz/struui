@@ -76,31 +76,36 @@
   {#if open}
     <!-- svelte-ignore a11y_interactive_supports_focus -->
     <div class="menu" role="menu" aria-label={`Spur ${index + 1}`} onkeydown={onMenuKey}>
-      <p class="label" id={`kind-${track.id}`}>Art</p>
-      <div role="group" aria-labelledby={`kind-${track.id}`}>
-        {#each TYPES as t (t.type)}
-          <button
-            role="menuitemradio"
-            aria-checked={track.type === t.type}
-            onclick={() => choose(() => project.setType(track.id, t.type))}
-          >
-            <span class="check" aria-hidden="true">{track.type === t.type ? '✓' : ''}</span>
-            {t.label}
-            <code>{t.about}</code>
+      {#if track.code !== null}
+        <!-- Roher Code: Art und Ansicht ergeben sich aus dem Code -->
+        <p class="about">Eigener Code. Wird er als Spur verstanden, gibt es wieder Steine.</p>
+      {:else}
+        <p class="label" id={`kind-${track.id}`}>Art</p>
+        <div role="group" aria-labelledby={`kind-${track.id}`}>
+          {#each TYPES as t (t.type)}
+            <button
+              role="menuitemradio"
+              aria-checked={track.type === t.type}
+              onclick={() => choose(() => project.setType(track.id, t.type))}
+            >
+              <span class="check" aria-hidden="true">{track.type === t.type ? '✓' : ''}</span>
+              {t.label}
+              <code>{t.about}</code>
+            </button>
+          {/each}
+        </div>
+        <p class="label" id={`view-${track.id}`}>Ansicht</p>
+        <div role="group" aria-labelledby={`view-${track.id}`}>
+          <button role="menuitemradio" aria-checked={!showCode} onclick={() => choose(() => (showCode = false))}>
+            <span class="check" aria-hidden="true">{showCode ? '' : '✓'}</span>
+            Steine
           </button>
-        {/each}
-      </div>
-      <p class="label" id={`view-${track.id}`}>Ansicht</p>
-      <div role="group" aria-labelledby={`view-${track.id}`}>
-        <button role="menuitemradio" aria-checked={!showCode} onclick={() => choose(() => (showCode = false))}>
-          <span class="check" aria-hidden="true">{showCode ? '' : '✓'}</span>
-          Steine
-        </button>
-        <button role="menuitemradio" aria-checked={showCode} onclick={() => choose(() => (showCode = true))}>
-          <span class="check" aria-hidden="true">{showCode ? '✓' : ''}</span>
-          Code
-        </button>
-      </div>
+          <button role="menuitemradio" aria-checked={showCode} onclick={() => choose(() => (showCode = true))}>
+            <span class="check" aria-hidden="true">{showCode ? '✓' : ''}</span>
+            Code
+          </button>
+        </div>
+      {/if}
       <hr />
       <button role="menuitem" class="remove" onclick={() => choose(() => project.removeTrack(track.id))}>
         <span class="check" aria-hidden="true"></span>
@@ -157,6 +162,12 @@
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.04em;
+    color: var(--mute);
+  }
+  .about {
+    margin: 4px 8px;
+    max-width: 220px;
+    font-size: 13px;
     color: var(--mute);
   }
   .label:first-child {

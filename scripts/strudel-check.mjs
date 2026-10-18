@@ -19,6 +19,7 @@ try {
   const types = await server.ssrLoadModule('/src/lib/domain/types.ts');
   const codegen = await server.ssrLoadModule('/src/lib/domain/codegen.ts');
   const fromCode = await server.ssrLoadModule('/src/lib/syntax/from-code.ts');
+  const fromProgram = await server.ssrLoadModule('/src/lib/syntax/from-program.ts');
 
   await core.evalScope(core, mini);
   mini.miniAllStrings?.();
@@ -137,6 +138,35 @@ try {
     }
     assert.ok(noteHits >= 16, 'zu wenige Noten geprüft');
     console.log(`ok: ${noteHits} Noten einer Notenspur korrekt Noten- und Klangsteinen zugeordnet`);
+  }
+
+  // Fremder Code in der Code-Ansicht: gelesen, wieder erzeugt und von Strudel gespielt. Der Rahmen (Code davor, `.room` am
+  // Stapel) bleibt, der rohe Eintrag klingt, und die Steine der verstandenen Spur leuchten trotz des Codes davor richtig.
+  {
+    patterns.length = 0;
+    const foreign = 'const lead = s("cp*2")\nsetcpm(120/4)\n\nstack(\n  /* drums */ s("bd hh"),\n  lead.fast(1)\n).room(.2)';
+    const read = fromProgram.programToTracks(foreign);
+    assert.ok(read.ok, read.message);
+    assert.deepEqual(read.entries.map((e) => e.kind), ['track', 'raw']);
+    const tracks = read.entries.map((e) => (e.kind === 'raw' ? { tokens: [], ...e } : e.line));
+    const program = codegen.toStrudelProgram(tracks, { cps: read.tempo.cps, tempoUnit: read.tempo.unit, frame: read.frame });
+    assert.ok(program.code.startsWith('setcpm(120/4)\n\nconst lead = s("cp*2")\n\nstack('), program.code);
+    await run(program.code);
+    const byId = new Map(read.entries[0].line.tokens.map((t) => [t.id, t]));
+    const seen = new Set();
+    for (const hap of patterns[0].queryArc(0, 2)) {
+      assert.equal(hap.value.room, 0.2, 'Aufruf am Stapel fehlt');
+      const hits = (hap.context.locations ?? []).flatMap((loc) => program.ranges.filter((r) => loc.start >= r.start && loc.start < r.end));
+      if (hap.value.s === 'cp') {
+        assert.equal(hits.length, 0, 'roher Code trifft einen Stein');
+      } else {
+        assert.equal(hits.length, 1, `keine eindeutige Zuordnung für ${hap.value.s}`);
+        assert.equal(byId.get(hits[0].tokenId).sound, hap.value.s, 'falscher Stein');
+      }
+      seen.add(hap.value.s);
+    }
+    assert.deepEqual([...seen].sort(), ['bd', 'cp', 'hh']);
+    console.log('ok: fremder Code mit rohem Eintrag und Rahmen gelesen, gespielt und Steinen richtig zugeordnet');
   }
 
   // Regler: .lpf(slider(…)) wird vom Transpiler zu sliderWithID(…). Das liefert @strudel/codemirror (lädt das Prebake),

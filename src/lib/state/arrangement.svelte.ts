@@ -56,6 +56,7 @@ class Arrangement {
       cps: project.cps,
       tempoUnit: project.tempoUnit,
       samples: sampleBank.dataUrls,
+      frame: project.frame,
       lit: scenes.current.id,
     }),
   );
@@ -78,6 +79,7 @@ class Arrangement {
           tempoUnit: project.tempoUnit,
           samples: sampleBank.dataUrls,
           elideSamples: true,
+          frame: project.frame,
         }).code
       : project.codeDisplay,
   );

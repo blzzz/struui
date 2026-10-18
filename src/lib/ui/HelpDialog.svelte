@@ -66,6 +66,8 @@
       <dd>
         «UI | Code» in einer Spur zeigt statt der Steine ihre ganze Codezeile mit Name, Effekten und Lautstärke. Was du dort tippst, wird sofort zu Steinen.
         Unbekannte Mini-Notation wird ein dunkler Stein mit dem Text. Oben unter «Code» steht das ganze Programm, mit Link zu Strudel.
+        Dort lässt es sich auch bearbeiten oder fremder Strudel-Code einfügen (übernehmen mit Strg/⌘+Enter): was Strudel-Steine
+        versteht, wird zu Spuren mit Steinen, alles andere bleibt als Code stehen.
       </dd>
       <dt>Szenen</dt>
       <dd>

@@ -119,6 +119,12 @@ export interface Track {
   channel: number;
   /** MIDI-Spur: Name des Ausgangs (`.midi('IAC Driver Bus 1')`). Leer = Strudel wählt (erster IAC-Port, sonst der erste). */
   port: string;
+  /**
+   * Roher Code: ein Ausdruck, den Strudel-Steine nicht als Spur versteht (`n("0 2").scale("C:minor")`, `arrange(…)`).
+   * Steht unverändert im Stapel, nur Name (Kommentar davor) und Stummschaltung (`.hush()`) kommen dazu. null = gewöhnliche Spur;
+   * die übrigen Felder bleiben dann gespeichert, gelten aber nicht.
+   */
+  code: string | null;
 }
 
 export const PAUSE = '~';
@@ -177,6 +183,7 @@ export function track(tokens: Token[] = [], name = ''): Track {
     orbit: 1,
     channel: 1,
     port: '',
+    code: null,
   };
 }
 

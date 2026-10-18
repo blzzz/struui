@@ -13,7 +13,8 @@ Die Oberfläche kommt zuerst; die Kamera soll später dieselbe Datenstruktur fü
 
 ```
 domain/   reine Logik: Token, parse, codegen, edit                    (kein DOM, kein Svelte, kein Audio)
-syntax/   Abgleich mit Strudels Grammatik: validate (Grammatik), analyze (eigener Parser + Grammatik)
+syntax/   Abgleich mit Strudels Grammatik: validate (Grammatik), analyze (eigener Parser + Grammatik),
+          Code zu Steinen: from-text (Mini-Notation), from-code (Zeile einer Spur), from-program (ganzer Code, acorn)
 audio/    StrudelEngine (einzige Klang-Engine), EngineHost, Recorder, WAV
 state/    Svelte-5-Zustand: project, session, playback, sample-bank
 interaction/  Gesten als Attachments: tokenGestures (Tippen, Doppeltippen, Ziehen), knob (Drehen)
@@ -226,7 +227,29 @@ von `codegen` stammt, kennen wir die Position jedes Klangnamens und finden so de
 - **Code pro Spur ist die ganze Zeile** (`syntax/from-code.ts`, `ui/TrackCode.svelte`): `/* name */ s("…").effekt(…)…`. Die Ansicht
   «Code» im Menü der Spur schaltet die Spur von Steinen auf diese Zeile um. Name, Stummschaltung, Klänge und Effekte ändern sich bei jedem gültigen
   Tastendruck; die Mini-Notation darin liest weiter Strudels Grammatik. Mehr JavaScript als diese Kette (andere Funktionen,
-  Variablen, `n()`) wird als Fehler mit Stelle gemeldet, ebenso unbekannte Effektnamen.
+  Variablen, `n()`) wird als Fehler mit Stelle gemeldet, ebenso unbekannte Effektnamen. Ausnahme: eine Spur mit rohem Code (unten)
+  nimmt jeden einzelnen Ausdruck an (`checkExpression`) und wird wieder eine Spur mit Steinen, sobald `codeToTrack` sie versteht.
+- **Ganzer Code bearbeitbar** (`syntax/from-program.ts`, `domain/program.ts`, `ui/CodeView.svelte`). Anspruch: jeder Strudel-Code
+  ist lesbar, kein Code geht verloren. Was Strudel-Steine versteht, wird zu Spuren, der Rest bleibt wörtlich stehen. Gelesen wird
+  mit `acorn`, dem Parser, den auch Strudels Transpiler nutzt (direkte Abhängigkeit in derselben Version wie dort).
+  Spuren kommen, in der Reihenfolge im Code, aus jedem Ausdruck mit Label (`$:`, `drums:`, stumm mit `_`), jedem Ausdruck, der mit
+  `stack(…)` beginnt, und dem letzten Ausdruck. Alle zusammen ergeben **einen** Stapel: mehrere Stapel werden zusammengeführt,
+  ein verschachtelter Stapel ohne weitere Aufrufe (`stack(a, stack(b, c))`, `$: stack(…)`) gibt seine Einträge her. Strudel
+  spielte sonst nur den letzten Ausdruck (bzw. nur die Labels); früher toter Code klingt danach mit. Aufrufe am Stapel
+  (`.fast(2)`) gelten nur beim letzten Ausdruck für alle, ein früherer Stapel mit Aufrufen bleibt eine Spur. Code zwischen diesen
+  Ausdrücken kommt vor den Stapel. Ein Eintrag, den `codeToTrack` nicht versteht, wird eine
+  **Spur mit rohem Code** (`Track.code`): steht unverändert im Stapel, nur Name (Kommentar davor) und `.hush()` sind bedienbar,
+  sie hat keine Steine und leuchtet nicht. Tempo (`setcpm(120/4)`, `setcpm(30)`, `setcps(.5)` mit Zahlen) wird gelesen,
+  die eigenen Aufnahmen (`samples({ x: 'data:audio/…' })`, auch gekürzt aus der Anzeige) werden weggelassen, Strudel-Steine erzeugt
+  beides selbst. Alles andere ist der **Rahmen** (`Frame` in `codegen.ts`, `project.frame`): Code davor (nach Tempo), Aufrufe direkt
+  am Stapel (`.fast(2)`, im Arrangement an `arrange(…)`) und Code danach. Nur ungültiges JavaScript wird mit Stelle abgelehnt.
+  Übernommen wird mit Strg/⌘+Enter, beim Verlassen des Felds oder mit dem Knopf, nicht bei jedem Tastendruck (Zwischenstände wären oft
+  gültiges, aber unsinniges JavaScript). Danach steht wieder der erzeugte Code da (Formatierung des Stapels ist die eigene).
+  Zeilen übernehmen die bisherige Spur mit gleichem Namen, sonst an gleicher Stelle (`matchTracks`), so bleiben IDs. Spuren
+  ohne Steine stehen nicht im Code, sie bleiben und rücken ans Ende. Annahmen (vom Inhaber zu bestätigen): der Rahmen gilt für
+  alle Szenen und wird nicht in Szenen gespeichert; im Arrangement ist die Code-Ansicht nur lesbar. Kommentare zwischen den
+  Einträgen des Stapels gehen verloren, ausser einem Namen direkt vor dem Eintrag. `test:strudel` prüft fremden Code mit Rahmen und
+  rohem Eintrag.
 - **Klangliste aus Strudels Quellen** (`npm run gen:sounds`, `scripts/strudel-sounds.mjs`, `domain/sounds.generated.ts`).
   Das Skript liest die Adressen der Sample-Listen aus dem Prebake von `@strudel/repl` und lädt sie (braucht Netz), dazu Synths,
   Rauschen und ZZFX aus dem Quelltext von superdough. Nur `user`, `one`, `bus`, `bytebeat` sind ausgefiltert (klingen allein nicht).

@@ -2,12 +2,14 @@
   import { trackToCode } from '../domain/codegen.ts';
   import { project } from '../state/project.svelte.ts';
   import { codeToTrack } from '../syntax/from-code.ts';
+  import { checkExpression, rawLine } from '../syntax/from-program.ts';
   import type { Track } from '../domain/types.ts';
 
   /**
    * Die ganze Codezeile einer Spur zum Lesen und Bearbeiten: Name, Klänge und Effekte (`/* drums *\/ s("bd sd").lpf(800)`).
    * Jeder gültige Tastendruck ändert sofort Steine, Effekte und Namen. Solange der Text ungültig ist,
    * bleibt alles beim letzten gültigen Stand. Beim Verlassen des Felds steht wieder der erzeugte Code da.
+   * Roher Code (`Track.code`) nimmt jeden einzelnen Ausdruck an; versteht Strudel-Steine ihn, wird er wieder eine Spur mit Steinen.
    */
   let { track }: { track: Track } = $props();
 
@@ -24,8 +26,14 @@
     if (result.ok) {
       error = null;
       project.applyCode(track.id, result);
+      return;
+    }
+    const expression = track.code !== null ? checkExpression(draft) : result;
+    if (expression.ok) {
+      error = null;
+      project.setRaw(track.id, rawLine(draft));
     } else {
-      error = { offset: result.offset, message: result.message };
+      error = { offset: expression.offset, message: expression.message };
     }
   }
 

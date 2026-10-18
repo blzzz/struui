@@ -71,7 +71,22 @@ export interface CodeOptions {
   samples?: ReadonlyMap<string, string>;
   /** Data-URLs für die Anzeige kürzen. Zum Abspielen/Kopieren false lassen. */
   elideSamples?: boolean;
+  /** Eigener Code rund um den Stapel, unverändert ausgegeben. Fehlt er, steht nur der erzeugte Code da. */
+  frame?: Frame;
 }
+
+/**
+ * Eigener Code rund um die Spuren, aus der bearbeiteten Code-Ansicht (`syntax/from-program.ts`). Strudel-Steine versteht ihn
+ * nicht, gibt ihn aber unverändert wieder aus: `before` nach Aufnahmen und Tempo, `chain` direkt am Stapel (`.fast(2)`),
+ * `after` danach. Im Arrangement hängt `chain` an `arrange(…)`.
+ */
+export interface Frame {
+  before: string;
+  chain: string;
+  after: string;
+}
+
+export const EMPTY_FRAME: Frame = { before: '', chain: '', after: '' };
 
 export interface Program {
   code: string;
@@ -107,6 +122,14 @@ export interface CodeTrack {
   channel?: number;
   /** MIDI-Spur: Ausgang. Leer = `.midi()`, Strudel wählt. */
   port?: string;
+  /** Roher Code (`Track.code`): steht so im Stapel, mit Name und `.hush()`. Alles andere gilt dann nicht. */
+  code?: string | null;
+}
+
+/** Steht die Spur im Code? Nicht ohne Steine, eine Sampler-Spur nicht ohne Sample, roher Code nicht, wenn er leer ist. */
+export function inCode(t: CodeTrack): boolean {
+  if (t.code != null) return t.code.trim() !== '';
+  return t.tokens.length > 0 && (t.type !== 'sampler' || !!t.sample?.tokens.length);
 }
 
 /** Text in einfachen Anführungszeichen, wie Strudels Beispiele (`.midi('IAC Driver Bus 1')`). */
@@ -177,6 +200,7 @@ function samplerHead(t: CodeTrack): { text: string; ranges: TokenRange[] } {
  * Eine stumme Spur endet mit `.hush()`: Strudel macht daraus Stille, die Zeile bleibt sichtbar.
  */
 export function trackToCode(t: CodeTrack): { text: string; ranges: TokenRange[] } {
+  if (t.code != null) return { text: `${trackComment(t)}${t.code}${t.muted ? '.hush()' : ''}`, ranges: [] };
   if (t.type === 'sampler') return withTail(t, samplerHead(t));
   const { text: mini, ranges: local } = trackToMiniWithRanges(t.tokens);
   let text = `${trackComment(t)}${t.type === 'note' ? 'note' : 's'}("`;
@@ -220,11 +244,25 @@ function withTail(t: CodeTrack, head: { text: string; ranges: TokenRange[] }): {
   return { text, ranges };
 }
 
+/** Kommt `name` in `code` als ganzes Wort vor (nicht als Teil eines längeren Namens)? */
+function mentions(code: string, name: string): boolean {
+  const word = /[\p{L}\p{Nd}_$]/u;
+  for (let at = code.indexOf(name); at >= 0; at = code.indexOf(name, at + 1)) {
+    if (!word.test(code[at - 1] ?? '') && !word.test(code[at + name.length] ?? '')) return true;
+  }
+  return false;
+}
+
 /** Eigene Aufnahmen, die irgendeine Spur braucht, als `samples({…})`, dann die Tempozeile. */
 function header(tracks: readonly CodeTrack[], opts: CodeOptions): string {
   const samples = opts.samples ?? new Map<string, string>();
   const used = new Set<string>();
-  for (const { tokens, type, voice, sample } of tracks) {
+  for (const { tokens, type, voice, sample, code } of tracks) {
+    // Roher Code: jede Aufnahme, deren Name darin als Wort vorkommt
+    if (code != null) {
+      for (const name of samples.keys()) if (mentions(code, name)) used.add(name);
+      continue;
+    }
     // Klangnamen stehen bei Noten- und Sampler-Spuren in eigenen Reihen, nicht auf den Steinen
     const names = type === 'note' ? (voice?.tokens ?? []) : type === 'sampler' ? (sample?.tokens ?? []) : tokens;
     for (const t of names) {
@@ -249,7 +287,7 @@ function header(tracks: readonly CodeTrack[], opts: CodeOptions): string {
 
 /** Alle Spuren in einem `stack(…)`, eine pro Zeile. Null, wenn keine Spur Steine hat. Positionen ab Textanfang. */
 function stackCode(tracks: readonly CodeTrack[]): { text: string; ranges: TokenRange[] } | null {
-  const lines = tracks.filter((t) => t.tokens.length > 0 && (t.type !== 'sampler' || !!t.sample?.tokens.length));
+  const lines = tracks.filter(inCode);
   if (lines.length === 0) return null;
   const ranges: TokenRange[] = [];
   let text = 'stack(';
@@ -262,16 +300,30 @@ function stackCode(tracks: readonly CodeTrack[]): { text: string; ranges: TokenR
   return { text: text + '\n)', ranges };
 }
 
+/** Eigener Code vor dem Stapel (`frame.before`), auf eigenen Zeilen. */
+function beforeCode(frame: Frame): string {
+  return frame.before ? `\n${frame.before}\n` : '';
+}
+
 /**
- * Der ganze Code: Aufnahmen, Tempo, dann alle Spuren in einem `stack(…)`, eine Spur pro Zeile. Ohne Label spielt
- * Strudel den letzten Ausdruck, also diesen Stapel. Ohne Spur mit Steinen steht kein `stack` da.
+ * Was Strudel spielt, mit dem eigenen Code dahinter: `main` (Stapel oder `arrange(…)`), dann `frame.chain` und `frame.after`.
+ * Ohne `main`, aber mit `chain`, steht `silence` da, damit die Aufrufe etwas haben, woran sie hängen.
+ */
+function mainCode(main: string | null, frame: Frame): string {
+  const head = main ?? (frame.chain ? 'silence' : '');
+  return (head ? `\n${head}${frame.chain}` : '') + frame.after;
+}
+
+/**
+ * Der ganze Code: Aufnahmen, Tempo, eigener Code davor, dann alle Spuren in einem `stack(…)`, eine Spur pro Zeile, und eigener
+ * Code danach. Ohne Label spielt Strudel den letzten Ausdruck, also diesen Stapel. Ohne Spur mit Steinen steht kein `stack` da.
  */
 export function toStrudelProgram(tracks: readonly CodeTrack[], opts: CodeOptions): Program {
-  let code = header(tracks, opts);
+  const frame = opts.frame ?? EMPTY_FRAME;
+  const code = header(tracks, opts) + beforeCode(frame);
   const stack = stackCode(tracks);
-  if (!stack) return { code, ranges: [] };
-  code += '\n';
-  return { code: code + stack.text, ranges: shift(stack.ranges, code.length) };
+  // Die Positionen zählen ab dem Stapel, nach dem Zeilenumbruch, den `mainCode` davor setzt
+  return { code: code + mainCode(stack?.text ?? null, frame), ranges: stack ? shift(stack.ranges, code.length + 1) : [] };
 }
 
 /** Eine Szene für das Arrangement: Name der Variable und ihre Spuren. */
@@ -291,10 +343,11 @@ export function toArrangedProgram(
   sections: readonly { sceneId: string; times: number }[],
   opts: CodeOptions & { lit?: string },
 ): Program {
+  const frame = opts.frame ?? EMPTY_FRAME;
   let code = header(
     scenes.flatMap((s) => s.tracks),
     opts,
-  );
+  ) + beforeCode(frame);
   const ranges: TokenRange[] = [];
   for (const s of scenes) {
     const stack = stackCode(s.tracks);
@@ -307,7 +360,7 @@ export function toArrangedProgram(
     const v = variables.get(x.sceneId);
     return v ? [`[${x.times}, ${v}]`] : [];
   });
-  code += parts.length === 0 ? '\nsilence' : `\narrange(\n  ${parts.join(',\n  ')}\n)`;
+  code += mainCode(parts.length === 0 ? 'silence' : `arrange(\n  ${parts.join(',\n  ')}\n)`, frame);
   return { code, ranges };
 }
 

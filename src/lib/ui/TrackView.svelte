@@ -15,6 +15,13 @@
 
   /** Code statt Steine: die ganze Zeile der Spur samt Name und Effekten lässt sich bearbeiten. */
   let showCode = $state(false);
+  /** Roher Code (`Track.code`): es gibt keine Steine, nur die Codezeile. */
+  const isRaw = $derived(track.code !== null);
+
+  // Roher Code zeigt immer die Codezeile. Wird er beim Tippen verstanden, bleibt die Code-Ansicht, damit der Fokus bleibt.
+  $effect(() => {
+    if (isRaw) showCode = true;
+  });
 
   const parsed = $derived(project.parsedOf(track.id));
   const messages = $derived([
@@ -104,7 +111,7 @@
       Bei MIDI gibt es keinen Regler. In der Code-Ansicht steht alles im Text.
     -->
     <div class="strip">
-      {#if !showCode}
+      {#if !showCode || isRaw}
         <button
           class="mute"
           class:active={track.muted}
@@ -113,7 +120,9 @@
           title={track.muted ? "Stumm (Code: .hush())" : "Stumm schalten"}
           onclick={() => project.toggleMute(track.id)}>M</button
         >
-        {#if isMidi}
+        {#if isRaw}
+          <!-- Roher Code: Orbit und Lautstärke stehen, wenn überhaupt, im Code selbst -->
+        {:else if isMidi}
           <button
             class="num"
             aria-label={`MIDI-Kanal ${track.channel}, tippen für den nächsten`}
@@ -146,7 +155,7 @@
         {/if}
       {/if}
       <div class="actions">
-        {#if isMidi && !showCode}
+        {#if isMidi && !showCode && !isRaw}
           <select
             class="port"
             value={track.port}
