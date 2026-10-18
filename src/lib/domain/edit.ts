@@ -1,8 +1,39 @@
 import { QUICK_SOUNDS } from './sounds.ts';
-import { PAUSE, closeToken, hasModifiers, openToken, soundToken } from './types.ts';
-import type { GroupType, Token } from './types.ts';
+import { PAUSE, closeToken, hasModifiers, joinsPrevious, openToken, soundToken } from './types.ts';
+import type { GroupType, SoundToken, Token } from './types.ts';
 
 /** Reine Bearbeitungs-Funktionen auf einer Steinliste. Sie verändern das übergebene Array. */
+
+/**
+ * Stapel (`[bd, hh]`, siehe `joinsPrevious`): Ein Klangstein, der nicht mehr direkt nach einem Klangstein steht, verliert
+ * sein Komma. Sonst hinge er sich später an einen fremden Stein, der neben ihn kommt.
+ */
+function tidyStacks(tokens: Token[]): void {
+  tokens.forEach((t, i) => {
+    if (t.kind === 'sound' && t.joined && !joinsPrevious(tokens, i)) t.joined = false;
+  });
+}
+
+/** Stein herausnehmen. War er der erste eines Stapels, ist danach der nächste der erste. */
+function takeAt(tokens: Token[], index: number): Token {
+  const next = tokens[index + 1];
+  if (next?.kind === 'sound' && next.joined && !joinsPrevious(tokens, index)) next.joined = false;
+  const [token] = tokens.splice(index, 1);
+  return token;
+}
+
+/** Stein an `index` einfügen. Zwischen zwei Steinen eines Stapels kommt ein Klang in den Stapel, sonst steht er allein. */
+export function insertAt(tokens: Token[], index: number, token: Token): void {
+  if (token.kind === 'sound') token.joined = joinsPrevious(tokens, index);
+  tokens.splice(index, 0, token);
+}
+
+/** Klang mit Komma an den Klangstein an `index` hängen: beide klingen gleichzeitig (`[bd, hh]`). */
+export function stackAt(tokens: Token[], index: number, token: SoundToken): void {
+  if (tokens[index]?.kind !== 'sound') return insertAt(tokens, index + 1, token);
+  token.joined = true;
+  tokens.splice(index + 1, 0, token);
+}
 
 /**
  * Klammerpaar an Position `index` einfügen. Strudel lehnt leere Klammern ab, deshalb liegt eine Pause darin.
@@ -10,16 +41,21 @@ import type { GroupType, Token } from './types.ts';
  */
 export function insertPair(tokens: Token[], index: number, group: GroupType): void {
   tokens.splice(index, 0, openToken(group), soundToken(PAUSE), closeToken(group));
+  tidyStacks(tokens);
 }
 
-/** Stein an Position `index` mit einem Klammerpaar umschliessen. */
+/** Stein an Position `index` mit einem Klammerpaar umschliessen, in einem Stapel den ganzen Stapel. */
 export function wrapAt(tokens: Token[], index: number, group: GroupType): void {
-  tokens.splice(index + 1, 0, closeToken(group));
-  tokens.splice(index, 0, openToken(group));
+  let [lo, hi] = [index, index];
+  while (joinsPrevious(tokens, lo)) lo -= 1;
+  while (joinsPrevious(tokens, hi + 1)) hi += 1;
+  tokens.splice(hi + 1, 0, closeToken(group));
+  tokens.splice(lo, 0, openToken(group));
 }
 
 /**
- * Bereich zwischen zwei Steinen (Reihenfolge egal), so erweitert, dass jede Klammer darin ihre Gegenklammer mitnimmt.
+ * Bereich zwischen zwei Steinen (Reihenfolge egal), so erweitert, dass jede Klammer darin ihre Gegenklammer mitnimmt
+ * und jeder angeschnittene Stapel ganz hineinkommt.
  * Ein Klammerpaar um diesen Bereich lässt die Reihe deshalb ausgeglichen. Klammern ohne Gegenstück bleiben aussen vor.
  */
 export function wrapSpan(tokens: readonly Token[], from: number, to: number): [number, number] {
@@ -27,6 +63,8 @@ export function wrapSpan(tokens: readonly Token[], from: number, to: number): [n
   let hi = Math.max(from, to);
   for (let changed = true; changed; ) {
     changed = false;
+    while (joinsPrevious(tokens, lo)) [lo, changed] = [lo - 1, true];
+    while (joinsPrevious(tokens, hi + 1)) [hi, changed] = [hi + 1, true];
     for (let i = lo; i <= hi; i++) {
       const p = partnerIndex(tokens, i);
       if (p < 0) continue;
@@ -45,12 +83,13 @@ export function wrapRange(tokens: Token[], from: number, to: number, group: Grou
 }
 
 export function removeAt(tokens: Token[], index: number): void {
-  tokens.splice(index, 1);
+  takeAt(tokens, index);
 }
 
-/** Ersetzt einen Stein. Zufall und Wiederholung bleiben erhalten, wenn beide Steine welche tragen. */
+/** Ersetzt einen Stein. Zufall und Wiederholung bleiben erhalten, wenn beide Steine welche tragen, ebenso der Platz im Stapel. */
 export function replaceAt(tokens: Token[], index: number, next: Token): void {
   const old = tokens[index];
+  if (next.kind === 'sound') next.joined = old.kind === 'sound' && !!old.joined;
   if (hasModifiers(old) && hasModifiers(next)) {
     next.random = old.random;
     next.repeat = old.repeat ? { ...old.repeat } : null;
@@ -58,12 +97,17 @@ export function replaceAt(tokens: Token[], index: number, next: Token): void {
   tokens[index] = next;
 }
 
-/** Verschiebt einen Stein, auch in eine andere Liste. `toIndex` ist die Einfügeposition vor dem Entfernen. */
+/**
+ * Verschiebt einen Stein, auch in eine andere Liste. `toIndex` ist die Einfügeposition vor dem Entfernen.
+ * Wie `insertAt`: zwischen zwei Steinen eines Stapels kommt er in den Stapel.
+ */
 export function moveToken(from: Token[], fromIndex: number, to: Token[], toIndex: number): void {
-  const [token] = from.splice(fromIndex, 1);
+  // An die eigene Stelle: nichts tun, sonst fiele der erste Stein eines Stapels heraus
+  if (from === to && (toIndex === fromIndex || toIndex === fromIndex + 1)) return;
+  const token = takeAt(from, fromIndex);
   let index = toIndex;
   if (from === to && fromIndex < index) index -= 1;
-  to.splice(Math.max(0, index), 0, token);
+  insertAt(to, Math.max(0, index), token);
 }
 
 /**
@@ -89,7 +133,7 @@ export function partnerIndex(tokens: readonly Token[], index: number): number {
 /** Klammer an `index` samt Gegenklammer entfernen, der Inhalt bleibt. Ohne Gegenklammer geht nur diese Klammer weg. */
 export function unwrapAt(tokens: Token[], index: number): void {
   const partner = partnerIndex(tokens, index);
-  for (const i of [index, partner].filter((i) => i >= 0).sort((a, b) => b - a)) tokens.splice(i, 1);
+  for (const i of [index, partner].filter((i) => i >= 0).sort((a, b) => b - a)) takeAt(tokens, i);
 }
 
 /** Klammerart einer Klammer und ihrer Gegenklammer setzen. */

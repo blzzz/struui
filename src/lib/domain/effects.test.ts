@@ -73,7 +73,12 @@ test('effects: Suche bevorzugt Namensanfang, findet Synonyme', () => {
 
 test('effects: ein Wert ist eine Zahl oder ein Name', () => {
   for (const v of ['800', '-1', '.5', '0.25', 'a', 'sine', 'ladder']) assert.ok(isValueAtom(v), v);
-  for (const v of ['', '1 2', '<1 2>', '"a"', '1.2.3x']) assert.ok(!isValueAtom(v), v);
+  for (const v of ['', '1 2', '<1 2>', '"a"', '1.2.3x', '.5:2']) assert.ok(!isValueAtom(v), v);
+});
+
+test('effects: als Liste auch mit Doppelpunkt (`scrub`)', () => {
+  for (const v of ['.5', '.5:2', '0:-1', 'a:b:c']) assert.ok(isValueAtom(v, true), v);
+  for (const v of ['.5:', ':2', '.5::2', '.5:<1 2>']) assert.ok(!isValueAtom(v, true), v);
 });
 
 test('effects: einzelne Zahl direkt, sonst Mini-Notation, ohne Steine gar nicht', () => {
@@ -95,7 +100,7 @@ test('effects: Tippen schaltet durch die Werte, Fremdes springt auf den ersten',
   assert.deepEqual(tokens.map((t) => t.kind === 'sound' && t.sound), ['500', '100']);
 });
 
-test('codegen: Name nach dem $, stumm mit _, Effekte in Reihenfolge, leere fehlen', () => {
+test('codegen: Name als Kommentar, stumm mit .hush(), Effekte in Reihenfolge, leere fehlen', () => {
   const code = toStrudelCode(
     [
       {
@@ -107,7 +112,7 @@ test('codegen: Name nach dem $, stumm mit _, Effekte in Reihenfolge, leere fehle
     ],
     { cps: 0.5 },
   );
-  assert.equal(code, 'setcps(0.5)\n\n$drums: s("bd sd").lpf(800).room(0.3)\n_$: s("hh").postgain(0.6)');
+  assert.equal(code, 'setcps(0.5)\n\nstack(\n  /* drums */ s("bd sd").lpf(800).room(0.3),\n  s("hh").postgain(0.6).hush()\n)');
 });
 
 test('codegen: Positionen der Wertsteine zeigen im Code auf den Wert', () => {
@@ -122,19 +127,19 @@ test('codegen: Positionen der Wertsteine zeigen im Code auf den Wert', () => {
     assert.ok(r);
     assert.equal(code.slice(r.start, r.end), text);
   }
-  assert.equal(trackToCode({ name: 'a', tokens: [soundToken('bd')] }).text, '$a: s("bd")');
+  assert.equal(trackToCode({ name: 'a', tokens: [soundToken('bd')] }).text, '/* a */ s("bd")');
 });
 
 test('codegen: Orbit bei Klangspuren nur, wenn nicht 1, vor der Lautstärke', () => {
   const bd = [soundToken('bd')];
-  assert.equal(trackToCode({ tokens: bd, orbit: 1 }).text, '$: s("bd")');
-  assert.equal(trackToCode({ tokens: bd, orbit: 3, volume: 0.5 }).text, '$: s("bd").orbit(3).postgain(0.5)');
+  assert.equal(trackToCode({ tokens: bd, orbit: 1 }).text, 's("bd")');
+  assert.equal(trackToCode({ tokens: bd, orbit: 3, volume: 0.5 }).text, 's("bd").orbit(3).postgain(0.5)');
 });
 
 test('codegen: MIDI-Spur endet mit Kanal und .midi(), ohne Orbit und Lautstärke', () => {
   const t = { tokens: [soundToken('bd')], type: 'midi' as const, orbit: 3, volume: 0.5, effects: [effect('note', [soundToken('c4')])] };
-  assert.equal(trackToCode(t).text, '$: s("bd").note("c4").midichan(1).midi()');
-  assert.equal(trackToCode({ ...t, channel: 10, port: "Bob's \\Port" }).text, `$: s("bd").note("c4").midichan(10).midi('Bob\\'s \\\\Port')`);
+  assert.equal(trackToCode(t).text, 's("bd").note("c4").midichan(1).midi()');
+  assert.equal(trackToCode({ ...t, channel: 10, port: "Bob's \\Port" }).text, `s("bd").note("c4").midichan(10).midi('Bob\\'s \\\\Port')`);
 });
 
 test('codegen: Notenspur mit note(), Klang in .s(), Orbit und Lautstärke', () => {
@@ -149,8 +154,8 @@ test('codegen: Notenspur mit note(), Klang in .s(), Orbit und Lautstärke', () =
     orbit: 2,
     volume: 0.8,
   };
-  assert.equal(trackToCode(t).text, '$mel: note("f d").s("sine").room(0.5).orbit(2).postgain(0.8)');
-  assert.equal(trackToCode({ ...t, voice: { tokens: [] } }).text, '$mel: note("f d").room(0.5).orbit(2).postgain(0.8)');
+  assert.equal(trackToCode(t).text, '/* mel */ note("f d").s("sine").room(0.5).orbit(2).postgain(0.8)');
+  assert.equal(trackToCode({ ...t, voice: { tokens: [] } }).text, '/* mel */ note("f d").room(0.5).orbit(2).postgain(0.8)');
   const { text, ranges } = trackToCode(t);
   for (const [tok, name] of [[f, 'f'], [sine, 'sine']] as const) {
     const r = ranges.find((x) => x.tokenId === tok.id);
@@ -158,7 +163,7 @@ test('codegen: Notenspur mit note(), Klang in .s(), Orbit und Lautstärke', () =
     assert.equal(text.slice(r.start, r.end), name);
   }
   // Ein Klang in .s() bei einer anderen Spurart steht nicht im Code
-  assert.equal(trackToCode({ ...t, type: 'sound' }).text, '$mel: s("f d").room(0.5).orbit(2).postgain(0.8)');
+  assert.equal(trackToCode({ ...t, type: 'sound' }).text, '/* mel */ s("f d").room(0.5).orbit(2).postgain(0.8)');
 });
 
 test('effects: Rechenarten für Noten aus Strudels Quelltext, getrennt von den Effekten', () => {
@@ -190,7 +195,7 @@ test('codegen: Sample-Funktionen wie Effekte, fit() ohne Wert', () => {
     tokens: [soundToken('brk')],
     effects: [effect('fit'), effect('chop', [soundToken('4')]), effect('scrub', [openToken('<'), soundToken('0'), soundToken('.5'), closeToken('<')]), effect('striate')],
   };
-  assert.equal(trackToCode(t).text, '$: s("brk").fit().chop(4).scrub("<0 .5>")');
+  assert.equal(trackToCode(t).text, 's("brk").fit().chop(4).scrub("<0 .5>")');
 });
 
 test('codegen: Rechenarten stehen an der Mini-Notation der Noten, nur bei Notenspuren', () => {
@@ -202,11 +207,11 @@ test('codegen: Rechenarten stehen an der Mini-Notation der Noten, nur bei Notens
     voice: { tokens: [soundToken('sine')] },
   };
   const { text, ranges } = trackToCode(t);
-  assert.equal(text, '$: note("f d".add("<0 3>").div(2)).s("sine")');
+  assert.equal(text, 'note("f d".add("<0 3>").div(2)).s("sine")');
   const r = ranges.find((x) => x.tokenId === zero.id);
   assert.ok(r);
   assert.equal(text.slice(r.start, r.end), '0');
-  assert.equal(trackToCode({ ...t, type: 'sound' }).text, '$: s("f d")');
+  assert.equal(trackToCode({ ...t, type: 'sound' }).text, 's("f d")');
 });
 
 test('codegen: eigene Aufnahme als Klang einer Notenspur wird eingebettet', () => {
@@ -246,6 +251,8 @@ test('effects: Pfeiltasten springen zum nächsten Beispielwert', () => {
   assert.equal(stepValue('3', [], 1), '4');
   assert.equal(stepValue('0.5', [], -1), '0.4');
   assert.equal(stepValue('', lpf, 1), '100');
+  assert.equal(stepValue('200:2', lpf, 1), '500:2', 'nach dem Doppelpunkt bleibt es');
+  assert.equal(stepValue('0.5:1.5', [], -1), '0.4:1.5');
 });
 
 test('effects: Regler nur für einen einzelnen Stein ohne Zufall und Wiederholung', () => {

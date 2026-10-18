@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ALL_SOUNDS, QUICK_SOUNDS, SOUND_GROUPS, SOUND_SOURCES, isSoundName, stepSound } from './sounds.ts';
+import { ALL_SOUNDS, QUICK_SOUNDS, SOUND_GROUPS, SOUND_SOURCES, isSoundName, splitVariant, stepVariant } from './sounds.ts';
 // @ts-expect-error reines JavaScript ohne Typen
 import { prebakeUrls, sourceId, synthSources } from '../../../scripts/strudel-sounds.mjs';
 
@@ -34,17 +34,25 @@ test('sounds: Namen, die Strudel nicht kennt, sind nicht dabei', () => {
   for (const n of ['bd', 'sd', 'hh', 'casio', 'piano', 'white', 'supersaw']) assert.ok(ALL_SOUNDS.has(n), n);
 });
 
-test('sounds: getippte Klangnamen, unbekannte erlaubt, Mini-Notation nicht', () => {
-  for (const n of ['bd', 'gm_piano', 'rec1', 'AkaiLinn_bd', 'unbekannt']) assert.ok(isSoundName(n), n);
-  for (const n of ['', '~', 'bd:3', 'bd*2', '1bd', 'bd sd', '[bd']) assert.ok(!isSoundName(n), n);
+test('sounds: getippte Klangnamen, unbekannte und Varianten erlaubt, sonstige Mini-Notation nicht', () => {
+  for (const n of ['bd', 'gm_piano', 'rec1', 'AkaiLinn_bd', 'unbekannt', 'bd:3', 'rec1:12']) assert.ok(isSoundName(n), n);
+  for (const n of ['', '~', '~:1', 'bd:', 'bd:x', 'bd:1:2', 'bd:-1', 'bd*2', '1bd', 'bd sd', '[bd']) assert.ok(!isSoundName(n), n);
   for (const n of ALL_SOUNDS) assert.ok(isSoundName(n), n);
 });
 
-test('sounds: ↑/↓ gehen in der Palettengruppe weiter, im Kreis', () => {
-  const drums = SOUND_GROUPS.find(([g]) => g === 'Schlagzeug')![1];
-  assert.equal(stepSound(drums[0], 1), drums[1]);
-  assert.equal(stepSound(drums[0], -1), drums[drums.length - 1]);
-  assert.equal(stepSound(drums[drums.length - 1], 1), drums[0]);
-  assert.equal(stepSound('unbekannt', 1), 'unbekannt');
-  assert.equal(stepSound('~', 1), '~');
+test('sounds: Name und Variante', () => {
+  assert.deepEqual(splitVariant('bd:3'), { name: 'bd', variant: 3 });
+  assert.deepEqual(splitVariant('bd'), { name: 'bd', variant: 0 });
+  assert.deepEqual(splitVariant('gm_piano:0'), { name: 'gm_piano', variant: 0 });
+});
+
+test('sounds: −/+ zählen die Variante, nicht unter 0', () => {
+  assert.equal(stepVariant('bd', 1), 'bd:1');
+  assert.equal(stepVariant('bd:1', 1), 'bd:2');
+  assert.equal(stepVariant('bd:2', -1), 'bd:1');
+  assert.equal(stepVariant('bd:1', -1), 'bd');
+  assert.equal(stepVariant('bd', -1), 'bd');
+  assert.equal(stepVariant('bd:0', 1), 'bd:1');
+  assert.equal(stepVariant('~', 1), '~');
+  assert.equal(stepVariant('bd*2', 1), 'bd*2');
 });

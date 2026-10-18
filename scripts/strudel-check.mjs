@@ -18,16 +18,19 @@ try {
   const transpiler = await server.ssrLoadModule('@strudel/transpiler');
   const types = await server.ssrLoadModule('/src/lib/domain/types.ts');
   const codegen = await server.ssrLoadModule('/src/lib/domain/codegen.ts');
+  const fromCode = await server.ssrLoadModule('/src/lib/syntax/from-code.ts');
 
   await core.evalScope(core, mini);
   mini.miniAllStrings?.();
   // Funktionen, die sonst die Strudel-Oberfläche liefert
   globalThis.setcps = () => {};
   globalThis.setcpm = () => {};
+  // Der Code endet mit stack(…): ohne Label spielt Strudel den letzten Ausdruck, wie in der Engine
   const patterns = [];
-  core.Pattern.prototype.p = function () {
-    patterns.push(this);
-    return this;
+  const run = async (code) => {
+    const { pattern } = await transpiler.evaluate(code);
+    assert.ok(pattern instanceof core.Pattern, 'der Code ergibt ein Muster');
+    patterns.push(pattern);
   };
 
   const { soundToken: snd, openToken: open, closeToken: close } = types;
@@ -38,6 +41,8 @@ try {
       open('['),
       snd('sd'),
       snd('oh'),
+      // Stapel mit Komma: [oh, cp*2]
+      snd('cp', { joined: true, repeat: { op: '*', value: 2 } }),
       close('[', { repeat: { op: '*', value: 2 } }),
       open('<'),
       snd('cp'),
@@ -65,14 +70,14 @@ try {
     tracks.map((tokens, i) => ({ tokens, name: i === 0 ? 'drums' : '', effects: i === 0 ? fx : [], volume: i === 1 ? 0.8 : 1 })),
     { cps: 0.5 },
   );
-  assert.match(code, /\$drums: s\(".*"\)\.lpf\("<200 800>"\)\.room\(0\.5\)\n\$: s\(/, 'Name und Effekte stehen im Code');
-  assert.match(code, /\n\$: s\("[^"]*"\)\.postgain\(0\.8\)$/, 'Lautstärke steht am Ende der Spur');
+  assert.match(code, /\nstack\(\n {2}\/\* drums \*\/ s\(".*"\)\.lpf\("<200 800>"\)\.room\(0\.5\),\n {2}s\(/, 'Name und Effekte stehen im Code');
+  assert.match(code, /\n {2}s\("[^"]*"\)\.postgain\(0\.8\)\n\)$/, 'Lautstärke steht am Ende der Spur');
   const owner = new Map();
   for (const t of [...tracks.flat(), lo, hi]) owner.set(t.id, t);
   const values = new Set([lo.id, hi.id]);
 
-  await transpiler.evaluate(code);
-  assert.equal(patterns.length, 2, 'beide Spuren wurden ausgewertet');
+  await run(code);
+  assert.equal(patterns.length, 1, 'beide Spuren in einem stack');
 
   let checked = 0;
   let valueHits = 0;
@@ -109,8 +114,8 @@ try {
     const notes = [snd('f'), open('<'), snd('d'), snd('a4'), close('<'), snd('~'), snd('c#3', { repeat: { op: '*', value: 2 } })];
     const voice = [open('<'), snd('sine'), snd('sawtooth'), close('<')];
     const program = codegen.toStrudelProgram([{ tokens: notes, type: 'note', voice: { tokens: voice }, name: 'mel', orbit: 2 }], { cps: 0.5 });
-    assert.match(program.code, /\$mel: note\("f <d a4> ~ c#3\*2"\)\.s\("<sine sawtooth>"\)\.orbit\(2\)$/, 'Notenspur im Code');
-    await transpiler.evaluate(program.code);
+    assert.match(program.code, /\/\* mel \*\/ note\("f <d a4> ~ c#3\*2"\)\.s\("<sine sawtooth>"\)\.orbit\(2\)\n\)$/, 'Notenspur im Code');
+    await run(program.code);
     assert.equal(patterns.length, 1, 'Notenspur wurde ausgewertet');
     const byId = new Map([...notes, ...voice].map((t) => [t.id, t]));
     const voiceIds = new Set(voice.map((t) => t.id));
@@ -144,13 +149,12 @@ try {
     await core.evalScope(sliders);
     const fx = [{ ...types.effect('lpf', [snd('800')]), slider: { min: 100, max: 8000, step: 10 } }];
     const program = codegen.toStrudelProgram([{ tokens: [snd('bd'), snd('sd')], effects: fx }], { cps: 0.5 });
-    assert.match(program.code, /\$: s\("bd sd"\)\.lpf\(slider\(800, 100, 8000, 10\)\)$/, 'slider() im Code');
-    await transpiler.evaluate(program.code);
+    assert.match(program.code, / {2}s\("bd sd"\)\.lpf\(slider\(800, 100, 8000, 10\)\)\n\)$/, 'slider() im Code');
+    await run(program.code);
     const haps = patterns[0].queryArc(0, 1);
     assert.equal(haps.length, 2);
     for (const hap of haps) assert.equal(hap.value.cutoff, 800, 'Wert aus slider() kommt an');
-    const fromCode = await server.ssrLoadModule('/src/lib/syntax/from-code.ts');
-    const back = fromCode.codeToTrack(program.code.split('\n').at(-1));
+    const back = fromCode.codeToTrack(program.code.split('\n').at(-2).trim());
     assert.ok(back.ok);
     assert.deepEqual(back.effects[0].slider, { min: 100, max: 8000, step: 10 });
     console.log('ok: slider(wert, min, max, step) läuft in Strudel und kommt als Regler zurück');
@@ -165,8 +169,8 @@ try {
     const twelve = snd('12');
     const op = types.effect('add', [open('<'), zero, twelve, close('<')]);
     const program = codegen.toStrudelProgram([{ tokens: notes, type: 'note', noteOps: [op], voice: { tokens: [snd('sine')] } }], { cps: 0.5 });
-    assert.match(program.code, /\$: note\("c3 e3"\.add\("<0 12>"\)\)\.s\("sine"\)$/, 'Rechenart im Code');
-    await transpiler.evaluate(program.code);
+    assert.match(program.code, / {2}note\("c3 e3"\.add\("<0 12>"\)\)\.s\("sine"\)\n\)$/, 'Rechenart im Code');
+    await run(program.code);
     const expected = [[48, 52], [60, 64]];
     for (const cycle of [0, 1]) {
       const haps = patterns[0].queryArc(cycle, cycle + 1).sort((a, b) => a.whole.begin - b.whole.begin);
@@ -189,8 +193,8 @@ try {
     const half = snd('.5');
     const fx = [types.effect('fit'), types.effect('chop', [snd('2')]), types.effect('scrub', [open('<'), zero, half, close('<')])];
     const program = codegen.toStrudelProgram([{ tokens: [brk], effects: fx }], { cps: 0.5 });
-    assert.match(program.code, /\$: s\("brk"\)\.fit\(\)\.chop\(2\)\.scrub\("<0 \.5>"\)$/, 'Sample-Funktionen im Code');
-    await transpiler.evaluate(program.code);
+    assert.match(program.code, / {2}s\("brk"\)\.fit\(\)\.chop\(2\)\.scrub\("<0 \.5>"\)\n\)$/, 'Sample-Funktionen im Code');
+    await run(program.code);
     for (const [cycle, stone, begin] of [[0, zero, 0], [1, half, 0.5]]) {
       const haps = patterns[0].queryArc(cycle, cycle + 1);
       assert.equal(haps.length, 2, `Zyklus ${cycle}: chop(2) teilt in zwei`);
@@ -224,8 +228,8 @@ try {
 
     patterns.length = 0;
     let program = codegen.toStrudelProgram([sampler('slice', [zero, open('<'), one, three, close('<')])], { cps: 0.5 });
-    assert.match(program.code, /\$: s\("<brk amen>"\)\.slice\(4, "0 <1 3>"\)$/, 'slice im Code');
-    await transpiler.evaluate(program.code);
+    assert.match(program.code, / {2}s\("<brk amen>"\)\.slice\(4, "0 <1 3>"\)\n\)$/, 'slice im Code');
+    await run(program.code);
     const sliceExpected = [
       ['brk', [0, 0.25], [0.25, 0.5]],
       ['amen', [0, 0.25], [0.75, 1]],
@@ -246,8 +250,8 @@ try {
     patterns.length = 0;
     const quarter = snd('.25');
     program = codegen.toStrudelProgram([sampler('scrub', [zero, quarter])], { cps: 0.5 });
-    assert.match(program.code, /\$: s\("<brk amen>"\)\.scrub\("0 \.25"\)$/, 'scrub im Code');
-    await transpiler.evaluate(program.code);
+    assert.match(program.code, / {2}s\("<brk amen>"\)\.scrub\("0 \.25"\)\n\)$/, 'scrub im Code');
+    await run(program.code);
     const haps = patterns[0].queryArc(0, 1).sort((a, b) => a.whole.begin - b.whole.begin);
     assert.deepEqual(haps.map((h) => h.value.begin), [0, 0.25], 'scrub setzt die Position');
     haps.forEach((hap, i) => {
@@ -256,6 +260,91 @@ try {
       assert.ok(ids.includes([zero, quarter][i].id), `Positionsstein ${i} leuchtet`);
     });
     console.log('ok: Sampler-Spur spielt Abschnitte (slice) und Positionen (scrub), Sample- und Wertsteine leuchten');
+
+    // Doppelpunkt: scrub liest danach die Geschwindigkeit, ein Klangstein seine Variante (`bd:3` = n 3)
+    patterns.length = 0;
+    const fast = snd('.5:2');
+    program = codegen.toStrudelProgram([sampler('scrub', [fast])], { cps: 0.5 });
+    assert.match(program.code, /\.scrub\("\.5:2"\)\n\)$/, 'scrub mit Geschwindigkeit im Code');
+    await run(program.code);
+    const [scrubbed] = patterns[0].queryArc(0, 1);
+    assert.equal(scrubbed.value.begin, 0.5, 'scrub: Position vor dem Doppelpunkt');
+    assert.equal(scrubbed.value.speed, 2, 'scrub: Geschwindigkeit nach dem Doppelpunkt');
+    assert.ok(lit(scrubbed, program).includes(fast.id), 'Wertstein mit Geschwindigkeit leuchtet');
+
+    patterns.length = 0;
+    const bd3 = snd('bd:3');
+    const hh = snd('hh');
+    program = codegen.toStrudelProgram([{ tokens: [bd3, hh] }], { cps: 0.5 });
+    await run(program.code);
+    const variants = patterns[0].queryArc(0, 1).sort((a, b) => a.whole.begin - b.whole.begin);
+    assert.deepEqual(variants.map((h) => [h.value.s, h.value.n]), [['bd', 3], ['hh', undefined]], 'Variante wird n');
+    // `bd:3` meldet zwei Positionen (Name und Zahl), beide im selben Stein
+    variants.forEach((hap, i) => assert.deepEqual([...new Set(lit(hap, program))], [[bd3, hh][i].id], `Klangstein ${i} leuchtet allein`));
+    console.log('ok: Doppelpunkt: scrub mit Geschwindigkeit, Klangstein mit Variante, beide leuchten');
+  }
+
+  // Namen als Kommentar und Stummschaltung: die stumme Spur (.hush()) schweigt, die andere spielt und leuchtet,
+  // und jede Zeile im stack wird wieder zur Spur mit Name und Stummschaltung
+  {
+    patterns.length = 0;
+    const kick = snd('bd');
+    const snare = snd('sd');
+    const program = codegen.toStrudelProgram(
+      [{ tokens: [kick], name: 'drums' }, { tokens: [snare], name: 'snare', muted: true }],
+      { cps: 0.5 },
+    );
+    assert.match(program.code, /\nstack\(\n {2}\/\* drums \*\/ s\("bd"\),\n {2}\/\* snare \*\/ s\("sd"\)\.hush\(\)\n\)$/, 'stack im Code');
+    await run(program.code);
+    const haps = patterns[0].queryArc(0, 2);
+    assert.deepEqual(haps.map((h) => h.value.s), ['bd', 'bd'], 'nur die nicht stumme Spur klingt');
+    for (const hap of haps) {
+      const ids = hap.context.locations.flatMap((loc) => program.ranges.filter((r) => loc.start >= r.start && loc.start < r.end));
+      assert.deepEqual(ids.map((r) => r.tokenId), [kick.id], 'der Kommentar verschiebt die Positionen nicht');
+    }
+    const back = program.code.split('\n').slice(-3, -1).map((line) => fromCode.codeToTrack(line.trim().replace(/,$/, '')));
+    assert.deepEqual(back.map((r) => r.ok && [r.name, r.muted]), [['drums', false], ['snare', true]], 'Rückweg aus dem stack');
+    console.log('ok: Namen als Kommentar, stumme Spur mit .hush() schweigt, Rückweg liest Name und Stummschaltung');
+  }
+
+  // Arrangement: Szenen als Variablen, dann arrange(). Abschnitte laufen nacheinander, nur die angezeigte Szene leuchtet.
+  {
+    patterns.length = 0;
+    const a = [snd('bd'), snd('sd')];
+    const b = [snd('hh', { repeat: { op: '*', value: 2 } })];
+    const program = codegen.toArrangedProgram(
+      [
+        { id: 'A', variable: 'Szene01', tracks: [{ tokens: a, name: 'drums' }] },
+        { id: 'B', variable: 'Szene02', tracks: [{ tokens: b }] },
+        { id: 'C', variable: 'Leer', tracks: [] },
+      ],
+      [
+        { sceneId: 'A', times: 2 },
+        { sceneId: 'B', times: 1 },
+        { sceneId: 'C', times: 1 },
+      ],
+      { cps: 0.5, lit: 'B' },
+    );
+    await run(program.code);
+    const sounds = (cycle) =>
+      patterns[0]
+        .queryArc(cycle, cycle + 1)
+        .filter((h) => h.hasOnset())
+        .map((h) => h.value.s)
+        .join(' ');
+    assert.deepEqual([0, 1, 2, 3, 4].map(sounds), ['bd sd', 'bd sd', 'hh hh', '', 'bd sd'], 'Abschnitte nacheinander, dann von vorn');
+    const lit = patterns[0]
+      .queryArc(2, 3)
+      .flatMap((h) => (h.context.locations ?? []).flatMap((loc) => program.ranges.filter((r) => loc.start >= r.start && loc.start < r.end)));
+    assert.deepEqual(lit.map((r) => r.tokenId), [b[0].id, b[0].id], 'Steine der angezeigten Szene leuchten');
+    const dark = patterns[0]
+      .queryArc(0, 1)
+      .flatMap((h) => (h.context.locations ?? []).flatMap((loc) => program.ranges.filter((r) => loc.start >= r.start && loc.start < r.end)));
+    assert.equal(dark.length, 0, 'andere Szenen leuchten nicht');
+    patterns.length = 0;
+    await run(codegen.toArrangedProgram([{ id: 'A', variable: 'A', tracks: [{ tokens: a }] }], [], { cps: 0.5 }).code);
+    assert.equal(patterns[0].queryArc(0, 1).length, 0, 'leeres Arrangement schweigt');
+    console.log('ok: Arrangement spielt Szenen nacheinander (arrange), nur die angezeigte Szene leuchtet');
   }
 
   // Zufallsabgleich: Der eigene Klammer-Parser muss dieselben Spuren akzeptieren wie Strudels Grammatik.
@@ -285,7 +374,7 @@ try {
     for (let i = 0; i < length; i += 1) {
       const r = rnd();
       const group = pick(['[', '<', '{']);
-      if (r < 0.6) tokens.push(snd(pick(['bd', 'hh', '808bd', 'rim', '~']), mods()));
+      if (r < 0.6) tokens.push(snd(pick(['bd', 'hh', '808bd', 'rim', '~']), { ...mods(), joined: rnd() < 0.25 }));
       else if (r < 0.8) tokens.push(open(group));
       else tokens.push(close(group, mods()));
     }

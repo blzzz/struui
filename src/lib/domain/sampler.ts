@@ -21,6 +21,27 @@ export function startValues(mode: SamplerMode): string[] {
   return [...START[mode]];
 }
 
+/**
+ * `scrub` liest nach einem Doppelpunkt die Geschwindigkeit (`.5:2` = ab der Mitte, doppelt so schnell), als Sampler-Art wie als
+ * Effekt einer Klangspur. `slice` nicht (dort ergäbe `3:2` keinen Abschnitt). Nur dann dürfen Wertsteine einen Doppelpunkt tragen.
+ */
+export function takesSpeed(name: string): boolean {
+  return name === 'scrub';
+}
+
+/**
+ * Ein Wertstein beim Wechsel der Art: Abschnitt 2 von 8 wird Position 0.25 und umgekehrt (auf den nächsten Abschnitt gerundet).
+ * Die Geschwindigkeit nach dem Doppelpunkt bleibt nur, wo sie gelesen wird. Anderes als Zahlen bleibt unverändert.
+ */
+export function convertValue(value: string, to: SamplerMode, slices: number): string {
+  const [head, ...rest] = value.split(':');
+  const v = Number(head);
+  if (head.trim() === '' || !Number.isFinite(v)) return value;
+  const n = clampSlices(slices);
+  const converted = to === 'scrub' ? String(Math.round((v / n) * 1000) / 1000) : String(Math.min(n - 1, Math.max(0, Math.round(v * n))));
+  return takesSpeed(to) && rest.length > 0 ? [converted, ...rest].join(':') : converted;
+}
+
 /** Zahl der Abschnitte, als ganze Zahl von 1 bis `SLICES_MAX`. */
 export function clampSlices(n: number): number {
   return Number.isFinite(n) ? Math.max(1, Math.min(SLICES_MAX, Math.round(n))) : DEFAULT_SLICES;

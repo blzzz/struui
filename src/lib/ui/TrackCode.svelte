@@ -5,7 +5,7 @@
   import type { Track } from '../domain/types.ts';
 
   /**
-   * Die ganze Codezeile einer Spur zum Lesen und Bearbeiten: Name, Klänge und Effekte (`$drums: s("bd sd").lpf(800)`).
+   * Die ganze Codezeile einer Spur zum Lesen und Bearbeiten: Name, Klänge und Effekte (`/* drums *\/ s("bd sd").lpf(800)`).
    * Jeder gültige Tastendruck ändert sofort Steine, Effekte und Namen. Solange der Text ungültig ist,
    * bleibt alles beim letzten gültigen Stand. Beim Verlassen des Felds steht wieder der erzeugte Code da.
    */

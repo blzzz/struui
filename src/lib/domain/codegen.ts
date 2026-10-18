@@ -1,9 +1,10 @@
-import { PAUSE, hasModifiers, hasSteps, label } from './types.ts';
+import { PAUSE, hasModifiers, hasSteps, joinsPrevious, label } from './types.ts';
 import type { Modifiers, Token, TrackType } from './types.ts';
 import { effectInfo } from './effects.ts';
 import type { Effect, SliderRange } from './effects.ts';
 import { clampSlices } from './sampler.ts';
 import type { SamplerMode } from './sampler.ts';
+import { splitVariant } from './sounds.ts';
 import { tempoCode } from './tempo.ts';
 import type { TempoUnit } from './tempo.ts';
 
@@ -34,7 +35,7 @@ export interface TokenRange {
 }
 
 /**
- * Leerzeichen zwischen Steinen, ausser nach `[`/`<` und vor `]`/`>`.
+ * Leerzeichen zwischen Steinen, ausser nach `[`/`<` und vor `]`/`>`. Ein Stapel (`joinsPrevious`) steht als `[bd, hh]` da.
  * `ranges`: Klangnamen und rohe Steine (für das Aufleuchten). `all`: jeder Stein, nur sein Zeichen ohne Modifier (für Fehlerstellen).
  */
 export function trackToMiniWithRanges(tokens: readonly Token[]): { text: string; ranges: TokenRange[]; all: TokenRange[] } {
@@ -42,15 +43,19 @@ export function trackToMiniWithRanges(tokens: readonly Token[]): { text: string;
   let afterOpen = true;
   const ranges: TokenRange[] = [];
   const all: TokenRange[] = [];
-  for (const t of tokens) {
+  tokens.forEach((t, i) => {
     const s = tokenToMini(t);
-    if (!(t.kind === 'close' || afterOpen)) text += ' ';
+    const joined = joinsPrevious(tokens, i);
+    if (joined) text += ', ';
+    else if (!(t.kind === 'close' || afterOpen)) text += ' ';
+    if (!joined && joinsPrevious(tokens, i + 1)) text += '[';
     const range = { tokenId: t.id, start: text.length, end: text.length + label(t).length };
     all.push(range);
     if ((t.kind === 'sound' && t.sound !== PAUSE) || t.kind === 'raw') ranges.push(range);
     text += s;
+    if (joined && !joinsPrevious(tokens, i + 1)) text += ']';
     afterOpen = t.kind === 'open';
-  }
+  });
   return { text, ranges, all };
 }
 
@@ -77,7 +82,7 @@ export interface Program {
 /** Was die Code-Erzeugung von einer Spur braucht. */
 export interface CodeTrack {
   tokens: readonly Token[];
-  /** Spurname nach dem `$`. Fehlt er, steht nur `$:`. */
+  /** Spurname, als Kommentar vor der Spur (`/* drums *\/`). Fehlt er, steht kein Kommentar da. */
   name?: string;
   /** Effekte ohne Wertsteine werden übersprungen, ausser solche ohne Wert (`.fit()`). */
   effects?: readonly Pick<Effect, 'name' | 'tokens' | 'slider'>[];
@@ -137,18 +142,18 @@ export function effectToCode(e: {
 const shift = (ranges: readonly TokenRange[], by: number): TokenRange[] =>
   ranges.map((r) => ({ tokenId: r.tokenId, start: r.start + by, end: r.end + by }));
 
-/** Name vor dem Doppelpunkt. Strudel schaltet Muster mit `_` davor stumm und macht jedes `$` eindeutig. */
-export function trackLabel(t: Pick<CodeTrack, 'name' | 'muted'>): string {
-  return `${t.muted ? '_' : ''}$${t.name ?? ''}`;
+/** Der Name als Kommentar vor der Spur (`/* drums *\/ `). Strudel sieht ihn nicht, `codeToTrack` liest ihn wieder. */
+export function trackComment(t: Pick<CodeTrack, 'name'>): string {
+  return t.name ? `/* ${t.name} */ ` : '';
 }
 
 /**
  * Anfang der Zeile einer Sampler-Spur: das Sample, dann die Wertsteine als `scrub` oder `slice`.
- * `$x: s("brk").slice(8, "0 3 <1 2>")`, `$x: s("<brk amen>").scrub("0 .25")`.
+ * `/* x *\/ s("brk").slice(8, "0 3 <1 2>")`, `/* x *\/ s("<brk amen>").scrub("0 .25")`.
  */
 function samplerHead(t: CodeTrack): { text: string; ranges: TokenRange[] } {
   const sample = trackToMiniWithRanges(t.sample?.tokens ?? []);
-  let text = `${trackLabel(t)}: s("`;
+  let text = `${trackComment(t)}s("`;
   const ranges = shift(sample.ranges, text.length);
   text += `${sample.text}")`;
   if (t.samplerMode === 'scrub') {
@@ -167,11 +172,14 @@ function samplerHead(t: CodeTrack): { text: string; ranges: TokenRange[] } {
   return { text, ranges };
 }
 
-/** Eine Spur als eine Codezeile (`$drums: s("bd sd").lpf(800)`), mit den Positionen ihrer Klang- und Wertsteine. */
+/**
+ * Eine Spur als eine Codezeile (`/* drums *\/ s("bd sd").lpf(800)`), mit den Positionen ihrer Klang- und Wertsteine.
+ * Eine stumme Spur endet mit `.hush()`: Strudel macht daraus Stille, die Zeile bleibt sichtbar.
+ */
 export function trackToCode(t: CodeTrack): { text: string; ranges: TokenRange[] } {
   if (t.type === 'sampler') return withTail(t, samplerHead(t));
   const { text: mini, ranges: local } = trackToMiniWithRanges(t.tokens);
-  let text = `${trackLabel(t)}: ${t.type === 'note' ? 'note' : 's'}("`;
+  let text = `${trackComment(t)}${t.type === 'note' ? 'note' : 's'}("`;
   const ranges = shift(local, text.length);
   text += `${mini}"`;
   // Rechenarten an der Mini-Notation, nicht nach note(…): dort wirkten sie nicht auf die Noten
@@ -190,7 +198,7 @@ export function trackToCode(t: CodeTrack): { text: string; ranges: TokenRange[] 
   return withTail(t, { text, ranges });
 }
 
-/** Effekte, dann MIDI-Ausgang bzw. Orbit und Lautstärke: der gemeinsame Schluss jeder Zeile. */
+/** Effekte, dann MIDI-Ausgang bzw. Orbit und Lautstärke, zuletzt die Stummschaltung: der gemeinsame Schluss jeder Zeile. */
 function withTail(t: CodeTrack, head: { text: string; ranges: TokenRange[] }): { text: string; ranges: TokenRange[] } {
   let { text } = head;
   const ranges = [...head.ranges];
@@ -201,23 +209,29 @@ function withTail(t: CodeTrack, head: { text: string; ranges: TokenRange[] }): {
     text += fx.text;
   }
   if (t.type === 'midi') {
-    // `.midi()` am Schluss: es liest die Werte, die alle Aufrufe davor gesetzt haben
+    // `.midi()` nach allen Werten: es liest die Werte, die alle Aufrufe davor gesetzt haben
     text += `.midichan(${t.channel ?? 1}).midi(${t.port ? quote(t.port) : ''})`;
-    return { text, ranges };
+  } else {
+    if (t.orbit !== undefined && t.orbit !== 1) text += `.orbit(${t.orbit})`;
+    // Nach den Effekten, damit die Lautstärke der Spur gilt (ein gleichnamiger Effekt davor würde überschrieben)
+    if (t.volume !== undefined && t.volume !== 1) text += `.postgain(${t.volume})`;
   }
-  if (t.orbit !== undefined && t.orbit !== 1) text += `.orbit(${t.orbit})`;
-  // Am Schluss, damit die Lautstärke der Spur gilt (ein gleichnamiger Effekt davor würde überschrieben)
-  if (t.volume !== undefined && t.volume !== 1) text += `.postgain(${t.volume})`;
+  if (t.muted) text += '.hush()';
   return { text, ranges };
 }
 
-export function toStrudelProgram(tracks: readonly CodeTrack[], opts: CodeOptions): Program {
+/** Eigene Aufnahmen, die irgendeine Spur braucht, als `samples({…})`, dann die Tempozeile. */
+function header(tracks: readonly CodeTrack[], opts: CodeOptions): string {
   const samples = opts.samples ?? new Map<string, string>();
   const used = new Set<string>();
   for (const { tokens, type, voice, sample } of tracks) {
     // Klangnamen stehen bei Noten- und Sampler-Spuren in eigenen Reihen, nicht auf den Steinen
     const names = type === 'note' ? (voice?.tokens ?? []) : type === 'sampler' ? (sample?.tokens ?? []) : tokens;
-    for (const t of names) if (t.kind === 'sound' && samples.has(t.sound)) used.add(t.sound);
+    for (const t of names) {
+      // Eine Variante (`rec1:2`) braucht dieselbe Aufnahme
+      const name = t.kind === 'sound' ? splitVariant(t.sound).name : '';
+      if (samples.has(name)) used.add(name);
+    }
   }
   let code = '';
   if (used.size > 0) {
@@ -230,16 +244,70 @@ export function toStrudelProgram(tracks: readonly CodeTrack[], opts: CodeOptions
     });
     code += `samples({\n${defs.join(',\n')}\n})\n\n`;
   }
-  code += `${tempoCode(opts.cps, opts.tempoUnit ?? 'cps')}\n`;
+  return code + `${tempoCode(opts.cps, opts.tempoUnit ?? 'cps')}\n`;
+}
+
+/** Alle Spuren in einem `stack(…)`, eine pro Zeile. Null, wenn keine Spur Steine hat. Positionen ab Textanfang. */
+function stackCode(tracks: readonly CodeTrack[]): { text: string; ranges: TokenRange[] } | null {
+  const lines = tracks.filter((t) => t.tokens.length > 0 && (t.type !== 'sampler' || !!t.sample?.tokens.length));
+  if (lines.length === 0) return null;
   const ranges: TokenRange[] = [];
-  for (const t of tracks) {
-    if (t.tokens.length === 0) continue;
-    if (t.type === 'sampler' && !t.sample?.tokens.length) continue;
+  let text = 'stack(';
+  lines.forEach((t, i) => {
     const line = trackToCode(t);
-    code += '\n';
-    ranges.push(...shift(line.ranges, code.length));
-    code += line.text;
+    text += i === 0 ? '\n  ' : ',\n  ';
+    ranges.push(...shift(line.ranges, text.length));
+    text += line.text;
+  });
+  return { text: text + '\n)', ranges };
+}
+
+/**
+ * Der ganze Code: Aufnahmen, Tempo, dann alle Spuren in einem `stack(…)`, eine Spur pro Zeile. Ohne Label spielt
+ * Strudel den letzten Ausdruck, also diesen Stapel. Ohne Spur mit Steinen steht kein `stack` da.
+ */
+export function toStrudelProgram(tracks: readonly CodeTrack[], opts: CodeOptions): Program {
+  let code = header(tracks, opts);
+  const stack = stackCode(tracks);
+  if (!stack) return { code, ranges: [] };
+  code += '\n';
+  return { code: code + stack.text, ranges: shift(stack.ranges, code.length) };
+}
+
+/** Eine Szene für das Arrangement: Name der Variable und ihre Spuren. */
+export interface CodeScene {
+  id: string;
+  variable: string;
+  tracks: readonly CodeTrack[];
+}
+
+/**
+ * Arrangement: jede Szene als Variable (`const Szene01 = stack(…)`, ohne Spuren `silence`), dann
+ * `arrange([4, Szene01], [2, Szene02])` als letzter Ausdruck. Ohne Abschnitt steht dort `silence`.
+ * Positionen nur für die Szene `lit` (die angezeigte): Szenen teilen sich nach dem Kopieren die IDs der Steine.
+ */
+export function toArrangedProgram(
+  scenes: readonly CodeScene[],
+  sections: readonly { sceneId: string; times: number }[],
+  opts: CodeOptions & { lit?: string },
+): Program {
+  let code = header(
+    scenes.flatMap((s) => s.tracks),
+    opts,
+  );
+  const ranges: TokenRange[] = [];
+  for (const s of scenes) {
+    const stack = stackCode(s.tracks);
+    code += `\nconst ${s.variable} = `;
+    if (stack && s.id === opts.lit) ranges.push(...shift(stack.ranges, code.length));
+    code += `${stack?.text ?? 'silence'}\n`;
   }
+  const variables = new Map(scenes.map((s) => [s.id, s.variable]));
+  const parts = sections.flatMap((x) => {
+    const v = variables.get(x.sceneId);
+    return v ? [`[${x.times}, ${v}]`] : [];
+  });
+  code += parts.length === 0 ? '\nsilence' : `\narrange(\n  ${parts.join(',\n  ')}\n)`;
   return { code, ranges };
 }
 

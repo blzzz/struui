@@ -48,7 +48,7 @@ von `codegen` stammt, kennen wir die Position jedes Klangnamens und finden so de
   Standard aus). Aus: keine Zufallsknöpfe, Steine mit Zufall tragen einen roten Punkt, nicht änderbar. Die Position bestimmt die Bedeutung. Fehlende Steine bedeuten Standardwerte.
 - **Drei Klammerarten:** `[ ]` Gruppe, `< >` Wechsel, `{ }` Polymeter (eigene Farbe `--br3`). Unter `}` liegt statt Zufall und
   Wiederholung nur der **Modulowert** (`{a b c}%4`, Drehknopf 1–8, aus = so viele Schritte wie Elemente). Zufall und Wiederholung
-  einer Klammer bleiben gespeichert, wenn sie zu `{` wechselt, und kommen beim Weiterschalten zurück. Kommas (`{a b, c d e}`) gibt es nicht als Stein.
+  einer Klammer bleiben gespeichert, wenn sie zu `{` wechselt, und kommen beim Weiterschalten zurück. Kommas zwischen Folgen (`{a b, c d e}`) gibt es nicht als Stein, nur Stapel einzelner Klänge (siehe unten).
 - **Zahlen über Drehung** mit Raststufen (`scales.ts`). `*` kennt Brüche und ersetzt damit `/`.
   Der Zufallswert ist die **Ausfallchance** (wie `?0.3` in Strudel).
 - **Pause ist ein Klang** (`~`), kein Operator. Leere Felder in einem Raster gibt es nicht mehr.
@@ -64,16 +64,19 @@ von `codegen` stammt, kennen wir die Position jedes Klangnamens und finden so de
   Viertel fügen davor/danach ein (`findDropTarget`, `replace`). Steine im Editor verschieben immer nur. Einen Klangdialog gibt es
   nicht mehr; `ui/ValueSheet.svelte` ist nur noch der Dialog für Wertsteine. Ziehen verschiebt (auch zwischen
   Spuren). Kein Doppeltippen und keine Verzögerung mehr; per Tastatur öffnet Enter den Dialog.
+  **Anfügen mit Komma durch Verweilen:** Bleibt ein Klang aus der Palette 600 ms über der Mitte eines Klangsteins (nicht Pause,
+  nicht roher Stein), wird aus «ersetzen» (blau) «anfügen» (grün, `DropTarget.mode = 'stack'`, `DWELL_MS`); so bleiben Einfügen
+  und Ersetzen unverändert. Die Pause aus der Palette fügt nie an.
   Ziehen hört nach dem Drücken am ganzen Fenster zu (nicht über Pointer Capture am Stein), wertet höchstens einmal pro Bild aus
   und bricht bei `Escape`, verlorenem Fokus oder `pointercancel` sauber ab. Vorher konnte der Geisterstein hängen bleiben.
-- **Eine Klangpalette unter der oberen Leiste** (`ui/SoundPalette.svelte`, in `App.svelte`, klebt beim Scrollen, Pfeil klappt
-  sie ein: `session.paletteOpen`): waagrecht scrollbare Zeile mit Aufnehmen, Datei laden, eigenen
+- **Eine Klangpalette unter der oberen Leiste** (`ui/SoundPalette.svelte`, in `App.svelte`, klebt beim Scrollen, immer offen;
+  das + nach dem Titel öffnet ein Menü mit Aufnehmen und Datei laden): waagrecht scrollbare Zeile mit eigenen
   Klängen, Pause und den Klängen aus `SOUND_GROUPS` (mit Suche: alle Klänge, auch Drum Machines). Nach oben/unten ziehen legt den Stein in eine
   Klangreihe (Klangspur oder `.s` einer Notenspur, dort ohne Pause), seitwärts scrollt die Zeile (`canDrag` in `token-gestures.ts`,
   `touch-action: pan-x`). Antippen legt nichts ab, Steine kommen nur durch Ziehen in eine Spur. Langes Drücken spielt den Klang an (`StrudelEngine.preview`, direkt über Strudels `superdough`,
   lädt Strudel beim ersten Mal; auf iOS evtl. still, bis einmal getippt wurde, weil der Audiokontext eine Geste braucht). Klangreihen haben kein `+` mehr; Effektreihen behalten es (für Werte gibt es keine Palette).
-- **Darstellung:** Wrap-Layout; passt eine Steinreihe nicht auf eine Zeile, verkleinert `Lane` sie per CSS `zoom` (bis 0,5,
-  darunter Umbruch). Ein Knopf daneben schaltet pro Reihe auf Originalgrösse (`session.unfit`). Beim Tippen in einen Stein bleibt
+- **Darstellung:** Wrap-Layout; passt eine Klangreihe nicht auf eine Zeile, verkleinert `Lane` sie per CSS `zoom` (bis 0,5,
+  darunter Umbruch; Noten- und Wertreihen werden nie verkleinert, sie brechen um). Ein Knopf daneben schaltet pro Reihe auf Originalgrösse (`session.unfit`). Beim Tippen in einen Stein bleibt
   die Reihe verkleinert (zurücksetzen liess sie unter dem Finger springen, das Feld schloss gleich wieder), Feld und Menüs im Stein heben den Zoom auf (ungeprüft im Browser, vor allem Safari).
   Dasselbe für die Effekt-Boxen einer Spur (`EffectList`, `--fx-fit`), dort ist Originalgrösse der Standard und die Lupe
   verkleinert (`session.fitEffects`). Messung in `ui/fit.ts`, der Knopf (Lupe mit + oder −) ist `ui/FitButton.svelte`.
@@ -96,13 +99,13 @@ von `codegen` stammt, kennen wir die Position jedes Klangnamens und finden so de
   Klammerarten gezählt (`partnerIndex`), so wird auch ein gerade unpassendes Paar wieder gleich. Ohne Gegenstück wechselt nur
   die Klammer selbst. `quickSwitch` (Weiterschalten per Tippen) ist seit dem Menü ungenutzt, aber noch vorhanden.
 - **Code pro Spur bearbeiten** (`syntax/from-text.ts`, `ui/TrackCode.svelte`). Der Text wird von Strudels Grammatik
-  gelesen, ihr Syntaxbaum wird in Steine übersetzt. Was kein eigener Stein ist (`bd(3,8)`, `bd:3`, `a/2`, `a*2@3`, `[a, b]`,
+  gelesen, ihr Syntaxbaum wird in Steine übersetzt. Doppelpunkte direkt an einem Wort (`bd:3`, `.5:2`, Strudels `tail`) gehören zum Text des Steins. Was kein eigener Stein ist (`bd(3,8)`, `[a b]:2`, `a/2`, `a*2@3`, `[a, b]`,
   `{a, b}`, `{a b}*2`, `a . b` …), wird ein **roher Stein** (`RawToken`) mit dem Originaltext, der unverändert in den Code zurückgeht
   und als Ganzes aufleuchtet. Die Steine ändern sich bei jedem gültigen Tastendruck; ungültiger Text lässt sie stehen
   und zeigt Strudels Meldung. Steine gleicher Art an gleicher Stelle behalten ihre ID (`adoptIds`).
   Tests prüfen, dass Strudels Syntaxbaum vor und nach dem Umweg gleich ist, `test:strudel` zusätzlich an allen gültigen Zufallsspuren.
   Offen: Die Kamera kennt rohe Steine nicht; Klangnamen werden nicht gegen die Klangliste geprüft.
-- **Spuren lassen sich stumm schalten** (`Track.muted`). Die Spur bleibt im Code, aber als `_$:`, das Strudel nicht abspielt.
+- **Spuren lassen sich stumm schalten** (`Track.muted`). Die Spur bleibt im Code, endet aber mit `.hush()`, Strudel macht daraus Stille.
 - **Neue Klammerpaare enthalten eine Pause** (`[~]`), weil Strudel leere Klammern ablehnt. So bleibt die Spur gültig und läuft weiter.
 - **Abspielkopf:** Zykluszähler und der Rand des runden Start/Stopp-Knopfs, der sich im Lauf eines Zyklus füllt (einer für alle Spuren,
   sie teilen sich den Zyklus), gelesen aus `scheduler.now()` von Strudel. Er ist nicht an die Steine ausgerichtet.
@@ -113,9 +116,9 @@ von `codegen` stammt, kennen wir die Position jedes Klangnamens und finden so de
   Erklärungsdialog).
 - **Tempo** (`domain/tempo.ts`): intern `project.cps`, eingegeben als Zahl in BPM, CPM oder CPS (`project.tempoUnit`, Standard BPM).
   BPM nach Strudels Konvention mit 4 Schlägen pro Zyklus. Der Code folgt der Einheit: `setcpm(120/4)`, `setcpm(30)` oder `setcps(0.5)`.
-  Erlaubt sind 0.05–2 cps (12–480 BPM). Snapshots speichern nur `cps`, die Einheit bleibt.
+  Erlaubt sind 0.05–2 cps (12–480 BPM). Szenen speichern nur `cps`, die Einheit bleibt.
 - **Gesamtlautstärke** (`session.volume`, 0–1, Doppelklick = 1): setzt den Ausgangsknoten von superdough
-  (`getSuperdoughAudioController().output.destinationGain`), steht also nicht im Code und gilt auch für Snapshots nicht.
+  (`getSuperdoughAudioController().output.destinationGain`), steht also nicht im Code und gilt auch für Szenen nicht.
   Hängt an einem internen Detail von superdough, nach Strudel-Updates prüfen. Spuren gehen über die volle Breite. Die Code-Ansicht zeigt das ganze Programm, oben der Link zu Strudel.
 - **Effekte pro Spur** (`domain/effects.ts`, `Track.effects`, `ui/EffectList.svelte`). Unter den Steinen ein Suchfeld mit
   Autovervollständigung; die Wahl fügt eine Box an. **Der Wert eines Effekts ist eine Steinreihe wie eine Spur**
@@ -139,7 +142,7 @@ von `codegen` stammt, kennen wir die Position jedes Klangnamens und finden so de
   in der Reihenfolge der Boxen. Die Auswahl (`SAMPLE_OPS` im Skript) ist von Hand, Beschreibung, Beispielwerte und die Zahl
   der Werte liest das Skript aus Strudel (`register('chop', function (n, pat)`). `fit` nimmt keinen Wert (`noValue`): seine Box
   hat keine Wertreihe, im Code steht immer `.fit()`. `test:strudel` prüft, dass `fit().chop(2).scrub(…)` läuft und die
-  Wertsteine von `scrub` leuchten. Offen: `slice`/`splice` (zwei Werte), `scrub` mit Geschwindigkeit (`"0.8:1.5"`, wie `bd:3`),
+  Wertsteine von `scrub` leuchten. `scrub` mit Geschwindigkeit (`"0.8:1.5"`) geht als Wertstein mit Doppelpunkt (`isValueAtom(text, true)`, nur wo `takesSpeed`, also bei `scrub`). Offen: `slice`/`splice` (zwei Werte),
   Rechnen in Wertreihen (`"0 4 8".div(16)`). Zahlen hinter Modifiern in Strudels Beispielen (`!2`, `@3`, `%8`) gelten nicht als Werte. Der Rückweg aus Code nimmt jeden bekannten Effekt. Ein Test schlägt fehl, wenn die Datei nicht mehr zum installierten Strudel passt.
   Beschreibungen sind Strudels englische Texte. Für 44 Effekte zeigt Strudel keine Beispielwerte; dort zählen −/+ in Einer- bzw. Zehntelschritten.
   **Effekte als Boxen** (`ui/EffectBox.svelte`): je Effekt eine rund 64 px breite Box, von links umbrechend. Oben der Titel
@@ -179,10 +182,11 @@ von `codegen` stammt, kennen wir die Position jedes Klangnamens und finden so de
   vor den Effekten). Notensteine kommen aus einer Notenpalette (Stammtöne c–b, Pause); Tippen bearbeitet sie direkt
   wie Wertsteine (`domain/notes.ts`: Strudels Schreibweise `c#4`, `eb`, MIDI-Zahlen; ↑/↓ = Halbton, aufwärts `#`, abwärts `b`,
   Oktave nur wenn nicht 3), langes Drücken öffnet das Menü (Entfernen, Umschliessen). Klangsteine bearbeiten sich genauso: Tippen öffnet ein Feld für den Namen
-  (`isSoundName`: nur ein Wort, auch unbekannte Namen, keine Pause und kein `bd:3`;
-  ↑/↓ = Nachbar in der Palettengruppe, `stepSound`), langes Drücken öffnet das Menü.
+  (`isSoundName`: ein Wort, auch unbekannte Namen, wahlweise mit Variante `bd:3`, keine Pause;
+  ↑/↓ und −/+ zählen die Variante, `stepVariant`: `bd` → `bd:1` …, nicht unter `bd`), langes Drücken öffnet das Menü.
+  Den Klang selbst wechselt man durch Tippen des Namens oder aus der Palette. Wie viele Varianten ein Name hat, wissen wir nicht; Strudel zählt im Kreis.
   Ohne Wiedergabe spielt Tippen (und ↑/↓) den Stein einmal an (`playback.preview`, wie langes Drücken in der Palette):
-  Klänge direkt, Noten mit dem Klang der Spur (`superdough` mit `note`). Nicht bei Pausen, Werten und MIDI-Spuren. Der Klang kommt aus der Klangpalette (ohne Pause);
+  Klänge direkt, auch die Variante (`superdough` mit `n`), Noten mit dem Klang der Spur (`superdough` mit `note`). Nicht bei Pausen, Werten und MIDI-Spuren. Der Klang kommt aus der Klangpalette (ohne Pause);
   Ziehen ersetzt oder fügt ein, Klammern ergeben
   Wechsel (`.s("<sine sawtooth>")`). Ohne Klangstein fehlt `.s()` und Strudel spielt `triangle`. Lautstärke und Orbit wie bei
   Klangspuren. Effektliste: nur Audio (keine `note`, kein MIDI). Klänge und Noten haben getrennte Steine: beim Wechsel zwischen
@@ -210,10 +214,16 @@ von `codegen` stammt, kennen wir die Position jedes Klangnamens und finden so de
   beim Wechsel der Art warten die anderen in `Track.parked`, je Inhalt.
   Offen: `splice` (wie slice, passt aber die Geschwindigkeit an den Schritt an), scrub mit Geschwindigkeit (`"0.8:1.5"`),
   ungleiche Abschnitte (`slice([0, .25, .5], …)`).
-- **Spurnamen** (`Track.name`): im Code nach dem `$` (`$drums:`, stumm `_$drums:`). Strudel hängt an jedes Label mit `$`
-  eine laufende Nummer, gleiche Namen stören sich also nicht. Erlaubt sind Buchstaben, Ziffern und `_`, aber nicht am Ende
-  (`drums_:` schaltet in Strudel stumm). Leerer Name = `$:`.
-- **Code pro Spur ist die ganze Zeile** (`syntax/from-code.ts`, `ui/TrackCode.svelte`): `$name: s("…").effekt(…)…`. Die Ansicht
+- **Ganzer Code ohne Labels:** Aufnahmen, Tempo, dann alle Spuren in einem `stack(…)`, eine Spur pro Zeile:
+  `stack(\n  /* drums */ s("bd sd"),\n  /* Klangspur_1 */ s("hh*8").hush()\n)`. Ohne `$:` spielt Strudel den letzten
+  Ausdruck, also den Stapel. So lässt sich derselbe Aufbau später als Part (`const verse = stack(…)`) in ein
+  `arrange(…)` geben, ohne dass eine Spur ihr Label behält und daneben weiterspielt.
+- **Spurnamen** (`Track.name`): als Kommentar vor der Spur (`/* drums */`). Strudel sieht ihn nicht, `codeToTrack` liest ihn
+  wieder. Erlaubt sind Buchstaben, Ziffern und `_`, nicht am Ende (`trackName`), so kann ein Name den Kommentar nicht beenden.
+  Fehlt der Kommentar oder bleibt das Namensfeld leer, bekommt die Spur den Namen ihrer Art mit der ersten freien Nummer
+  (`defaultTrackName`: `Klangspur_1`, `Notenspur_1`, `MIDIspur_1`, `Samplerspur_1`). Neue Spuren heissen gleich so.
+  Gleiche Namen stören Strudel nicht; für ein späteres Arrangement, das Spuren über Namen zusammenführt, müssten sie eindeutig sein.
+- **Code pro Spur ist die ganze Zeile** (`syntax/from-code.ts`, `ui/TrackCode.svelte`): `/* name */ s("…").effekt(…)…`. Die Ansicht
   «Code» im Menü der Spur schaltet die Spur von Steinen auf diese Zeile um. Name, Stummschaltung, Klänge und Effekte ändern sich bei jedem gültigen
   Tastendruck; die Mini-Notation darin liest weiter Strudels Grammatik. Mehr JavaScript als diese Kette (andere Funktionen,
   Variablen, `n()`) wird als Fehler mit Stelle gemeldet, ebenso unbekannte Effektnamen.
@@ -227,13 +237,45 @@ von `codegen` stammt, kennen wir die Position jedes Klangnamens und finden so de
   Welche Quellen die Palette ohne Suche zeigt, ist eine Auswahl in `sounds.ts` (`SOUND_GROUPS`): uzu-Drumkit, Synths, Rauschen,
   Dirt-Samples und Piano, Mridangam, VCSL, ZZFX. Die 683 Drum-Machine-Klänge nur über die Suche.
   Offen: Drum Machines als Wahl (`.bank()`), Soundfonts (`gm_…`, melodisch, noch nicht erfasst), unbekannte Klangnamen markieren.
-- **Snapshots** (`domain/snapshot.ts`, `state/snapshots.svelte.ts`, `ui/SnapshotDock.svelte`): feste Leiste unten. «+ Snapshot»
-  hält den ganzen Zustand fest (alle Spuren samt Effekten und das Tempo, als Kopie), nur wenn keine Reihe einen Fehler hat und
-  mindestens eine Spur Steine hat (`project.valid`). Jeder Snapshot ist ein grosser Holzstein: oben der Name (Feld, gleich nach dem
-  Festhalten markiert), darunter die Fläche, die den Zustand lädt (ersetzt Spuren und Tempo, IDs bleiben). Gelb umrandet ist der
-  Snapshot, dessen Code gerade gilt. Eigene Aufnahmen stecken nicht im Snapshot, sie bleiben ohnehin in `sampleBank`.
+- **Szenen** (`domain/scene.ts`, `state/scenes.svelte.ts`, `ui/SceneDock.svelte`): feste Leiste unten. Es gibt immer
+  mindestens eine Szene (am Anfang «Szene01» mit dem Startzustand) und genau eine ist gewählt (gelb umrandet). Eine Szene ist der
+  ganze Zustand (alle Spuren samt Effekten und das Tempo, als Kopie). «+ Szene» kopiert den aktuellen Zustand in eine neue Szene
+  gleich hinter der gewählten und wählt sie (Name «Szene02» …, gleich markiert). Antippen wählt eine Szene und lädt sie (ersetzt
+  Spuren und Tempo, IDs bleiben). Auch ungültiger Code wird gespeichert, die Szene ist schlicht der Arbeitsstand.
+  Unten rechts ein geteilter Knopf: links die Aktion, rechts (▾) die Wahl «Manuell» oder «Auto».
+  «Auto» (Standard, `scenes.autoUpdate`): ein Effekt in `App.svelte` schreibt jede Änderung sofort in die gewählte
+  Szene. «Manuell»: der Stein zeigt «geändert», «Übernehmen» schreibt hinein. Szene wählen oder «+ Szene» fragt dann
+  nach (`SceneDock.svelte`): in die gewählte Szene übernehmen, nicht übernehmen (beim Wählen verworfen, die neue Szene
+  bekommt sie trotzdem) oder abbrechen. Abweichung wird per JSON-Vergleich erkannt (`sameContent`). Die letzte Szene lässt sich nicht entfernen; fällt die
+  gewählte weg, wird die Nachbarin geladen. Eigene Aufnahmen stecken nicht in der Szene, sie bleiben ohnehin in `sampleBank`.
   Offen: Persistenz (heute nur im Speicher, siehe Abschnitt 4, Punkt 4), Reihenfolge ändern, Bezug zu Undo/Redo (Punkt 3).
-- **Bewusst weggelassen:** Euclid `(3,8)`, `,` (Polyphonie), Melodien mit `n()` (Melodien gehen über Notenspuren mit `note()`).
+- **Arrangement** (`domain/arrangement.ts`, `state/arrangement.svelte.ts`, `ui/ArrangementRow.svelte`): Umschaltknopf (`aria-pressed`) unten links
+  in der Szenen-Leiste (Standard aus). An: ganz unten eine Zeile mit Abschnitten wie eine Steinreihe: oben der Szenenstein,
+  darunter der grüne `!`-Knopf für die Zyklen (`Knob.svelte`, derselbe Drehknopf wie `ModSlot`, Stufen `TIMES_VALUES`
+  1–16, nicht ausschaltbar). Szenen werden aus der Leiste nach unten hineingezogen (`tokenGestures` mit Ziel
+  `ARRANGEMENT_LANE`, ohne Arrangement kein Ziehen: Option `drags`), Abschnitte darin verschoben; Antippen öffnet wie bei den Steinen ein Icon-Menü
+  darüber (Szene bearbeiten, entfernen; fest am Fenster, weil die Zeile scrollt), doppelt antippen wählt die Szene. Der Code (`toArrangedProgram`) deklariert jede Szene als `const <Name> = stack(…)` (leer:
+  `silence`) und endet mit `arrange([4, Szene01], [2, Szene02])`, ohne Abschnitt mit `silence`. Variablennamen aus dem
+  Szenennamen (`sceneVariables`: ungültige Zeichen zu `_`, eindeutig, JS-Wörter und wichtige Strudel-Namen wie `s` mit `_`).
+  Die gewählte Szene geht mit dem aktuellen Stand hinein (auch nicht übernommene Änderungen), die anderen wie gespeichert
+  (Klammerfehler je Reihe weggelassen wie bei der angezeigten, `codeTracksOf`). Nur die Steine der gewählten Szene leuchten,
+  weil kopierte Szenen dieselben Stein-IDs tragen. Tempo: das der gewählten Szene für alle (Strudel hat ein globales Tempo).
+  Der Schalter bestimmt nur, was Leiste und Code-Ansicht zeigen (`arrangement.codeFull`/`codeDisplay`). Was klingt, bestimmt
+  `session.playMode`: Play oben spielt die gewählte Szene, ▶ vor der Arrangement-Zeile das Arrangement (`playback.toggleArrangement`).
+  Die beiden schliessen sich aus. ▶ hält Strudel an und startet neu, damit `arrange()` bei Zyklus 0 und damit beim ersten
+  Abschnitt beginnt; Play oben wechselt ohne Neustart auf die Szene. Ausschalten des Schalters während das Arrangement spielt
+  wechselt auf die Szene. Aus `session.cycle` ergeben sich Fortschritt (Ring um ▶) und laufender Abschnitt (`positionAt`).
+  Mit echtem Strudel geprüft (`npm run test:strudel`). Offen: Tempo je Szene, Persistenz. Annahme: `session.cycle` zählt ab dem Start (so im Engine-Code, im Browser ungeprüft).
+- **Stapel mit Komma** (`SoundToken.joined`, `joinsPrevious` in `types.ts`): ein Klangstein mit `joined` hängt am Klangstein
+  davor, beide klingen gleichzeitig. Aufeinanderfolgende verbundene Steine schreibt `codegen` als `[bd, hh*2, cp?]`; jeder Stein
+  behält Zufall und Wiederholung. Dargestellt waagrecht ohne Abstand (Ecken innen eckig). Jeder Stein bleibt einzeln bedienbar
+  (bearbeiten, ersetzen, entfernen, verschieben). Einfügen zwischen zwei Steinen eines Stapels legt in den Stapel (`insertAt`),
+  vor dem ersten oder nach dem letzten daneben; Entfernen des ersten macht den nächsten zum ersten. Ein Klammerpaar fasst immer
+  den ganzen Stapel (`wrapSpan`, `wrapAt`), ein neues Paar mitten im Stapel trennt ihn. Ein Komma direkt nach einer Klammer gilt
+  nicht und wird beim nächsten Bearbeiten entfernt. Rückweg aus Text: `[a, b*2?]` mit je einem Klang pro Teil wird ein Stapel,
+  alles andere mit Komma (`[a b, c]`, `[a, b]*2`, `<a, b>`) bleibt ein roher Stein. Ganze Stapel lassen sich nicht auf einmal
+  verschieben, Steine im Editor fügen nicht durch Verweilen an (nur aus der Palette).
+- **Bewusst weggelassen:** Euclid `(3,8)`, `,` zwischen Folgen (Polyphonie ganzer Folgen), Melodien mit `n()` (Melodien gehen über Notenspuren mit `note()`).
 
 ## 4. Offene Entscheidungen (für dich)
 
@@ -255,7 +297,7 @@ Jede mit Optionen. Keine Empfehlung festgelegt.
    Mehrere Projekte?
 4. **Persistenz und Teilen.** URL-Hash, localStorage, IndexedDB für Aufnahmen, Export/Import als Datei.
    Versionierung des Formats. IDs bei Persistenz (heute einfache Zähler, `types.ts`).
-5. **Umfang der Notation.** Euclid, `,`, `bd:3`, `n()` mit Skalen, Zahlen als eigene Steine. Effekte pro Spur sind drin (Abschnitt 3).
+5. **Umfang der Notation.** Euclid, `,` zwischen Folgen (Stapel einzelner Klänge sind drin), `bd:3`, `n()` mit Skalen, Zahlen als eigene Steine. Effekte pro Spur sind drin (Abschnitt 3).
 6. **Text zu Steinen und Parser.** Jetzt: eigener Parser für Fehlerstelle und Gruppentiefe, Strudels Grammatik als Schiedsrichter.
    Ein vollständiger Wechsel auf Strudels Syntaxbaum wäre möglich (die Grammatik liefert Positionen), ersetzt aber vor allem
    den kleinen eigenen Parser und verlangt, Gruppentiefe und Fehlerstelle aus dem Baum abzuleiten. Die Rückrichtung

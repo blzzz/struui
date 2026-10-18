@@ -1,8 +1,8 @@
 import { toStrudelCode, toStrudelProgram } from '../domain/codegen.ts';
-import { adoptIds, insertPair, moveToken, removeAt, replaceAt, setGroup, unwrapAt, wrapAt, wrapRange } from '../domain/edit.ts';
+import { adoptIds, insertAt, insertPair, moveToken, removeAt, replaceAt, setGroup, stackAt, unwrapAt, wrapAt, wrapRange } from '../domain/edit.ts';
 import { defaultValue, effectInfo, noteOpInfo, singleValue, valueInfo } from '../domain/effects.ts';
 import type { Effect, EffectInfo, SliderRange } from '../domain/effects.ts';
-import { DEFAULT_SAMPLE, clampSlices, samplerInfo, startValues } from '../domain/sampler.ts';
+import { DEFAULT_SAMPLE, clampSlices, convertValue, samplerInfo, startValues, takesSpeed } from '../domain/sampler.ts';
 import type { SamplerMode } from '../domain/sampler.ts';
 import { DEFAULT_VOICE } from '../domain/notes.ts';
 import type { ParseResult } from '../domain/parse.ts';
@@ -15,6 +15,7 @@ import {
   VOLUME_MAX,
   closeToken,
   contentOf,
+  defaultTrackName,
   effect,
   nextInCycle,
   openToken,
@@ -83,8 +84,31 @@ function startTracks(): Track[] {
       ],
       'drums',
     ),
-    track(),
+    track([], defaultTrackName('sound', [])),
   ];
+}
+
+/**
+ * Spuren, wie sie in den Code gehen. `ok(id)`: Reihe ohne Klammerfehler. Reihen mit Fehler (Klang, Sample, Rechenart,
+ * Effekt) bleiben weg, damit die Spur weiterläuft. Auch für Szenen, die gerade nicht angezeigt werden (Arrangement).
+ */
+export function codeTracksOf(tracks: readonly Track[], ok: (laneId: string) => boolean): CodeTrack[] {
+  return tracks.map((t) => ({
+    tokens: t.tokens,
+    name: t.name,
+    muted: t.muted,
+    volume: t.volume,
+    type: t.type,
+    orbit: t.orbit,
+    channel: t.channel,
+    port: t.port,
+    voice: ok(t.voice.id) ? t.voice : null,
+    sample: ok(t.sample.id) ? t.sample : null,
+    samplerMode: t.samplerMode,
+    slices: t.slices,
+    noteOps: t.noteOps.filter((o) => ok(o.id)),
+    effects: t.effects.filter((e) => ok(e.id)),
+  }));
 }
 
 /** Der Projektzustand: Spuren, Tempo und alles, was daraus abgeleitet wird. */
@@ -108,24 +132,7 @@ class Project {
   );
 
   /** Was in den Code geht: Effekte mit Klammerfehler bleiben weg, damit die Spur weiterläuft. */
-  private codeTracks = $derived<CodeTrack[]>(
-    this.tracks.map((t) => ({
-      tokens: t.tokens,
-      name: t.name,
-      muted: t.muted,
-      volume: t.volume,
-      type: t.type,
-      orbit: t.orbit,
-      channel: t.channel,
-      port: t.port,
-      voice: this.parsed.get(t.voice.id)?.errors.length === 0 ? t.voice : null,
-      sample: this.parsed.get(t.sample.id)?.errors.length === 0 ? t.sample : null,
-      samplerMode: t.samplerMode,
-      slices: t.slices,
-      noteOps: t.noteOps.filter((o) => this.parsed.get(o.id)?.errors.length === 0),
-      effects: t.effects.filter((e) => this.parsed.get(e.id)?.errors.length === 0),
-    })),
-  );
+  codeTracks = $derived<CodeTrack[]>(codeTracksOf(this.tracks, (id) => this.parsed.get(id)?.errors.length === 0));
 
   /** Code samt Positionen der Klang- und Wertsteine. Das spielt Strudel ab. */
   program = $derived(toStrudelProgram(this.codeTracks, { cps: this.cps, tempoUnit: this.tempoUnit, samples: sampleBank.dataUrls }));
@@ -138,12 +145,7 @@ class Project {
     toStrudelCode(this.codeTracks, { cps: this.cps, tempoUnit: this.tempoUnit, samples: sampleBank.dataUrls, elideSamples: true }),
   );
 
-  /** Keine Reihe (Spur oder Effekt) hat einen Fehler und mindestens eine Spur hat Steine. Nur dann lässt sich festhalten. */
-  valid = $derived(
-    [...this.parsed.values()].every((p) => p.errors.length === 0) && this.tracks.some((t) => t.tokens.length > 0),
-  );
-
-  /** Ganzen Zustand ersetzen (Snapshot laden). */
+  /** Ganzen Zustand ersetzen (Szene wählen). */
   restore(tracks: Track[], cps: number): void {
     this.tracks = tracks;
     this.cps = cps;
@@ -171,6 +173,12 @@ class Project {
     return null;
   }
 
+  /** Dürfen die Wertsteine der Reihe einen Doppelpunkt tragen (`.5:2`)? Nur bei `scrub`, als Sampler-Art oder als Effekt. */
+  valueLists(laneId: string): boolean {
+    const lane = this.lane(laneId);
+    return lane?.content === 'values' && !!lane.info && takesSpeed(lane.info.name);
+  }
+
   /** Inhalt einer Reihe, null wenn es sie nicht gibt. Paletten legen nur in passende Reihen ab. */
   contentOf(laneId: string): LaneContent | null {
     return this.lane(laneId)?.content ?? null;
@@ -182,7 +190,7 @@ class Project {
 
   /** Neue Spur der gewählten Art ans Ende. Klangspuren sind leer, Notenspuren beginnen mit einem c, Sampler-Spuren mit vier Stellen. */
   addTrack(type: TrackType = 'sound'): void {
-    const t = { ...track(), type };
+    const t = { ...track([], this.freeName(type)), type };
     t.tokens = this.startTokens(t);
     this.tracks.push(t);
   }
@@ -203,10 +211,21 @@ class Project {
     t.tokens = back ?? [];
   }
 
-  /** Neuer Name (bereinigt, siehe `trackName`). */
+  /** Standardname für eine Spur dieser Art (`Klangspur_1`), frei unter den Namen der anderen Spuren. */
+  private freeName(type: TrackType, except?: Track): string {
+    return defaultTrackName(type, this.tracks.filter((t) => t !== except).map((t) => t.name));
+  }
+
+  /** Neuer Name (bereinigt, siehe `trackName`). Leer bleibt erlaubt, solange man tippt (siehe `ensureName`). */
   rename(trackId: string, raw: string): void {
     const t = this.find(trackId);
     if (t) t.name = trackName(raw);
+  }
+
+  /** Eine Spur ohne Namen bekommt den Standardnamen ihrer Art (beim Verlassen des Namensfelds). */
+  ensureName(trackId: string): void {
+    const t = this.find(trackId);
+    if (t && !t.name) t.name = this.freeName(t.type, t);
   }
 
   /**
@@ -216,7 +235,8 @@ class Project {
   applyCode(trackId: string, line: CodeLine): void {
     const t = this.find(trackId);
     if (!t) return;
-    t.name = line.name;
+    // Ohne Kommentar im Code: Standardname der Art (`Klangspur_1`)
+    t.name = line.name || this.freeName(line.type, t);
     t.muted = line.muted;
     // Wechselt der Inhalt (Klänge, Noten, Werte), die bisherigen Steine für das Zurückwechseln aufheben
     if (contentOf(line.type) !== contentOf(t.type)) t.parked = { ...t.parked, [contentOf(t.type)]: t.tokens };
@@ -272,12 +292,8 @@ class Project {
   setSamplerMode(trackId: string, mode: SamplerMode): void {
     const t = this.find(trackId);
     if (!t || t.samplerMode === mode) return;
-    const n = clampSlices(t.slices);
     for (const token of t.tokens) {
-      if (token.kind !== 'sound' || token.sound === PAUSE) continue;
-      const v = Number(token.sound);
-      if (!Number.isFinite(v)) continue;
-      token.sound = mode === 'scrub' ? String(Math.round((v / n) * 1000) / 1000) : String(Math.min(n - 1, Math.max(0, Math.round(v * n))));
+      if (token.kind === 'sound' && token.sound !== PAUSE) token.sound = convertValue(token.sound, mode, t.slices);
     }
     t.samplerMode = mode;
   }
@@ -370,7 +386,7 @@ class Project {
     const index = tokenId ? this.indexOf(laneId, tokenId) : -1;
     const stone = soundToken(name);
     if (index < 0) lane.tokens.push(stone);
-    else if (mode === 'insert') lane.tokens.splice(index, 0, stone);
+    else if (mode === 'insert') insertAt(lane.tokens, index, stone);
     else replaceAt(lane.tokens, index, stone);
   }
 
@@ -437,7 +453,14 @@ class Project {
     const lane = this.lane(laneId);
     if (!lane || lane.content === 'values') return;
     const at = index === null ? lane.tokens.length : Math.max(0, Math.min(index, lane.tokens.length));
-    lane.tokens.splice(at, 0, soundToken(item.name));
+    insertAt(lane.tokens, at, soundToken(item.name));
+  }
+
+  /** Klang aus der Palette mit Komma an den Klangstein an `index` hängen: beide klingen gleichzeitig (`[bd, hh]`). */
+  stackItem(laneId: string, index: number, item: PaletteItem): void {
+    const lane = this.lane(laneId);
+    if (!lane || lane.content === 'values' || !lane.tokens[index]) return;
+    stackAt(lane.tokens, index, soundToken(item.name));
   }
 
   /** Note ans Ende einer Notenreihe hängen: wie die letzte Note, sonst c. Gibt die ID des neuen Steins zurück. */

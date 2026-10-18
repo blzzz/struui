@@ -3,8 +3,8 @@
   color-scheme: light dark;
   /* Höhe der festen Leiste oben (ohne Safe Area) */
   --bar-h: 56px;
-  /* Höhe der festen Snapshot-Leiste unten (ohne Safe Area) */
-  --dock-h: 88px;
+  /* Höhe der festen Szenen-Leiste unten (ohne Safe Area) */
+  --dock-h: 128px;
 
   --bg: #dfe2dd;
   --panel: #eceee9;
@@ -112,4 +112,24 @@ button[aria-pressed="true"] {
   z-index: 30;
   opacity: 0.92;
   transform: scale(1.12);
+}
+
+/* Waagrecht scrollbare Zeilen blenden am Rand aus, wo es weitergeht (`edgeFade` in interaction/edge-fade.ts) */
+.edge-fade {
+  --fade: 28px;
+  --fade-l: 0px;
+  --fade-r: 0px;
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    #000 var(--fade-l),
+    #000 calc(100% - var(--fade-r)),
+    transparent
+  );
+}
+.edge-fade.fade-l {
+  --fade-l: var(--fade);
+}
+.edge-fade.fade-r {
+  --fade-r: var(--fade);
 }

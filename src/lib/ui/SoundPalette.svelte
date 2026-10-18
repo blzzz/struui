@@ -2,6 +2,7 @@
   import type { Snippet } from "svelte";
   import { ALL_SOUNDS, SOUND_GROUPS } from "../domain/sounds.ts";
   import { PAUSE } from "../domain/types.ts";
+  import { edgeFade } from "../interaction/edge-fade.ts";
   import { tokenGestures } from "../interaction/token-gestures.ts";
   import type { DropTarget } from "../interaction/token-gestures.ts";
   import { playback } from "../state/playback.svelte.ts";
@@ -12,9 +13,9 @@
   import { session } from "../state/session.svelte.ts";
 
   /**
-   * Die eine Klangpalette, fest unter der oberen Leiste. Der Pfeil klappt sie ein (nur noch die Kopfzeile).
-   * Oben eine schmale Zeile: Pfeil, Titel, rechts Suchen, Datei laden und Aufnehmen.
-   * Die Lupe verwandelt den Titel in ein Suchfeld.
+   * Die eine Klangpalette, fest unter der oberen Leiste, immer offen.
+   * Oben eine schmale Zeile: Titel, daneben ein +, rechts die Lupe. Das + öffnet ein Menü mit Aufnehmen und Datei laden,
+   * während einer Aufnahme steht dort der Knopf zum Beenden. Die Lupe verwandelt den Titel in ein Suchfeld.
    * Unten waagrecht scrollbar: Pause, eigene Klänge, dann alle Steine nach Gruppen mit Überschrift.
    * Steine von hier in eine Klangreihe ziehen (nach oben/unten ziehen, seitwärts scrollt die Zeile): in eine Klangspur
    * oder in den Klang einer Notenspur (`.s`). Über der Mitte eines Klangsteins losgelassen, ersetzt ein Klang ihn.
@@ -27,6 +28,39 @@
    */
 
   let fileInput = $state<HTMLInputElement>();
+  /** Menü am +: Aufnehmen oder Datei laden. */
+  let addOpen = $state(false);
+  let addRoot = $state<HTMLElement>();
+  let addTrigger = $state<HTMLButtonElement>();
+
+  // Tippen ausserhalb oder Escape schliesst das Menü
+  $effect(() => {
+    if (!addOpen) return;
+    const onDown = (e: PointerEvent) => {
+      if (!addRoot?.contains(e.target as Node)) addOpen = false;
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      addOpen = false;
+      addTrigger?.focus();
+    };
+    document.addEventListener('pointerdown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('pointerdown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  });
+
+  function startRecording() {
+    addOpen = false;
+    void recording.toggle();
+  }
+  function chooseFile() {
+    addOpen = false;
+    // Noch in der Geste des Tippens, sonst öffnet der Browser keinen Dateidialog
+    fileInput?.click();
+  }
   let query = $state("");
   /** Suchfeld statt Titel. Leer verlassen oder Escape klappt es wieder zu. */
   let searchOpen = $state(false);
@@ -71,11 +105,14 @@
       immediateTap: true,
       onLongPress: item.kind === "sound" && !isPause(item) ? () => void playback.preview(item.name) : undefined,
       replaces: true,
+      // Pause und Klang gleichzeitig ergibt nichts: die Pause ersetzt nur
+      stacks: !isPause(item),
       canDrag: (dx, dy) => Math.abs(dy) > Math.abs(dx),
       onDragMove: (drop) => (session.dropHint = fits(drop, item) ? drop : null),
       onDrop: (drop) => {
         if (!fits(drop, item)) return;
-        if (drop.replace) project.replaceWithItem(drop.laneId, drop.index, item);
+        if (drop.mode === 'stack') project.stackItem(drop.laneId, drop.index, item);
+        else if (drop.mode === 'replace') project.replaceWithItem(drop.laneId, drop.index, item);
         else project.insertItem(drop.laneId, drop.index, item);
       },
     }));
@@ -90,27 +127,9 @@
   }
 </script>
 
-<div
-  class="palette"
-  class:closed={!session.paletteOpen}
-  role="toolbar"
-  aria-label="Klangpalette"
->
-  <!-- Obere Zeile, fest und schmal: Pfeil und Titel links, Suchen, Laden und Aufnehmen als kleine Knöpfe rechts.
-       Die Lupe macht aus dem Titel ein Suchfeld. Eingeklappt bleiben nur Pfeil und Titel. -->
+<div class="palette" role="toolbar" aria-label="Klangpalette">
+  <!-- Obere Zeile, fest und schmal: Titel und + links, die Lupe rechts. Die Lupe macht aus dem Titel ein Suchfeld. -->
   <div class="head">
-    <button
-      class="fold"
-      aria-expanded={session.paletteOpen}
-      aria-label={session.paletteOpen ? "Klangpalette einklappen" : "Klangpalette ausklappen"}
-      title={session.paletteOpen ? "Klangpalette einklappen" : "Klangpalette ausklappen"}
-      onclick={() => {
-        session.paletteOpen = !session.paletteOpen;
-        if (!session.paletteOpen) closeSearch();
-      }}
-    >
-      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6l4 4 4-4" /></svg>
-    </button>
     {#if searchOpen}
       <div class="search-box">
         <input
@@ -142,47 +161,56 @@
     {:else}
       <span class="title">Klangpalette</span>
     {/if}
-    {#if session.paletteOpen}
-      <div class="tools">
-        {#if !searchOpen}
-          <button
-            class="tool"
-            onclick={() => (searchOpen = true)}
-            aria-label="Sound suchen"
-            title="Sound suchen"
-          >
-            <svg viewBox="0 0 16 16" aria-hidden="true"
-              ><circle cx="7" cy="7" r="4.5" /><path d="M10.3 10.3 14 14" /></svg
-            >
+    <div class="add" bind:this={addRoot}>
+      {#if recording.active}
+        <button
+          class="tool rec on"
+          onclick={() => recording.toggle()}
+          aria-label="Aufnahme beenden"
+          title="Aufnahme beenden"
+        >
+          ■ {recording.seconds.toFixed(1)}
+        </button>
+      {:else}
+        <button
+          bind:this={addTrigger}
+          class="tool plus"
+          aria-label="Eigenen Klang hinzufügen"
+          title="Eigenen Klang hinzufügen"
+          aria-haspopup="menu"
+          aria-expanded={addOpen}
+          onclick={() => (addOpen = !addOpen)}
+        >
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10" /></svg>
+        </button>
+      {/if}
+      {#if addOpen}
+        <div class="menu" role="menu" aria-label="Eigenen Klang hinzufügen">
+          <button role="menuitem" onclick={startRecording} {@attach (el) => el.focus()}>
+            <span class="icon rec-dot" aria-hidden="true">●</span>
+            Aufnehmen <small>bis 3 Sekunden</small>
           </button>
-        {/if}
+          <button role="menuitem" onclick={chooseFile}>
+            <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"
+              ><path d="M8 11V3M4.5 6.5 8 3l3.5 3.5M3 13h10" /></svg
+            >
+            Datei hochladen
+          </button>
+        </div>
+      {/if}
+      <input bind:this={fileInput} type="file" accept="audio/*" hidden onchange={onFile} />
+    </div>
+    {#if !searchOpen}
+      <div class="tools">
         <button
           class="tool"
-          onclick={() => fileInput?.click()}
-          aria-label="Audiodatei laden"
-          title="Audiodatei laden"
+          onclick={() => (searchOpen = true)}
+          aria-label="Sound suchen"
+          title="Sound suchen"
         >
           <svg viewBox="0 0 16 16" aria-hidden="true"
-            ><path d="M8 11V3M4.5 6.5 8 3l3.5 3.5M3 13h10" /></svg
+            ><circle cx="7" cy="7" r="4.5" /><path d="M10.3 10.3 14 14" /></svg
           >
-        </button>
-        <input
-          bind:this={fileInput}
-          type="file"
-          accept="audio/*"
-          hidden
-          onchange={onFile}
-        />
-        <button
-          class="tool rec"
-          class:on={recording.active}
-          onclick={() => recording.toggle()}
-          aria-label={recording.active
-            ? "Aufnahme beenden"
-            : "Aufnehmen (bis 3 Sekunden)"}
-          title={recording.active ? "Aufnahme beenden" : "Aufnehmen (bis 3 Sekunden)"}
-        >
-          {#if recording.active}■ {recording.seconds.toFixed(1)}{:else}●{/if}
         </button>
       </div>
     {/if}
@@ -214,8 +242,7 @@
   {/snippet}
 
   <!-- Untere Zeile, waagrecht scrollbar: Pause, eigene Klänge, dann alle Steine, jeweils mit Gruppentitel -->
-  {#if session.paletteOpen}
-  <div class="stones">
+  <div class="stones" {@attach edgeFade}>
     {#snippet pause()}
         <div
           class="item pause"
@@ -268,7 +295,6 @@
       {/each}
     {/if}
   </div>
-  {/if}
   {#if recording.message}
     <p class="message" role="alert">{recording.message}</p>
   {/if}
@@ -288,33 +314,6 @@
     padding: 4px 0 8px;
     background: var(--palette);
     border-bottom: 1.5px solid var(--line);
-  }
-  .palette.closed {
-    padding-bottom: 4px;
-  }
-  .fold {
-    width: 32px;
-    height: 28px;
-    margin-left: -8px;
-    padding: 0;
-    border: none;
-    color: var(--mute);
-    background: transparent;
-    flex: none;
-  }
-  .fold svg {
-    width: 16px;
-    height: 16px;
-    fill: none;
-    stroke: currentColor;
-    stroke-width: 2;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-    transition: transform 0.15s ease-out;
-  }
-  /* Eingeklappt: Pfeil nach rechts wie bei den Spuren */
-  .closed .fold svg {
-    transform: rotate(-90deg);
   }
   .head {
     padding: 0 var(--edge-r) 0 var(--edge-l);
@@ -431,6 +430,64 @@
     stroke-width: 1.8;
     stroke-linecap: round;
     stroke-linejoin: round;
+  }
+  .add {
+    position: relative;
+    flex: none;
+  }
+  /* Menü am +, wie das Menü einer Spur */
+  .menu {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    z-index: 20;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 6px;
+    min-width: 200px;
+    background: var(--panel);
+    border: 1.5px solid var(--line);
+    border-radius: 10px;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
+  }
+  .menu button {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    text-align: left;
+    padding: 7px 8px;
+    font-size: 14px;
+    border-color: transparent;
+    background: transparent;
+    color: var(--ink);
+  }
+  .menu button:hover {
+    background: color-mix(in srgb, var(--blue) 14%, transparent);
+  }
+  .menu small {
+    margin-left: auto;
+    padding-left: 12px;
+    font-size: 12px;
+    color: var(--mute);
+  }
+  .icon {
+    width: 14px;
+    height: 14px;
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .rec-dot {
+    color: var(--red);
+    font-size: 12px;
   }
   .rec {
     color: var(--red);

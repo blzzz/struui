@@ -9,33 +9,41 @@ function roundTrip(code: string): string {
   return trackToCode(r).text;
 }
 
-test('code: ganze Zeile mit Name, Stummschaltung und Effekten wird zur Spur und zurück', () => {
+test('code: ganze Zeile mit Name (Kommentar), Stummschaltung (.hush()) und Effekten wird zur Spur und zurück', () => {
   const cases: [string, string][] = [
-    ['$: s("bd sd")', '$: s("bd sd")'],
-    ['$drums: s("bd  hh*2").lpf(800)', '$drums: s("bd hh*2").lpf(800)'],
-    ['_$bass : sound(\'bd\') .room( .5 ) .vowel("<a e>")', '_$bass: s("bd").room(0.5).vowel("<a e>")'],
-    ['$x: s("bd").lpf("<200 [400 800]>?").cutoff(-1)', '$x: s("bd").lpf("<200 [400 800]>?").cutoff(-1)'],
-    ['$: s("")', '$: s("")'],
-    ['$a: s("bd").postgain(.5).lpf(800)', '$a: s("bd").lpf(800).postgain(0.5)'],
-    ['$a: s("bd").postgain(1)', '$a: s("bd")'],
-    ['$a: s("bd").orbit(2).postgain(.5)', '$a: s("bd").orbit(2).postgain(0.5)'],
-    ['$a: s("bd").orbit(1)', '$a: s("bd")'],
-    ['$m: s("bd").note("c4 e4").midi()', '$m: s("bd").note("c4 e4").midichan(1).midi()'],
-    ['$m: s("bd").midichan(10).ccv(.5).midi("IAC Driver Bus 1")', `$m: s("bd").ccv(0.5).midichan(10).midi('IAC Driver Bus 1')`],
-    [`$m: s("bd").midi('Bob\\'s')`, `$m: s("bd").midichan(1).midi('Bob\\'s')`],
-    ['$n: note("f d").s("sine")', '$n: note("f d").s("sine")'],
-    ['$n: note("<c e> g").lpf(800).sound("<sine sawtooth>").orbit(2)', '$n: note("<c e> g").s("<sine sawtooth>").lpf(800).orbit(2)'],
-    ['$n: note("c")', '$n: note("c")'],
-    ['$n: note("f d" .add("<0 3>").div( 2 )).s("sine")', '$n: note("f d".add("<0 3>").div(2)).s("sine")'],
-    ['$b: s("brk/2").fit( ).scrub("<0 .25>").chop(4)', '$b: s("brk/2").fit().scrub("<0 .25>").chop(4)'],
+    ['s("bd sd")', 's("bd sd")'],
+    ['/* drums */ s("bd  hh*2").lpf(800)', '/* drums */ s("bd hh*2").lpf(800)'],
+    ['/* bass */ sound(\'bd\') .room( .5 ) .vowel("<a e>") .hush( )', '/* bass */ s("bd").room(0.5).vowel("<a e>").hush()'],
+    ['  /*   bass */s("bd").hush()', '/* bass */ s("bd").hush()'],
+    ['/* m */ s("bd").midi().hush()', '/* m */ s("bd").midichan(1).midi().hush()'],
+    ['/* Klangspur_1 */ s("bd")', '/* Klangspur_1 */ s("bd")'],
+    ['/* x */ s("bd").lpf("<200 [400 800]>?").cutoff(-1)', '/* x */ s("bd").lpf("<200 [400 800]>?").cutoff(-1)'],
+    ['s("")', 's("")'],
+    ['/* a */ s("bd").postgain(.5).lpf(800)', '/* a */ s("bd").lpf(800).postgain(0.5)'],
+    ['/* a */ s("bd").postgain(1)', '/* a */ s("bd")'],
+    ['/* a */ s("bd").orbit(2).postgain(.5)', '/* a */ s("bd").orbit(2).postgain(0.5)'],
+    ['/* a */ s("bd").orbit(1)', '/* a */ s("bd")'],
+    ['/* m */ s("bd").note("c4 e4").midi()', '/* m */ s("bd").note("c4 e4").midichan(1).midi()'],
+    ['/* m */ s("bd").midichan(10).ccv(.5).midi("IAC Driver Bus 1")', `/* m */ s("bd").ccv(0.5).midichan(10).midi('IAC Driver Bus 1')`],
+    [`/* m */ s("bd").midi('Bob\\'s')`, `/* m */ s("bd").midichan(1).midi('Bob\\'s')`],
+    ['/* n */ note("f d").s("sine")', '/* n */ note("f d").s("sine")'],
+    ['/* n */ note("<c e> g").lpf(800).sound("<sine sawtooth>").orbit(2)', '/* n */ note("<c e> g").s("<sine sawtooth>").lpf(800).orbit(2)'],
+    ['/* n */ note("c")', '/* n */ note("c")'],
+    ['/* n */ note("f d" .add("<0 3>").div( 2 )).s("sine")', '/* n */ note("f d".add("<0 3>").div(2)).s("sine")'],
+    ['/* b */ s("brk/2").fit( ).scrub("<0 .25>").chop(4)', '/* b */ s("brk/2").fit().scrub("<0 .25>").chop(4)'],
   ];
   for (const [input, expected] of cases) assert.equal(roundTrip(input), expected, input);
 });
 
 test('code: Effekte werden zu Wertsteinen', () => {
-  const r = codeToTrack('$a: s("bd").lpf("<200 800>")');
+  const r = codeToTrack('/* a */ s("bd").lpf("<200 800>")');
   assert.ok(r.ok);
   assert.equal(r.name, 'a');
+  assert.equal(r.muted, false);
+  const plain = codeToTrack('s("bd").hush()');
+  assert.ok(plain.ok);
+  assert.equal(plain.name, '', 'ohne Kommentar kein Name (den Standardnamen setzt das Projekt)');
+  assert.equal(plain.muted, true);
   assert.deepEqual(
     r.effects[0].tokens.map((t) => t.kind),
     ['open', 'sound', 'sound', 'close'],
@@ -48,67 +56,71 @@ test('code: Fehler nennen die Stelle', () => {
     assert.ok(!r.ok, code);
     return r.offset;
   };
-  assert.equal(at('s("bd")'), 0, 'ohne $');
-  assert.equal(at('$a: s("bd").foo(1)'), 12, 'unbekannter Effekt');
-  assert.equal(at('$a: s("bd [sd")'), 13, 'Mini-Notation: fehlende ] am Ende, Stelle in der Zeile');
-  assert.equal(at('$a_: s("bd")'), 0, '_ am Ende schaltet stumm, nicht als Name');
-  assert.equal(at('$a: s("bd").lpf(800'), 19, 'Klammer fehlt');
-  assert.equal(at('$a: s("bd").postgain("<1 .5>")'), 21, 'Lautstärke nur als Zahl');
-  assert.equal(at('$a: s("bd").orbit(9)'), 18, 'Orbit 1–8');
-  assert.equal(at('$a: s("bd").midichan(2)'), 12, 'Kanal nur mit .midi()');
-  assert.equal(at('$a: s("bd").orbit(2).midi()'), 12, 'Orbit nicht bei MIDI');
-  assert.equal(at('$a: s("bd").midi().lpf(800)'), 18, 'nach .midi() nichts mehr');
-  assert.equal(at('$a: s("bd").midichan(17).midi()'), 21, 'Kanal 1–16');
-  assert.equal(at('$a: s("bd").s("sine")'), 12, '.s() nur bei Notenspuren');
-  assert.equal(at('$a: note("c").s("a").s("b")'), 21, '.s() nur einmal');
-  assert.equal(at('$a: note("c").midi()'), 14, 'Notenspuren gehen nicht an MIDI');
-  assert.equal(at('$a: n("c")'), 4, 'n() ist keine Spur');
-  assert.equal(at('$a: s("bd".add(1))'), 10, 'Rechnen nur in note()');
-  assert.equal(at('$a: note("c".foo(1))'), 13, 'unbekannte Rechenart');
-  assert.equal(at('$a: note("c".lpf(1))'), 13, 'Effekte nicht an der Mini-Notation');
-  assert.equal(at('$a: s("bd").fit(1)'), 16, 'fit() nimmt keinen Wert');
+  assert.equal(at('/* a */ s("bd").foo(1)'), 16, 'unbekannter Effekt');
+  assert.equal(at('/* a */ s("bd [sd")'), 17, 'Mini-Notation: fehlende ] am Ende, Stelle in der Zeile');
+  assert.equal(at('/* a_ */ s("bd")'), 0, 'Name: kein _ am Ende');
+  assert.equal(at('/* a b */ s("bd")'), 0, 'Name: ein Wort');
+  assert.equal(at('/* a s("bd")'), 0, 'Kommentar nicht geschlossen');
+  assert.equal(at('$a: s("bd")'), 0, 'altes Label: Hinweis auf den Kommentar');
+  assert.equal(at('/* a */ s("bd").hush().lpf(800)'), 22, 'nach .hush() nichts mehr');
+  assert.equal(at('/* a */ s("bd").hush(1)'), 21, 'hush() nimmt keinen Wert');
+  assert.equal(at('/* a */ s("bd").lpf(800'), 23, 'Klammer fehlt');
+  assert.equal(at('/* a */ s("bd").postgain("<1 .5>")'), 25, 'Lautstärke nur als Zahl');
+  assert.equal(at('/* a */ s("bd").orbit(9)'), 22, 'Orbit 1–8');
+  assert.equal(at('/* a */ s("bd").midichan(2)'), 16, 'Kanal nur mit .midi()');
+  assert.equal(at('/* a */ s("bd").orbit(2).midi()'), 16, 'Orbit nicht bei MIDI');
+  assert.equal(at('/* a */ s("bd").midi().lpf(800)'), 22, 'nach .midi() nichts mehr');
+  assert.equal(at('/* a */ s("bd").midichan(17).midi()'), 25, 'Kanal 1–16');
+  assert.equal(at('/* a */ s("bd").s("sine")'), 16, '.s() nur bei Notenspuren');
+  assert.equal(at('/* a */ note("c").s("a").s("b")'), 25, '.s() nur einmal');
+  assert.equal(at('/* a */ note("c").midi()'), 18, 'Notenspuren gehen nicht an MIDI');
+  assert.equal(at('/* a */ n("c")'), 8, 'n() ist keine Spur');
+  assert.equal(at('/* a */ s("bd".add(1))'), 14, 'Rechnen nur in note()');
+  assert.equal(at('/* a */ note("c".foo(1))'), 17, 'unbekannte Rechenart');
+  assert.equal(at('/* a */ note("c".lpf(1))'), 17, 'Effekte nicht an der Mini-Notation');
+  assert.equal(at('/* a */ s("bd").fit(1)'), 20, 'fit() nimmt keinen Wert');
 });
 
 test('code: MIDI-Spur mit Kanal und Ausgang', () => {
-  const r = codeToTrack(`$m: s("bd").midichan(3).midi('Bob\\'s Port')`);
+  const r = codeToTrack(`/* m */ s("bd").midichan(3).midi('Bob\\'s Port')`);
   assert.ok(r.ok);
   assert.equal(r.type, 'midi');
   assert.equal(r.channel, 3);
   assert.equal(r.port, "Bob's Port");
-  const s = codeToTrack('$a: s("bd").orbit(4)');
+  const s = codeToTrack('/* a */ s("bd").orbit(4)');
   assert.ok(s.ok);
   assert.equal(s.type, 'sound');
   assert.equal(s.orbit, 4);
 });
 
 test('code: Notenspur mit Klang in .s()', () => {
-  const r = codeToTrack('$n: note("f d").s("sine")');
+  const r = codeToTrack('/* n */ note("f d").s("sine")');
   assert.ok(r.ok);
   assert.equal(r.type, 'note');
   assert.deepEqual(r.tokens.map((t) => (t.kind === 'sound' ? t.sound : t.kind)), ['f', 'd']);
   assert.deepEqual(r.voice?.tokens.map((t) => (t.kind === 'sound' ? t.sound : t.kind)), ['sine']);
-  const none = codeToTrack('$n: note("f")');
+  const none = codeToTrack('/* n */ note("f")');
   assert.ok(none.ok);
   assert.equal(none.voice, null);
 });
 
 test('code: slider(wert, min, max, step) wird zum Regler und zurück', () => {
   const cases: [string, string][] = [
-    ['$a: s("bd").lpf(slider(800, 100, 8000, 10))', '$a: s("bd").lpf(slider(800, 100, 8000, 10))'],
-    ['$a: s("bd").room( slider( .5 , 0 , 1 , .01 ) )', '$a: s("bd").room(slider(0.5, 0, 1, 0.01))'],
-    ['$a: s("bd").room(slider(.5))', '$a: s("bd").room(slider(0.5, 0, 1, 0.01))'],
-    ['$a: s("bd").lpf(slider(800, 0, 2000))', '$a: s("bd").lpf(slider(800, 0, 2000, 20))'],
-    ['$n: note("c e".add(slider(3, 0, 12, 1))).s("sine")', '$n: note("c e".add(slider(3, 0, 12, 1))).s("sine")'],
+    ['/* a */ s("bd").lpf(slider(800, 100, 8000, 10))', '/* a */ s("bd").lpf(slider(800, 100, 8000, 10))'],
+    ['/* a */ s("bd").room( slider( .5 , 0 , 1 , .01 ) )', '/* a */ s("bd").room(slider(0.5, 0, 1, 0.01))'],
+    ['/* a */ s("bd").room(slider(.5))', '/* a */ s("bd").room(slider(0.5, 0, 1, 0.01))'],
+    ['/* a */ s("bd").lpf(slider(800, 0, 2000))', '/* a */ s("bd").lpf(slider(800, 0, 2000, 20))'],
+    ['/* n */ note("c e".add(slider(3, 0, 12, 1))).s("sine")', '/* n */ note("c e".add(slider(3, 0, 12, 1))).s("sine")'],
   ];
   for (const [input, expected] of cases) assert.equal(roundTrip(input), expected, input);
-  const r = codeToTrack('$a: s("bd").lpf(slider(800, 100, 8000, 10)).room(.5)');
+  const r = codeToTrack('/* a */ s("bd").lpf(slider(800, 100, 8000, 10)).room(.5)');
   assert.ok(r.ok);
   assert.deepEqual(r.effects[0].slider, { min: 100, max: 8000, step: 10 });
   assert.equal(r.effects[0].tokens.length, 1);
   assert.equal(r.effects[1].slider, null);
 
-  const bad = codeToTrack('$a: s("bd").lpf(slider(800, 900, 100))');
+  const bad = codeToTrack('/* a */ s("bd").lpf(slider(800, 900, 100))');
   assert.ok(!bad.ok);
-  assert.equal(bad.offset, '$a: s("bd").lpf('.length);
-  assert.ok(!codeToTrack('$a: s("bd").lpf(slider("<1 2>"))').ok, 'slider nimmt nur Zahlen');
+  assert.equal(bad.offset, '/* a */ s("bd").lpf('.length);
+  assert.ok(!codeToTrack('/* a */ s("bd").lpf(slider("<1 2>"))').ok, 'slider nimmt nur Zahlen');
 });

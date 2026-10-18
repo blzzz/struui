@@ -1,6 +1,6 @@
 <script lang="ts">
   import { wrapSpan } from '../domain/edit.ts';
-  import { CLOSING } from '../domain/types.ts';
+  import { CLOSING, joinsPrevious } from '../domain/types.ts';
   import { project } from '../state/project.svelte.ts';
   import { session } from '../state/session.svelte.ts';
   import { flushSync } from 'svelte';
@@ -13,8 +13,9 @@
    * Eine Steinreihe: die Klänge einer Spur oder die Werte eines Effekts (`value`).
    * Klänge kommen aus der Klangpalette (ziehen), Werte und Noten über das + am Ende (hängt einen Stein an und öffnet sein Feld).
    *
-   * Passt die Reihe nicht auf eine Zeile, wird sie verkleinert (`fit.ts`, bis `MIN_FIT`, darunter bricht sie wieder um).
+   * Passt eine Klangreihe nicht auf eine Zeile, wird sie verkleinert (`fit.ts`, bis `MIN_FIT`, darunter bricht sie wieder um).
    * Daneben erscheint dann ein Knopf für die Originalgrösse (`session.unfit`), dort einer zum Verkleinern.
+   * Noten- und Wertreihen bleiben in Originalgrösse und brechen um.
    * Die Reihe bleibt auch beim Tippen in einen Stein verkleinert, nur sein Feld hat normale Grösse (`TokenStone`).
    */
   let {
@@ -24,7 +25,9 @@
   }: { laneId: string; tokens: Token[]; value?: boolean } = $props();
 
   const parsed = $derived(project.parsedOf(laneId));
-  const endHint = $derived(session.dropHint?.laneId === laneId && session.dropHint.index === tokens.length);
+  const endHint = $derived(
+    session.dropHint?.laneId === laneId && session.dropHint.mode === 'insert' && session.dropHint.index === tokens.length,
+  );
 
   /** Umschliessen im Gang in dieser Reihe (im Steinmenü gewählt). */
   const wrap = $derived(session.wrap?.laneId === laneId ? session.wrap : null);
@@ -38,15 +41,20 @@
   });
   let row = $state<HTMLElement>();
 
+  /** Nur Reihen aus Klangsteinen lassen sich verkleinern. */
+  const fittable = $derived(project.contentOf(laneId) === 'sounds');
   /** Verkleinerung, damit die Reihe auf eine Zeile passt (1 = passt in Originalgrösse). */
   let fit = $state(1);
   /** Die Reihe ist in Originalgrösse breiter als der Platz: nur dann gibt es den Knopf. */
   let overflows = $state(false);
   const original = $derived(session.unfit.has(laneId));
-  const zoom = $derived(original ? 1 : fit);
+  const zoom = $derived(!fittable || original ? 1 : fit);
 
   $effect(() => {
-    if (!row) return;
+    if (!row || !fittable) {
+      overflows = false;
+      return;
+    }
     void tokens.map((t) => t.id);
     const applied = zoom;
     return watchFit(
@@ -122,6 +130,8 @@
       {value}
       index={i}
       last={!endcol && i === tokens.length - 1}
+      stackPrev={joinsPrevious(tokens, i)}
+      stackNext={joinsPrevious(tokens, i + 1)}
       spanned={span !== null && i >= span[0] && i <= span[1]}
       error={parsed.errorIds.has(token.id)}
     />

@@ -75,13 +75,13 @@
 >
   <header>
     <div class="left">
-      <!-- Der Name steht im Code nach dem $ ($drums:) -->
-      <label class="name" title="Name der Spur, im Code nach dem $">
+      <!-- Der Name steht im Code als Kommentar vor der Spur (/* drums */) -->
+      <label class="name" title="Name der Spur, im Code als Kommentar davor">
         <!-- <span aria-hidden="true">$</span> -->
         <input
           type="text"
           value={track.name}
-          placeholder={`spur${index + 1}`}
+          placeholder="Name"
           aria-label={`Name von Spur ${index + 1}`}
           spellcheck="false"
           autocomplete="off"
@@ -92,6 +92,7 @@
             if (e.currentTarget.value !== track.name)
               e.currentTarget.value = track.name;
           }}
+          onblur={() => project.ensureName(track.id)}
           onkeydown={(e) => {
             if (e.key === "Enter") e.currentTarget.blur();
           }}
@@ -109,7 +110,7 @@
           class:active={track.muted}
           aria-pressed={track.muted}
           aria-label="Stumm"
-          title={track.muted ? "Stumm (Code: _$)" : "Stumm schalten"}
+          title={track.muted ? "Stumm (Code: .hush())" : "Stumm schalten"}
           onclick={() => project.toggleMute(track.id)}>M</button
         >
         {#if isMidi}

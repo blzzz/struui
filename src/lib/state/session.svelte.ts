@@ -10,9 +10,12 @@ export interface SheetTarget {
 
 export interface DropHint {
   laneId: string;
-  /** Den Stein an `index` ersetzen (Hervorhebung des Steins) statt davor einfügen (Strich). */
-  replace: boolean;
-  /** Einfügeposition: der Strich erscheint vor diesem Stein. */
+  /**
+   * `insert`: davor einfügen (Strich). `replace`: den Stein an `index` ersetzen (Hervorhebung des Steins).
+   * `stack`: mit Komma an ihn anfügen (Hervorhebung und Strich danach).
+   */
+  mode: 'insert' | 'replace' | 'stack';
+  /** Einfügeposition: der Strich erscheint vor diesem Stein. Bei `replace` und `stack` der Stein selbst. */
   index: number;
 }
 
@@ -33,6 +36,8 @@ export type View = 'ui' | 'code';
 /** Flüchtiger Oberflächenzustand, der nicht zum Projekt gehört. */
 class Session {
   playing = $state(false);
+  /** Was spielt bzw. zuletzt spielte: die gewählte Szene (Play oben) oder das Arrangement (▶ vor dem Arrangement). */
+  playMode = $state<'scene' | 'arrangement'>('scene');
   /** Hauptlautstärke (0–1), wirkt auf Strudels Ausgang, nicht im Code. */
   volume = $state(1);
   view = $state<View>('ui');
@@ -72,8 +77,6 @@ class Session {
   menu = $state<{ laneId: string; tokenId: string } | null>(null);
   dropHint = $state<DropHint | null>(null);
   wrap = $state<WrapPick | null>(null);
-  /** Klangpalette unter der oberen Leiste ausgeklappt. */
-  paletteOpen = $state(true);
   /** Eben über das + angehängter Noten- oder Wertstein: öffnet sich beim Erscheinen gleich zum Tippen. */
   editNew = $state<string | null>(null);
 

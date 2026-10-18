@@ -1,12 +1,19 @@
 import type { Attachment } from 'svelte/attachments';
 
+/**
+ * `insert`: davor einfügen. `replace`: über der Mitte eines Klangsteins, ihn ersetzen.
+ * `stack`: über der Mitte verweilt, mit Komma an ihn anfügen (`[bd, hh]`).
+ */
+export type DropMode = 'insert' | 'replace' | 'stack';
+
 export interface DropTarget {
   /** Steinreihe: Spur oder Effekt. */
   laneId: string;
-  /** Einfügeposition in der Zielreihe, bei `replace` die Position des Steins, der ersetzt wird. */
+  /** Einfügeposition in der Zielreihe, bei `replace` und `stack` die Position des Steins darunter. */
   index: number;
-  /** Über der Mitte eines Klangsteins losgelassen: ihn ersetzen statt davor oder danach einfügen. */
-  replace: boolean;
+  mode: DropMode;
+  /** Bei `replace`: Verweilen würde anfügen (`data-drop-stackable`). */
+  stackable?: boolean;
 }
 
 export interface TokenGestureOptions {
@@ -25,8 +32,12 @@ export interface TokenGestureOptions {
    * Gilt nur für Touch: Mit Maus oder Stift scrollt der Browser beim Ziehen nicht, dort zieht jede Richtung.
    */
   canDrag?(dx: number, dy: number): boolean;
+  /** false: gar kein Ziehen, bei jedem Zeiger (Bewegung bricht die Geste ab). Fehlt es, darf gezogen werden. */
+  drags?(): boolean;
   /** Darf über der Mitte eines Klangsteins ersetzen (Steine aus der Palette). Sonst wird immer eingefügt. */
   replaces?: boolean;
+  /** Verweilen über der Mitte eines Klangsteins fügt mit Komma an (`[bd, hh]`) statt zu ersetzen. Nur mit `replaces`. */
+  stacks?: boolean;
   onDragMove(target: DropTarget | null): void;
   onDrop(target: DropTarget | null): void;
 }
@@ -34,6 +45,8 @@ export interface TokenGestureOptions {
 const DOUBLE_TAP_MS = 260;
 const LONG_PRESS_MS = 450;
 const DRAG_THRESHOLD = 8;
+/** So lange über der Mitte eines Steins, dann wird aus «ersetzen» «anfügen». */
+const DWELL_MS = 600;
 
 /**
  * Sucht unter dem Finger die Steinreihe und die Einfügeposition (Markierung per data-Attribute).
@@ -50,18 +63,19 @@ export function findDropTarget(x: number, y: number, replace = false): DropTarge
     if (cell.dataset.dropKind === 'col') {
       const r = cell.getBoundingClientRect();
       const at = (x - r.left) / r.width;
-      if (replace && cell.dataset.dropReplaceable === 'true' && at > 0.25 && at < 0.75) return { laneId, index, replace: true };
+      if (replace && cell.dataset.dropReplaceable === 'true' && at > 0.25 && at < 0.75)
+        return { laneId, index, mode: 'replace', stackable: cell.dataset.dropStackable === 'true' };
       if (at > 0.5) index += 1;
     }
-    return { laneId, index, replace: false };
+    return { laneId, index, mode: 'insert' };
   }
   const lane = el.closest<HTMLElement>('[data-lane]');
-  if (lane) return { laneId: lane.dataset.lane as string, index: Number(lane.dataset.laneEnd), replace: false };
+  if (lane) return { laneId: lane.dataset.lane as string, index: Number(lane.dataset.laneEnd), mode: 'insert' };
   return null;
 }
 
 const sameTarget = (a: DropTarget | null, b: DropTarget | null): boolean =>
-  a === b || (a !== null && b !== null && a.laneId === b.laneId && a.index === b.index && a.replace === b.replace);
+  a === b || (a !== null && b !== null && a.laneId === b.laneId && a.index === b.index && a.mode === b.mode);
 
 /**
  * Tippen, Doppeltippen, langes Drücken und Ziehen auf einem Stein.
@@ -80,6 +94,7 @@ export function tokenGestures(get: () => TokenGestureOptions): Attachment<HTMLEl
     let ghost: HTMLElement | null = null;
     let target: DropTarget | null = null;
     let tapTimer: number | undefined;
+    let dwellTimer: number | undefined;
     let pressTimer: number | undefined;
     let pressed = false;
     let frame: number | undefined;
@@ -89,6 +104,7 @@ export function tokenGestures(get: () => TokenGestureOptions): Attachment<HTMLEl
     const release = () => {
       pointerId = null;
       window.clearTimeout(pressTimer);
+      window.clearTimeout(dwellTimer);
       if (frame !== undefined) cancelAnimationFrame(frame);
       frame = undefined;
       last = null;
@@ -127,6 +143,10 @@ export function tokenGestures(get: () => TokenGestureOptions): Attachment<HTMLEl
 
     const startDrag = (e: PointerEvent): boolean => {
       if (Math.hypot(e.clientX - sx, e.clientY - sy) < DRAG_THRESHOLD) return false;
+      if (get().drags?.() === false) {
+        release();
+        return false;
+      }
       if (e.pointerType === 'touch' && get().canDrag?.(e.clientX - sx, e.clientY - sy) === false) {
         // Der Browser scrollt, die Geste gibt auf
         release();
@@ -147,6 +167,17 @@ export function tokenGestures(get: () => TokenGestureOptions): Attachment<HTMLEl
       return true;
     };
 
+    /** Über der Mitte eines Steins verweilen: nach DWELL_MS wird aus «ersetzen» «anfügen». */
+    const armDwell = () => {
+      window.clearTimeout(dwellTimer);
+      if (target?.mode !== 'replace' || !target.stackable || !get().stacks) return;
+      dwellTimer = window.setTimeout(() => {
+        if (!ghost || target?.mode !== 'replace') return;
+        target = { ...target, mode: 'stack' };
+        get().onDragMove(target);
+      }, DWELL_MS);
+    };
+
     /** Höchstens einmal pro Bild: Geist bewegen, Ziel suchen. */
     const update = () => {
       frame = undefined;
@@ -154,9 +185,12 @@ export function tokenGestures(get: () => TokenGestureOptions): Attachment<HTMLEl
       if (!e || !ghost) return;
       ghost.style.left = `${e.clientX - ghost.offsetWidth / 2}px`;
       ghost.style.top = `${e.clientY - ghost.offsetHeight / 2}px`;
-      const next = findDropTarget(e.clientX, e.clientY, get().replaces ?? false);
+      let next = findDropTarget(e.clientX, e.clientY, get().replaces ?? false);
+      // Schon angefügt: bleibt so, solange der Finger über der Mitte desselben Steins ist
+      if (target?.mode === 'stack' && next?.mode === 'replace' && next.laneId === target.laneId && next.index === target.index) next = target;
       if (!sameTarget(next, target)) {
         target = next;
+        armDwell();
         get().onDragMove(target);
       }
     };

@@ -2,19 +2,25 @@
   import { untrack } from 'svelte';
   import CodeView from './lib/ui/CodeView.svelte';
   import SoundPalette from './lib/ui/SoundPalette.svelte';
-  import SnapshotDock from './lib/ui/SnapshotDock.svelte';
+  import SceneDock from './lib/ui/SceneDock.svelte';
   import HelpDialog from './lib/ui/HelpDialog.svelte';
   import ValueSheet from './lib/ui/ValueSheet.svelte';
   import TopBar from './lib/ui/TopBar.svelte';
   import TrackView from './lib/ui/TrackView.svelte';
   import { playback } from './lib/state/playback.svelte.ts';
   import { project } from './lib/state/project.svelte.ts';
+  import { scenes } from './lib/state/scenes.svelte.ts';
   import { session } from './lib/state/session.svelte.ts';
 
   // Läuft die Wiedergabe, bekommt die Engine jede Codeänderung mit.
   $effect(() => {
-    void project.program.code;
+    void playback.program().code;
     untrack(() => playback.changed());
+  });
+
+  // Mit Auto-Update landet jede Änderung sofort in der gewählten Szene.
+  $effect(() => {
+    if (scenes.autoUpdate && scenes.dirty) untrack(() => scenes.update());
   });
 </script>
 
@@ -44,7 +50,7 @@
   {/if}
 </main>
 
-<SnapshotDock />
+<SceneDock />
 <ValueSheet />
 <HelpDialog />
 

@@ -2,7 +2,7 @@
   import { flushSync, untrack } from 'svelte';
   import { isValueAtom, singleValue, stepValue } from '../domain/effects.ts';
   import { DEFAULT_VOICE, isNote, stepNote } from '../domain/notes.ts';
-  import { isSoundName, stepSound } from '../domain/sounds.ts';
+  import { isSoundName, stepVariant } from '../domain/sounds.ts';
   import { tokenGestures } from '../interaction/token-gestures.ts';
   import { CLOSING, hasModifiers, hasSteps, isPause, label } from '../domain/types.ts';
   import { playback } from '../state/playback.svelte.ts';
@@ -17,7 +17,10 @@
     error,
     value = false,
     replacing = false,
+    stacking = false,
     spanned = false,
+    stackPrev = false,
+    stackNext = false,
   }: {
     token: Token;
     laneId: string;
@@ -25,6 +28,11 @@
     value?: boolean;
     /** Ein Stein aus der Palette schwebt darüber und würde ihn ersetzen. */
     replacing?: boolean;
+    /** Ein Stein aus der Palette verweilt darüber und würde mit Komma angefügt (`[bd, hh]`). */
+    stacking?: boolean;
+    /** Stapel: hängt am Stein davor bzw. der nächste hängt an ihm (eckige Ecken auf dieser Seite). */
+    stackPrev?: boolean;
+    stackNext?: boolean;
     /** Umschliessen im Gang: der Stein liegt im Bereich, den das Klammerpaar fassen würde. */
     spanned?: boolean;
   } = $props();
@@ -55,14 +63,16 @@
   /** Notenstein (Notenspur): bearbeitet sich wie ein Wert, ↑/↓ gehen einen Halbton weiter. Pausen nicht. */
   const notes = $derived(!value && project.contentOf(laneId) === 'notes');
   /**
-   * Klangstein: ebenso, Tippen öffnet ein Feld für den Namen,
-   * ↑/↓ gehen in der Palettengruppe weiter. Pausen nicht. Langes Drücken öffnet wie bei Noten das Menü.
+   * Klangstein: ebenso, Tippen öffnet ein Feld für den Namen, wahlweise mit Variante (`bd:3`).
+   * ↑/↓ und −/+ zählen die Variante. Pausen nicht. Langes Drücken öffnet wie bei Noten das Menü.
    */
   const editable = $derived(token.kind === 'sound' && (value || !isPause(token)));
-  const valid = (text: string) => (notes ? isNote(text) : value ? isValueAtom(text) : isSoundName(text));
+  /** Positionen einer Sampler-Spur mit `scrub`: auch mit Geschwindigkeit nach dem Doppelpunkt (`.5:2`). */
+  const lists = $derived(value && project.valueLists(laneId));
+  const valid = (text: string) => (notes ? isNote(text) : value ? isValueAtom(text, lists) : isSoundName(text));
   const values = $derived(value ? (project.lane(laneId)?.info?.values ?? []) : []);
-  /** Zahlentastatur, wenn Strudels Beispiele nur Zahlen ab 0 zeigen. */
-  const numeric = $derived(values.length > 0 && values.every((v) => /^(\d+\.?\d*|\.\d+)$/.test(v)));
+  /** Zahlentastatur, wenn Strudels Beispiele nur Zahlen ab 0 zeigen. Nicht bei Listen: Sie hat keinen Doppelpunkt. */
+  const numeric = $derived(!lists && values.length > 0 && values.every((v) => /^(\d+\.?\d*|\.\d+)$/.test(v)));
   let editing = $state(false);
   let draft = $state('');
   let before = '';
@@ -94,7 +104,7 @@
 
   function step(dir: 1 | -1) {
     const current = token.kind === 'sound' ? token.sound : draft;
-    apply(notes ? stepNote(current, dir) : value ? stepValue(current, values, dir) : stepSound(current, dir));
+    apply(notes ? stepNote(current, dir) : value ? stepValue(current, values, dir) : stepVariant(current, dir));
     audition();
   }
 
@@ -182,9 +192,12 @@
 <div
   bind:this={root}
   class="slot"
-  class:wide={token.kind === 'raw' || editing}
+  class:wide={token.kind === 'raw'}
   class:on={lit}
   class:replacing
+  class:stacking
+  class:stack-prev={stackPrev}
+  class:stack-next={stackNext}
   class:err={error}
   class:picking
   class:anchor
@@ -293,8 +306,8 @@
   {#if editing}
     <!-- Für Touch ohne Pfeiltasten. pointerdown verhindern, damit das Feld den Fokus behält. -->
     <div class="steps">
-      <button tabindex="-1" aria-label={notes ? 'Halbton tiefer' : value ? 'Kleinerer Wert' : 'Vorheriger Klang'} onpointerdown={(e) => e.preventDefault()} onclick={() => step(-1)}>−</button>
-      <button tabindex="-1" aria-label={notes ? 'Halbton höher' : value ? 'Grösserer Wert' : 'Nächster Klang'} onpointerdown={(e) => e.preventDefault()} onclick={() => step(1)}>+</button>
+      <button tabindex="-1" aria-label={notes ? 'Halbton tiefer' : value ? 'Kleinerer Wert' : 'Vorherige Variante'} onpointerdown={(e) => e.preventDefault()} onclick={() => step(-1)}>−</button>
+      <button tabindex="-1" aria-label={notes ? 'Halbton höher' : value ? 'Grösserer Wert' : 'Nächste Variante'} onpointerdown={(e) => e.preventDefault()} onclick={() => step(1)}>+</button>
     </div>
   {/if}
 </div>
@@ -321,15 +334,24 @@
   .slot {
     -webkit-touch-callout: none;
   }
+  /* Das Feld schwebt mittig über dem Stein, statt ihn zu verbreitern: die Reihe bleibt, wie sie ist.
+     Sonst ordnen sich umgebrochene Steine neu, der Stein rutscht unter dem Finger weg und das Feld verliert gleich den Fokus. */
   input {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 13;
     width: auto;
     min-width: var(--s);
-    height: 100%;
+    height: var(--s);
     padding: 0 6px;
     border: none;
     border-radius: 8px;
     outline: 3px solid var(--blue);
-    background: transparent;
+    /* Farbe des Steins, damit die Nachbarn darunter nicht durchscheinen */
+    background: inherit;
+    box-shadow: inherit;
     color: inherit;
     text-align: center;
     /* Der Stein verbietet Textauswahl; ohne das lässt sich das Feld in Safari nicht bedienen */
@@ -343,8 +365,7 @@
   }
   /* Menü über dem Stein, mittig */
   /* Menü, ± und Eingabefeld in einer verkleinerten Reihe (Lane) oder Effektliste (EffectList) in normaler Grösse.
-     Beim Feld nicht die Reihe zurücksetzen: sie spränge unter dem Finger, der Browser setzte den Fokus dann woanders hin
-     und das Feld ginge gleich wieder zu. In normaler Grösse zoomt iOS auch nicht ins Feld. */
+     Beim Feld nicht die Reihe zurücksetzen, sie spränge unter dem Finger (siehe input). In normaler Grösse zoomt iOS nicht ins Feld. */
   .menu,
   .steps,
   input {
@@ -440,6 +461,20 @@
     outline: 3px solid var(--blue);
     outline-offset: 1px;
     transform: scale(1.08);
+  }
+  .slot.stacking .stone {
+    outline: 3px solid var(--green);
+    outline-offset: 1px;
+  }
+  /* Stapel: die Steine stossen aneinander, innen eckig, eine feine Fuge dazwischen */
+  .slot.stack-prev .stone {
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 0;
+    border-left: 1px solid var(--wood-edge);
+  }
+  .slot.stack-next .stone {
+    border-top-right-radius: 0;
+    border-bottom-right-radius: 0;
   }
   /* Umschliessen: Startstein und der Bereich, den das Paar fassen würde */
   .slot.picking {

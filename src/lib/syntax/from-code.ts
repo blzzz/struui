@@ -8,16 +8,19 @@ import { textToTokens } from './from-text.ts';
 
 /**
  * Eine ganze Codezeile einer Spur zu Spur und Effekten, die Umkehrung von `trackToCode`:
- * `$drums: s("bd sd").lpf(800).room("<0 .5>")`. Die Mini-Notation darin liest Strudels Grammatik (`textToTokens`).
+ * `/* drums *\/ s("bd sd").lpf(800).room("<0 .5>")`. Die Mini-Notation darin liest Strudels Grammatik (`textToTokens`).
+ * Der Kommentar am Anfang ist der Name; fehlt er, ist der Name leer. `.hush()` ganz am Ende schaltet die Spur stumm.
  * Mehr JavaScript als diese Kette verstehen die Steine nicht; das wird als Fehler mit Stelle gemeldet.
- * Endet die Zeile mit `.midi(…)`, ist es eine MIDI-Spur: `$synth: s("bd").note("c e").midichan(2).midi('IAC')`.
- * Beginnt sie mit `note(…)`, ist es eine Notenspur, ihr Klang steht in `.s(…)`: `$melodie: note("f d").s("sine")`.
+ * Endet die Zeile mit `.midi(…)`, ist es eine MIDI-Spur: `/* synth *\/ s("bd").note("c e").midichan(2).midi('IAC')`.
+ * Beginnt sie mit `note(…)`, ist es eine Notenspur, ihr Klang steht in `.s(…)`: `/* melodie *\/ note("f d").s("sine")`.
  * Rechenarten für die Noten stehen an deren Mini-Notation: `note("f d".add("<0 3>"))`.
- * Folgt direkt auf `s("…")` ein `.slice(8, "…")`, ist es eine Sampler-Spur: `$x: s("brk").slice(8, "0 3")`. Ein `.scrub("…")`
+ * Folgt direkt auf `s("…")` ein `.slice(8, "…")`, ist es eine Sampler-Spur: `/* x *\/ s("brk").slice(8, "0 3")`. Ein `.scrub("…")`
  * an derselben Stelle macht nur dann eine Sampler-Spur, wenn die Spur schon eine ist (`prefer`), sonst ist es ein Effekt.
  */
 export interface CodeLine {
+  /** Aus dem Kommentar am Anfang (`/* drums *\/`), leer ohne Kommentar. */
   name: string;
+  /** Aus `.hush()` am Ende. */
   muted: boolean;
   type: TrackType;
   /** Aus `.postgain(…)`, sonst 1. Nur bei Klangspuren. */
@@ -133,14 +136,17 @@ export function codeToTrack(code: string, prefer?: TrackType): CodeResult {
 
   try {
     space();
-    const muted = code[pos] === '_';
-    if (muted) pos += 1;
-    const labelAt = pos;
-    expect('$', '«$» am Anfang (z. B. «$drums:»)');
-    const name = identifier();
-    if (trackName(name) !== name) throw new CodeError('Der Name darf nur Buchstaben, Ziffern und «_» enthalten, nicht am Ende.', labelAt);
-    expect(':');
-    space();
+    let name = '';
+    if (code.startsWith('/*', pos)) {
+      const end = code.indexOf('*/', pos + 2);
+      if (end < 0) throw new CodeError('Der Kommentar mit dem Namen wird nicht geschlossen («*/»).', pos);
+      name = code.slice(pos + 2, end).trim();
+      if (trackName(name) !== name) throw new CodeError('Der Name darf nur Buchstaben, Ziffern und «_» enthalten, nicht am Ende.', pos);
+      pos = end + 2;
+      space();
+    } else if (/^_?\$[\p{L}\p{Nd}_]*\s*:/u.test(code.slice(pos))) {
+      throw new CodeError('Der Name steht als Kommentar vor der Spur, z. B. «/* drums */ s("bd")».', pos);
+    }
     const fn = identifier();
     if (fn !== 's' && fn !== 'sound' && fn !== 'note') {
       throw new CodeError('Eine Spur beginnt mit s("…") oder note("…").', pos - fn.length);
@@ -193,6 +199,7 @@ export function codeToTrack(code: string, prefer?: TrackType): CodeResult {
     let soundOnly: { at: number; what: string } | null = null;
     let midiOnly: { at: number; what: string } | null = null;
     let voice: { tokens: Token[] } | null = null;
+    let muted = false;
     /** Ganze Zahl im Bereich, für Orbit und Kanal. */
     const whole = (what: string, max: number): number => {
       space();
@@ -203,10 +210,18 @@ export function codeToTrack(code: string, prefer?: TrackType): CodeResult {
       return Number(m[0]);
     };
     for (space(); pos < code.length; space()) {
-      if (port !== null) throw new CodeError('Nach .midi(…) darf nichts mehr folgen.', pos);
+      if (muted) throw new CodeError('Nach .hush() darf nichts mehr folgen.', pos);
       expect('.');
       const at = pos;
       const fx = identifier();
+      // `.hush()` schaltet stumm und steht ganz am Ende, auch nach `.midi(…)`
+      if (fx === 'hush') {
+        expect('(');
+        expect(')', '«)», hush() nimmt keinen Wert');
+        muted = true;
+        continue;
+      }
+      if (port !== null) throw new CodeError('Nach .midi(…) folgt höchstens .hush().', at - 1);
       // Bei Notenspuren ist `.s(…)` der Klang der Noten, keine Klangwahl wie bei s("…")
       if (notes && (fx === 's' || fx === 'sound')) {
         if (voice) throw new CodeError('Der Klang (.s) steht nur einmal in der Zeile.', at);

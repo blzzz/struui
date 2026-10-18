@@ -80,9 +80,16 @@ export function defaultValue(info: EffectInfo): string | null {
   return info.values.length === 0 ? null : info.values[Math.floor((info.values.length - 1) / 2)];
 }
 
-/** Ein Wert ist ein einzelnes Wort der Mini-Notation: eine Zahl (`800`, `-1`, `.5`) oder ein Name (`a`, `sine`). */
-export function isValueAtom(text: string): boolean {
-  return /^(-?(\d+\.?\d*|\.\d+)|[A-Za-z][\w.#]*)$/.test(text);
+const VALUE_WORD = String.raw`(-?(\d+\.?\d*|\.\d+)|[A-Za-z][\w.#]*)`;
+const VALUE = new RegExp(`^${VALUE_WORD}$`);
+const VALUE_LIST = new RegExp(`^${VALUE_WORD}(:${VALUE_WORD})*$`);
+
+/**
+ * Ein Wert ist ein einzelnes Wort der Mini-Notation: eine Zahl (`800`, `-1`, `.5`) oder ein Name (`a`, `sine`).
+ * `list`: auch mehrere Wörter mit Doppelpunkt (`.5:2`), Strudel macht daraus eine Liste. Nur wo sie gelesen wird (`scrub`).
+ */
+export function isValueAtom(text: string, list = false): boolean {
+  return (list ? VALUE_LIST : VALUE).test(text);
 }
 
 /** Audio-Effekte, die `@strudel/midi` auch für MIDI liest: Strudel schickt `gain × velocity` als Anschlagstärke. */
@@ -138,8 +145,11 @@ function search(offered: readonly EffectInfo[], query: string, limit: number): E
  * Nächster Wert nach oben (`dir` 1) oder unten (-1), für die Pfeiltasten beim Bearbeiten eines Wertsteins.
  * Zahlen springen zum nächstgrösseren bzw. -kleineren Beispielwert (am Rand bleibt es dort), Namen schalten im Kreis.
  * Ohne passende Beispielwerte zählen Zahlen in Einer- oder Zehntelschritten.
+ * Bei einer Liste (`.5:2`) ändert sich nur das erste Wort, der Rest nach dem Doppelpunkt bleibt.
  */
 export function stepValue(current: string, values: readonly string[], dir: 1 | -1): string {
+  const colon = current.indexOf(':');
+  if (colon >= 0) return stepValue(current.slice(0, colon), values, dir) + current.slice(colon);
   const n = Number(current);
   const numbers = values.filter((v) => /^-?(\d+\.?\d*|\.\d+)$/.test(v));
   if (current.trim() !== '' && !Number.isNaN(n)) {

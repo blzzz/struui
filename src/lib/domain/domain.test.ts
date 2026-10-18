@@ -2,8 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parse } from './parse.ts';
 import { trackToMini, toStrudelCode, toStrudelProgram } from './codegen.ts';
-import { adoptIds, moveToken, wrapAt, wrapRange, wrapSpan, insertPair, quickSwitch, setGroup, unwrapAt } from './edit.ts';
-import { closeToken, openToken, rawToken, soundToken } from './types.ts';
+import { adoptIds, insertAt, moveToken, removeAt, replaceAt, stackAt, wrapAt, wrapRange, wrapSpan, insertPair, quickSwitch, setGroup, unwrapAt } from './edit.ts';
+import { closeToken, defaultTrackName, openToken, rawToken, soundToken, trackName } from './types.ts';
 import type { Token } from './types.ts';
 
 const never = () => 0.99; // Zufall fällt nie aus
@@ -72,7 +72,7 @@ test('codegen: Aufnahmen werden eingebettet und für die Anzeige gekürzt', () =
   assert.match(full, /samples\(\{\n {2}rec1: 'data:audio\/wav;base64,AAAA'\n\}\)/);
   const short = toStrudelCode([{ tokens }], { cps: 0.5, samples, elideSamples: true });
   assert.match(short, /base64,… \(/);
-  assert.match(full, /\$: s\("rec1"\)/);
+  assert.match(full, /\n {2}s\("rec1"\)\n/);
 });
 
 test('parse: erkennt Verschachtelung und Tiefe', () => {
@@ -146,13 +146,31 @@ test('edit: Bereich nimmt angeschnittene Klammerpaare ganz mit', () => {
   assert.equal(trackToMini(tokens), 'a <[b c]> d');
 });
 
-test('codegen: stumme Spur steht mit _$: im Code', () => {
+test('codegen: alle Spuren in einem stack, Namen als Kommentar, stumme Spur mit .hush()', () => {
   const code = toStrudelCode(
-    [{ tokens: [soundToken('bd')] }, { tokens: [soundToken('sd')], muted: true }],
+    [
+      { tokens: [soundToken('bd')], name: 'drums' },
+      { tokens: [] },
+      { tokens: [soundToken('sd')], muted: true, volume: 0.5 },
+      { tokens: [soundToken('cp')], type: 'midi', muted: true, name: 'm' },
+    ],
     { cps: 0.5 },
   );
-  assert.match(code, /\n\$: s\("bd"\)/);
-  assert.match(code, /\n_\$: s\("sd"\)/);
+  assert.equal(
+    code,
+    'setcps(0.5)\n\nstack(\n  /* drums */ s("bd"),\n  s("sd").postgain(0.5).hush(),\n  /* m */ s("cp").midichan(1).midi().hush()\n)',
+  );
+  assert.equal(toStrudelCode([{ tokens: [] }], { cps: 0.5 }), 'setcps(0.5)\n', 'ohne Steine kein stack');
+});
+
+test('name: Standardname aus der Art mit der ersten freien Nummer', () => {
+  assert.equal(defaultTrackName('sound', []), 'Klangspur_1');
+  assert.equal(defaultTrackName('sound', ['Klangspur_1', 'Klangspur_3', 'Notenspur_2']), 'Klangspur_2');
+  assert.equal(defaultTrackName('note', ['Klangspur_1']), 'Notenspur_1');
+  for (const type of ['sound', 'note', 'midi', 'sampler'] as const) {
+    const name = defaultTrackName(type, []);
+    assert.equal(trackName(name), name, `${name} ist ein gültiger Name`);
+  }
 });
 
 test('edit: Einzeltippen auf eine Klammer tauscht das ganze Paar', () => {
@@ -209,4 +227,70 @@ test('edit: Klammerpaar auflösen behält den Inhalt, Klammerart gilt für beide
   const lonely: Token[] = [soundToken('bd'), closeToken('[')];
   unwrapAt(lonely, 1);
   assert.equal(trackToMini(lonely), 'bd');
+});
+
+const joined = (sound: string) => soundToken(sound, { joined: true });
+
+test('stapel: verbundene Klangsteine stehen mit Komma in Klammern', () => {
+  const tokens: Token[] = [soundToken('bd'), joined('hh'), soundToken('sd', { repeat: { op: '*', value: 2 } }), joined('cp')];
+  assert.equal(trackToMini(tokens), '[bd, hh] [sd*2, cp]');
+  // Nach einer Klammer gilt das Komma nicht
+  assert.equal(trackToMini([openToken('<'), joined('a'), soundToken('b'), closeToken('<')]), '<a b>');
+  const { ranges } = toStrudelProgram([{ tokens }], { cps: 0.5 });
+  const code = toStrudelCode([{ tokens }], { cps: 0.5 });
+  assert.deepEqual(ranges.map((r) => code.slice(r.start, r.end)), ['bd', 'hh', 'sd', 'cp']);
+});
+
+test('stapel: anfügen, dazwischen einfügen, ersetzen', () => {
+  const tokens: Token[] = [soundToken('bd'), soundToken('sd')];
+  stackAt(tokens, 0, soundToken('hh'));
+  assert.equal(trackToMini(tokens), '[bd, hh] sd');
+  // Zwischen zwei Steinen des Stapels: in den Stapel
+  insertAt(tokens, 1, soundToken('cp'));
+  assert.equal(trackToMini(tokens), '[bd, cp, hh] sd');
+  // Vor dem ersten und nach dem letzten: allein
+  insertAt(tokens, 0, soundToken('a'));
+  insertAt(tokens, 4, soundToken('b'));
+  assert.equal(trackToMini(tokens), 'a [bd, cp, hh] b sd');
+  // Ersetzen behält den Platz im Stapel
+  replaceAt(tokens, 2, soundToken('rim'));
+  assert.equal(trackToMini(tokens), 'a [bd, rim, hh] b sd');
+});
+
+test('stapel: entfernen und verschieben', () => {
+  const tokens: Token[] = [soundToken('bd'), joined('hh'), joined('cp'), soundToken('sd')];
+  removeAt(tokens, 0);
+  assert.equal(trackToMini(tokens), '[hh, cp] sd');
+  removeAt(tokens, 1);
+  assert.equal(trackToMini(tokens), 'hh sd');
+  // Der erste Stein bleibt beim Ablegen an seiner eigenen Stelle im Stapel
+  const stack: Token[] = [soundToken('bd'), joined('hh'), soundToken('sd')];
+  moveToken(stack, 0, stack, 0);
+  moveToken(stack, 0, stack, 1);
+  assert.equal(trackToMini(stack), '[bd, hh] sd');
+  // Herausziehen löst ihn, hineinziehen zwischen zwei Stapelsteine verbindet
+  moveToken(stack, 2, stack, 1);
+  assert.equal(trackToMini(stack), '[bd, sd, hh]');
+  moveToken(stack, 0, stack, 3);
+  assert.equal(trackToMini(stack), '[sd, hh] bd');
+});
+
+test('stapel: Klammern fassen den ganzen Stapel, ein Paar darin trennt ihn', () => {
+  const tokens: Token[] = [soundToken('x'), soundToken('bd'), joined('hh'), soundToken('y')];
+  assert.deepEqual(wrapSpan(tokens, 2, 3), [1, 3]);
+  const wrapped = [...tokens];
+  wrapAt(wrapped, 2, '<');
+  assert.equal(trackToMini(wrapped), 'x <[bd, hh]> y');
+  const split = [...tokens];
+  insertPair(split, 2, '[');
+  assert.equal(trackToMini(split), 'x bd [~] hh y');
+  unwrapAt(split, 2);
+  assert.equal(trackToMini(split), 'x bd ~ hh y');
+});
+
+test('codegen: Varianten eigener Aufnahmen laden die Aufnahme', () => {
+  const samples = new Map([['rec1', 'data:audio/wav;base64,AA']]);
+  const { code } = toStrudelProgram([{ tokens: [soundToken('rec1:2'), soundToken('bd:3')] }], { cps: 0.5, samples });
+  assert.match(code, /samples\(\{\n {2}rec1: 'data:audio\/wav;base64,AA'\n\}\)/);
+  assert.match(code, /s\("rec1:2 bd:3"\)/);
 });

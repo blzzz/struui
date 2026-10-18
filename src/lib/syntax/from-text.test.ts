@@ -44,8 +44,10 @@ test('text: unterstützte Notation wird zu Steinen und bedeutet danach dasselbe'
 test('text: unbekannte Notation wird ein roher Stein mit dem Originaltext', () => {
   const cases: [string, string[]][] = [
     ['bd(3,8) hh', ['bd(3,8)', 'hh']],
-    ['bd:3 a*2@3 b/2', ['bd:3', 'a*2@3', 'b/2']],
-    ['[a, b] c', ['[a, b]', 'c']],
+    ['a*2@3 b/2', ['a*2@3', 'b/2']],
+    ['[a b]:2 ~:1 bd:<1 2> bd*2:3', ['[a b]:2', '~:1', 'bd:<1 2>', 'bd*2:3']],
+    ['[a, b]*2 c', ['[a, b]*2', 'c']],
+    ['[a b, c] [a, ~?]', ['[a b, c]', '[a, ~?]']],
     ['[x <a, b>] {a b, c}', ['[', 'x', '<a, b>', ']', '{a b, c}']],
     ['{a b}*2 {a b}%<2 3>', ['{a b}*2', '{a b}%<2 3>']],
     ['a?*2 ~*2', ['a?*2', '~*2']],
@@ -61,6 +63,37 @@ test('text: unbekannte Notation wird ein roher Stein mit dem Originaltext', () =
     );
     assert.equal(meaning(trackToMini(r.tokens)), meaning(input), input);
   }
+});
+
+test('text: Kommagruppe aus einzelnen Klängen wird ein Stapel', () => {
+  for (const [input, expected] of [
+    ['x [a, b*2?] y', 'x [a, b*2?] y'],
+    ['[a,b,c] [d, e]', '[a, b, c] [d, e]'],
+    ['<[a, ~] b>', '<[a, ~] b>'],
+  ]) {
+    const out = roundTrip(input);
+    assert.equal(out, expected);
+    assert.equal(meaning(out), meaning(input), input);
+  }
+  const r = textToTokens('x [a, b, c] y');
+  assert.ok(r.ok);
+  assert.deepEqual(r.tokens.map(label), ['x', 'a', 'b', 'c', 'y']);
+  assert.deepEqual(r.tokens.map((t) => t.kind === 'sound' && !!t.joined), [false, false, true, true, false]);
+});
+
+test('text: Doppelpunkt am Wort (Variante, Geschwindigkeit) gehört zum Stein', () => {
+  for (const [input, expected] of [
+    ['bd:3 hh:12*2? [sd:1, cp:2]', 'bd:3 hh:12*2? [sd:1, cp:2]'],
+    ['.5:2 0:-1 a:b:c', '.5:2 0:-1 a:b:c'],
+  ]) {
+    const out = roundTrip(input);
+    assert.equal(out, expected);
+    assert.equal(meaning(out), meaning(input), input);
+  }
+  const r = textToTokens('bd:3*2');
+  assert.ok(r.ok);
+  const [t] = r.tokens;
+  assert.ok(t.kind === 'sound' && t.sound === 'bd:3' && t.repeat?.op === '*' && t.repeat.value === 2);
 });
 
 test('text: leerer Text ist eine leere Spur, Fehler melden die Stelle', () => {

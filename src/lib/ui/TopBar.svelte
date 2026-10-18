@@ -33,26 +33,29 @@
     // Ungültiges oder begrenztes zurück auf den geltenden Wert
     input.value = String(cpsToUnit(project.cps, project.tempoUnit));
   }
+
+  /** Play oben spielt die gewählte Szene; läuft das Arrangement, steht er auf Start. */
+  const scenePlaying = $derived(session.playing && session.playMode === 'scene');
 </script>
 
 <!-- Feste Leiste oben: Abspielen, Tempo, Lautstärke, Ansicht, Hilfe -->
 <header class="bar">
   <button
     class="play"
-    class:on={session.playing}
-    aria-label={session.playing ? 'Stopp' : 'Start'}
-    title={session.playing ? 'Stopp' : 'Start'}
+    class:on={scenePlaying}
+    aria-label={scenePlaying ? 'Stopp' : 'Szene abspielen'}
+    title={scenePlaying ? 'Stopp' : 'Gewählte Szene abspielen'}
     onclick={() => playback.toggle()}
   >
     <!-- Rand zeigt den Fortschritt im Zyklus -->
     <svg class="ring" viewBox="0 0 48 48" aria-hidden="true">
       <circle class="track" cx="24" cy="24" r={R} />
-      {#if session.playing}
+      {#if scenePlaying}
         <circle class="done" cx="24" cy="24" r={R} stroke-dasharray={RING} stroke-dashoffset={RING * (1 - phase)} />
       {/if}
     </svg>
     <svg class="icon" viewBox="0 0 16 16" aria-hidden="true">
-      {#if session.playing}
+      {#if scenePlaying}
         <rect x="3" y="3" width="10" height="10" rx="1.5" />
       {:else}
         <path d="M4.5 2.5 L13.5 8 L4.5 13.5 Z" />

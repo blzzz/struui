@@ -39,22 +39,27 @@ export const SOUND_GROUPS: ReadonlyArray<readonly [string, readonly string[]]> =
 ];
 
 /**
- * Was man in einen Klangstein tippen darf: ein Name wie Strudels Klänge (`bd`, `gm_piano`, `rec1`).
- * Auch unbekannte Namen (eigene Aufnahmen, später geladene Samples), aber keine Pause und keine Mini-Notation (`bd:3` wäre ein roher Stein).
+ * Was man in einen Klangstein tippen darf: ein Name wie Strudels Klänge (`bd`, `gm_piano`, `rec1`), wahlweise mit der Nummer
+ * der Variante nach einem Doppelpunkt (`bd:3`, in Strudel dasselbe wie `.n(3)`). Auch unbekannte Namen (eigene Aufnahmen,
+ * später geladene Samples), aber keine Pause und keine weitere Mini-Notation (`bd*2` wäre ein roher Stein).
  */
 export function isSoundName(text: string): boolean {
-  return /^[A-Za-z]\w*$/.test(text);
+  return /^[A-Za-z]\w*(:\d+)?$/.test(text);
+}
+
+/** Klangname und Variante (`bd:3` → `bd`, 3). Ohne Doppelpunkt ist die Variante 0, wie in Strudel. */
+export function splitVariant(sound: string): { name: string; variant: number } {
+  const m = /^(.*):(\d+)$/.exec(sound);
+  return m ? { name: m[1], variant: Number(m[2]) } : { name: sound, variant: 0 };
 }
 
 /**
- * Nächster (`dir` 1) oder vorheriger (-1) Klang in der Palettengruppe des Klangs, im Kreis, für ↑/↓ beim Bearbeiten.
- * Pausen und Klänge ausserhalb der Palette bleiben unverändert.
+ * Nächste (`dir` 1) oder vorherige (-1) Variante eines Klangs, für −/+ beim Bearbeiten: `bd` → `bd:1` → `bd:2`, zurück bis `bd`.
+ * Wie viele Varianten es gibt, wissen wir nicht; Strudel zählt über das Ende hinaus wieder von vorn. Pausen bleiben unverändert.
  */
-export function stepSound(current: string, dir: 1 | -1): string {
-  for (const [, names] of SOUND_GROUPS) {
-    const i = names.indexOf(current);
-    if (i < 0 || current === '~') continue;
-    return names[(i + dir + names.length) % names.length];
-  }
-  return current;
+export function stepVariant(current: string, dir: 1 | -1): string {
+  if (!isSoundName(current)) return current;
+  const { name, variant } = splitVariant(current);
+  const next = Math.max(0, variant + dir);
+  return next === 0 ? name : `${name}:${next}`;
 }

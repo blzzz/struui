@@ -35,6 +35,11 @@ export interface SoundToken extends Modifiers {
   kind: 'sound';
   /** Sample-/Synth-Name oder `~` für eine Pause. */
   sound: string;
+  /**
+   * Hängt mit Komma am Klangstein davor: beide klingen gleichzeitig (`[bd, hh]`). Aufeinanderfolgende verbundene Steine
+   * bilden einen Stapel. Gilt nur direkt nach einem Klangstein (`joinsPrevious`).
+   */
+  joined?: boolean;
 }
 
 export interface OpenToken {
@@ -86,7 +91,7 @@ export function contentOf(type: TrackType): TrackContent {
 export interface Track {
   id: string;
   type: TrackType;
-  /** Name der Spur, im Code nach dem `$` (`$drums:`). Leer = `$:`. Nur Buchstaben, Ziffern und `_` (siehe `trackName`). */
+  /** Name der Spur, im Code als Kommentar davor (`/* drums *\/ s("bd")`). Leer = kein Kommentar. Nur Buchstaben, Ziffern und `_` (siehe `trackName`). */
   name: string;
   /** Klangsteine, bei Notenspuren Notensteine, bei Sampler-Spuren Wertsteine (Positionen oder Abschnitte). */
   tokens: Token[];
@@ -104,7 +109,7 @@ export interface Track {
   slices: number;
   /** Effekte der ganzen Spur, in dieser Reihenfolge an den Code gehängt (`.lpf(800).room(0.5)`). */
   effects: Effect[];
-  /** Stumm geschaltet: steht weiter im Code, Strudel spielt sie aber nicht (`_$:`). */
+  /** Stumm geschaltet: steht weiter im Code, Strudel spielt sie aber nicht (`.hush()` am Ende). */
   muted: boolean;
   /** Lautstärke der Spur nach allen Effekten (`.postgain()`), 1 = unverändert und nicht im Code. Nicht bei MIDI-Spuren. */
   volume: number;
@@ -139,7 +144,7 @@ export function newId(prefix = 't'): string {
 
 const noMods = (): Modifiers => ({ random: null, repeat: null });
 
-export function soundToken(sound: string, mods: Partial<Modifiers> = {}): SoundToken {
+export function soundToken(sound: string, mods: Partial<Modifiers> & { joined?: boolean } = {}): SoundToken {
   return { id: newId(), kind: 'sound', sound, ...noMods(), ...mods };
 }
 export function openToken(group: GroupType): OpenToken {
@@ -176,14 +181,36 @@ export function track(tokens: Token[] = [], name = ''): Track {
 }
 
 /**
- * Bereinigt einen Spurnamen: nur Zeichen, die in einem JavaScript-Namen erlaubt sind.
- * Kein `_` am Ende, das würde die Spur in Strudel stumm schalten (`drums_:`).
+ * Bereinigt einen Spurnamen: nur Buchstaben, Ziffern und `_`, kein `_` am Ende.
+ * So kann der Name den Kommentar im Code (`/* drums *\/`) nie beenden.
  */
 export function trackName(raw: string): string {
   return raw.replace(/[^\p{L}\p{Nd}_]/gu, '').replace(/_+$/, '');
 }
 
+/** Wort für den Standardnamen je Art (`Klangspur_1`). Nur Zeichen, die `trackName` stehen lässt. */
+const TYPE_NAMES: Record<TrackType, string> = {
+  sound: 'Klangspur',
+  note: 'Notenspur',
+  midi: 'MIDIspur',
+  sampler: 'Samplerspur',
+};
+
+/** Name für eine Spur ohne Namen: ihre Art mit der ersten freien Nummer (`Klangspur_1`, `Klangspur_2` …). */
+export function defaultTrackName(type: TrackType, taken: Iterable<string>): string {
+  const names = new Set(taken);
+  let n = 1;
+  while (names.has(`${TYPE_NAMES[type]}_${n}`)) n += 1;
+  return `${TYPE_NAMES[type]}_${n}`;
+}
+
 export const isPause = (t: Token): boolean => t.kind === 'sound' && t.sound === PAUSE;
+
+/** Liegt der Stein an `index` mit Komma im selben Stapel wie der Stein davor (`[bd, hh]`)? Nur Klangsteine stapeln sich. */
+export function joinsPrevious(tokens: readonly Token[], index: number): boolean {
+  const t = tokens[index];
+  return t?.kind === 'sound' && !!t.joined && tokens[index - 1]?.kind === 'sound';
+}
 
 /** Nur Klänge (ausser Pause) und schliessende Klammern (ausser `}`) tragen Zufall und Wiederholung. */
 export function hasModifiers(t: Token): t is SoundToken | CloseToken {

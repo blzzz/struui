@@ -17,7 +17,7 @@
   const fx = $derived(info ? { name: info.name } : null);
   /** Eingabe für einen eigenen Wert. */
   let draft = $state('');
-  const draftOk = $derived(isValueAtom(draft.trim()));
+  const draftOk = $derived(isValueAtom(draft.trim(), !!target && project.valueLists(target.laneId)));
 
   $effect(() => {
     if (!dialog) return;

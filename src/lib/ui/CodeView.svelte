@@ -1,17 +1,17 @@
 <script lang="ts">
-  import { project } from '../state/project.svelte.ts';
+  import { arrangement } from '../state/arrangement.svelte.ts';
 
   let copied = $state(false);
 
   /** Strudels Web-Editor nimmt den Code Base64-kodiert im Hash. Bei sehr langem Code geht das nicht mehr. */
   const MAX_HASH = 100_000;
-  const hash = $derived(btoa(unescape(encodeURIComponent(project.codeFull))));
+  const hash = $derived(btoa(unescape(encodeURIComponent(arrangement.codeFull))));
   const tooLong = $derived(hash.length > MAX_HASH);
   const href = $derived(tooLong ? 'https://strudel.cc/' : `https://strudel.cc/#${hash}`);
 
   async function copy() {
     try {
-      await navigator.clipboard.writeText(project.codeFull);
+      await navigator.clipboard.writeText(arrangement.codeFull);
       copied = true;
       setTimeout(() => (copied = false), 1400);
     } catch {
@@ -27,7 +27,7 @@
 {#if tooLong}
   <p class="note">Der Code ist mit den Aufnahmen zu lang für den Link. Bitte kopieren und in Strudel einfügen.</p>
 {/if}
-<pre class="code" aria-live="polite">{project.codeDisplay}</pre>
+<pre class="code" aria-live="polite">{arrangement.codeDisplay}</pre>
 
 <style>
   .code {
