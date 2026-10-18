@@ -40,15 +40,15 @@
       if (!addRoot?.contains(e.target as Node)) addOpen = false;
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
+      if (e.key !== "Escape") return;
       addOpen = false;
       addTrigger?.focus();
     };
-    document.addEventListener('pointerdown', onDown);
-    document.addEventListener('keydown', onKey);
+    document.addEventListener("pointerdown", onDown);
+    document.addEventListener("keydown", onKey);
     return () => {
-      document.removeEventListener('pointerdown', onDown);
-      document.removeEventListener('keydown', onKey);
+      document.removeEventListener("pointerdown", onDown);
+      document.removeEventListener("keydown", onKey);
     };
   });
 
@@ -90,12 +90,18 @@
     searching ? searchable.filter(matches).slice(0, MAX_HITS) : [],
   );
 
-  const isPause = (item: PaletteItem) => item.kind === "sound" && item.name === PAUSE;
+  const isPause = (item: PaletteItem) =>
+    item.kind === "sound" && item.name === PAUSE;
 
   /** Ablegen nur in Klangreihen (nie Noten, nie Effekte), die Pause nicht in den Klang einer Notenspur. */
-  const fits = (drop: DropTarget | null, item: PaletteItem): drop is DropTarget => {
+  const fits = (
+    drop: DropTarget | null,
+    item: PaletteItem,
+  ): drop is DropTarget => {
     const lane = drop && project.lane(drop.laneId);
-    return !!lane && lane.content === "sounds" && !(lane.effect && isPause(item));
+    return (
+      !!lane && lane.content === "sounds" && !(lane.effect && isPause(item))
+    );
   };
 
   function gestures(item: PaletteItem) {
@@ -103,7 +109,10 @@
       onTap: () => {},
       onDoubleTap: () => {},
       immediateTap: true,
-      onLongPress: item.kind === "sound" && !isPause(item) ? () => void playback.preview(item.name) : undefined,
+      onLongPress:
+        item.kind === "sound" && !isPause(item)
+          ? () => void playback.preview(item.name)
+          : undefined,
       replaces: true,
       // Pause und Klang gleichzeitig ergibt nichts: die Pause ersetzt nur
       stacks: !isPause(item),
@@ -111,8 +120,10 @@
       onDragMove: (drop) => (session.dropHint = fits(drop, item) ? drop : null),
       onDrop: (drop) => {
         if (!fits(drop, item)) return;
-        if (drop.mode === 'stack') project.stackItem(drop.laneId, drop.index, item);
-        else if (drop.mode === 'replace') project.replaceWithItem(drop.laneId, drop.index, item);
+        if (drop.mode === "stack")
+          project.stackItem(drop.laneId, drop.index, item);
+        else if (drop.mode === "replace")
+          project.replaceWithItem(drop.laneId, drop.index, item);
         else project.insertItem(drop.laneId, drop.index, item);
       },
     }));
@@ -155,7 +166,9 @@
           aria-label="Suche schliessen"
           title="Suche schliessen"
         >
-          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" /></svg>
+          <svg viewBox="0 0 16 16" aria-hidden="true"
+            ><path d="M4 4l8 8M12 4l-8 8" /></svg
+          >
         </button>
       </div>
     {:else}
@@ -181,12 +194,18 @@
           aria-expanded={addOpen}
           onclick={() => (addOpen = !addOpen)}
         >
-          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10" /></svg>
+          <svg viewBox="0 0 16 16" aria-hidden="true"
+            ><path d="M8 3v10M3 8h10" /></svg
+          >
         </button>
       {/if}
       {#if addOpen}
         <div class="menu" role="menu" aria-label="Eigenen Klang hinzufügen">
-          <button role="menuitem" onclick={startRecording} {@attach (el) => el.focus()}>
+          <button
+            role="menuitem"
+            onclick={startRecording}
+            {@attach (el) => el.focus()}
+          >
             <span class="icon rec-dot" aria-hidden="true">●</span>
             Aufnehmen <small>bis 3 Sekunden</small>
           </button>
@@ -198,7 +217,13 @@
           </button>
         </div>
       {/if}
-      <input bind:this={fileInput} type="file" accept="audio/*" hidden onchange={onFile} />
+      <input
+        bind:this={fileInput}
+        type="file"
+        accept="audio/*"
+        hidden
+        onchange={onFile}
+      />
     </div>
     {#if !searchOpen}
       <div class="tools">
@@ -244,16 +269,16 @@
   <!-- Untere Zeile, waagrecht scrollbar: Pause, eigene Klänge, dann alle Steine, jeweils mit Gruppentitel -->
   <div class="stones" {@attach edgeFade}>
     {#snippet pause()}
-        <div
-          class="item pause"
-          role="button"
-          tabindex="0"
-          aria-label="Pause"
-          {@attach gestures({ kind: "sound", name: PAUSE })}
-        >
-          ~
-        </div>
-      {/snippet}
+      <div
+        class="item pause"
+        role="button"
+        tabindex="0"
+        aria-label="Pause"
+        {@attach gestures({ kind: "sound", name: PAUSE })}
+      >
+        ~
+      </div>
+    {/snippet}
     {@render group("Pause", pause)}
     {#if shownOwn.length > 0}
       {#snippet own()}
@@ -281,7 +306,9 @@
         {@render group("Treffer", hits)}
       {:else}
         <span class="empty">
-          {shownOwn.length === 0 ? "Kein Sound gefunden" : "Nur eigene Klänge gefunden"}
+          {shownOwn.length === 0
+            ? "Kein Sound gefunden"
+            : "Nur eigene Klänge gefunden"}
         </span>
       {/if}
     {:else}
@@ -415,8 +442,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    border: 1px solid var(--line);
-    border-radius: 6px;
+    border: none;
     color: var(--mute);
     background: transparent;
     font-size: 11px;
@@ -509,8 +535,7 @@
     min-width: 0;
     height: 30px;
     padding: 0 30px 0 8px;
-    border: 1px solid var(--line);
-    border-radius: 6px;
+    border: none;
     background: transparent;
     color: inherit;
     /* unter 16px zoomt iOS beim Antippen hinein */

@@ -1,12 +1,15 @@
 <script lang="ts">
-  import { tick } from 'svelte';
-  import { edgeFade } from '../interaction/edge-fade.ts';
-  import { tokenGestures } from '../interaction/token-gestures.ts';
-  import { ARRANGEMENT_LANE, arrangement } from '../state/arrangement.svelte.ts';
-  import { playback } from '../state/playback.svelte.ts';
-  import { scenes } from '../state/scenes.svelte.ts';
-  import { session } from '../state/session.svelte.ts';
-  import ArrangementRow from './ArrangementRow.svelte';
+  import { tick } from "svelte";
+  import { edgeFade } from "../interaction/edge-fade.ts";
+  import { tokenGestures } from "../interaction/token-gestures.ts";
+  import {
+    ARRANGEMENT_LANE,
+    arrangement,
+  } from "../state/arrangement.svelte.ts";
+  import { playback } from "../state/playback.svelte.ts";
+  import { scenes } from "../state/scenes.svelte.ts";
+  import { session } from "../state/session.svelte.ts";
+  import ArrangementRow from "./ArrangementRow.svelte";
 
   let row = $state<HTMLElement>();
 
@@ -14,14 +17,16 @@
   async function duplicate() {
     const id = scenes.duplicate();
     await tick();
-    const input = row?.querySelector<HTMLInputElement>(`[data-scene="${id}"] input`);
-    input?.scrollIntoView({ inline: 'nearest', block: 'nearest' });
+    const input = row?.querySelector<HTMLInputElement>(
+      `[data-scene="${id}"] input`,
+    );
+    input?.scrollIntoView({ inline: "nearest", block: "nearest" });
     input?.focus();
     input?.select();
   }
 
   /** Was nach der Nachfrage geschieht: Szene wählen oder neue anlegen. */
-  type Action = { kind: 'select'; id: string } | { kind: 'duplicate' };
+  type Action = { kind: "select"; id: string } | { kind: "duplicate" };
 
   /** Wartet auf die Antwort zu nicht übernommenen Änderungen (nur ohne Auto-Update). */
   let pending = $state<Action | null>(null);
@@ -36,13 +41,13 @@
       if (!node.contains(e.target as Node)) modeMenu = false;
     };
     const key = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') modeMenu = false;
+      if (e.key === "Escape") modeMenu = false;
     };
-    window.addEventListener('pointerdown', down);
-    window.addEventListener('keydown', key);
+    window.addEventListener("pointerdown", down);
+    window.addEventListener("keydown", key);
     return () => {
-      window.removeEventListener('pointerdown', down);
-      window.removeEventListener('keydown', key);
+      window.removeEventListener("pointerdown", down);
+      window.removeEventListener("keydown", key);
     };
   }
 
@@ -53,7 +58,7 @@
   });
 
   function run(a: Action) {
-    if (a.kind === 'select') scenes.select(a.id);
+    if (a.kind === "select") scenes.select(a.id);
     else void duplicate();
   }
 
@@ -75,19 +80,22 @@
   /** Szene antippen wählt sie, im Arrangement lässt sie sich nach unten in dessen Zeile ziehen. */
   function sceneGestures(id: string) {
     return tokenGestures(() => ({
-      onTap: () => ask({ kind: 'select', id }),
-      onDoubleTap: () => ask({ kind: 'select', id }),
+      onTap: () => ask({ kind: "select", id }),
+      onDoubleTap: () => ask({ kind: "select", id }),
       immediateTap: true,
       drags: () => arrangement.active,
       canDrag: (dx, dy) => Math.abs(dy) > Math.abs(dx),
-      onDragMove: (t) => (arrangement.hint = t?.laneId === ARRANGEMENT_LANE ? t.index : null),
+      onDragMove: (t) =>
+        (arrangement.hint = t?.laneId === ARRANGEMENT_LANE ? t.index : null),
       onDrop: (t) => {
         if (t?.laneId === ARRANGEMENT_LANE) arrangement.add(id, t.index);
       },
     }));
   }
 
-  const arrPlaying = $derived(session.playing && session.playMode === 'arrangement');
+  const arrPlaying = $derived(
+    session.playing && session.playMode === "arrangement",
+  );
   // Ring um ▶ wie beim Play oben (`TopBar.svelte`)
   const R = 20;
   const RING = 2 * Math.PI * R;
@@ -101,8 +109,14 @@
 
   // Mit Arrangement ist die Leiste eine Zeile höher; der Inhalt der Seite rückt mit (`--dock-h`)
   $effect(() => {
-    const h = GAP + SCENES_H + GAP + SYNC_H + GAP + (arrangement.active ? ARR_H + GAP : 0);
-    document.documentElement.style.setProperty('--dock-h', `${h}px`);
+    const h =
+      GAP +
+      SCENES_H +
+      GAP +
+      SYNC_H +
+      GAP +
+      (arrangement.active ? ARR_H + GAP : 0);
+    document.documentElement.style.setProperty("--dock-h", `${h}px`);
   });
 
   const playing = (tracks: { tokens: unknown[]; muted: boolean }[]) =>
@@ -117,16 +131,32 @@
   style:--sync-h="{SYNC_H}px"
   style:--arr-h="{ARR_H}px"
 >
-  <button class="take" title="Aktuelle Szene als neue Szene kopieren" onclick={() => ask({ kind: 'duplicate' })}>
+  <button
+    class="take"
+    title="Aktuelle Szene als neue Szene kopieren"
+    onclick={() => ask({ kind: "duplicate" })}
+  >
     <span class="plus" aria-hidden="true">+</span>
     Szene
   </button>
 
-  <div class="row" bind:this={row} {@attach edgeFade} role="list" aria-label="Szenen">
+  <div
+    class="row"
+    bind:this={row}
+    {@attach edgeFade}
+    role="list"
+    aria-label="Szenen"
+  >
     {#each scenes.list as s (s.id)}
       {@const n = playing(s.tracks)}
       {@const on = scenes.current.id === s.id}
-      <div class="scene" class:on data-scene={s.id} role="listitem" {@attach sceneGestures(s.id)}>
+      <div
+        class="scene"
+        class:on
+        data-scene={s.id}
+        role="listitem"
+        {@attach sceneGestures(s.id)}
+      >
         <input
           class="name"
           value={s.name}
@@ -135,8 +165,8 @@
           onchange={(e) => scenes.rename(s.id, e.currentTarget.value)}
           onblur={(e) => (e.currentTarget.value = s.name)}
           onkeydown={(e) => {
-            if (e.key === 'Enter' || e.key === 'Escape') {
-              if (e.key === 'Escape') e.currentTarget.value = s.name;
+            if (e.key === "Enter" || e.key === "Escape") {
+              if (e.key === "Escape") e.currentTarget.value = s.name;
               e.currentTarget.blur();
             }
           }}
@@ -145,13 +175,25 @@
           class="face"
           role="button"
           tabindex="0"
-          title={arrangement.active ? 'Antippen wählt die Szene, nach unten ziehen legt sie ins Arrangement' : 'Diese Szene wählen'}
+          title={arrangement.active
+            ? "Antippen wählt die Szene, nach unten ziehen legt sie ins Arrangement"
+            : "Diese Szene wählen"}
           aria-current={on}
         >
-          {n} {n === 1 ? 'Spur' : 'Spuren'} · {(1 / s.cps).toFixed(1)} s{#if on && scenes.dirty}<span class="dirty"> · geändert</span>{/if}
+          {n}
+          {n === 1 ? "Spur" : "Spuren"} · {(1 / s.cps).toFixed(1)} s{#if on && scenes.dirty}<span
+              class="dirty"
+            >
+              · geändert</span
+            >{/if}
         </div>
         {#if scenes.list.length > 1}
-          <button class="x" aria-label={`${s.name} entfernen`} title="Entfernen" onclick={() => arrangement.removeScene(s.id)}>
+          <button
+            class="x"
+            aria-label={`${s.name} entfernen`}
+            title="Entfernen"
+            onclick={() => arrangement.removeScene(s.id)}
+          >
             ×
           </button>
         {/if}
@@ -175,14 +217,20 @@
     </button>
     <div class="split">
       {#if scenes.autoUpdate}
-        <button class="main" title="Änderungen landen sofort in der gewählten Szene" onclick={() => (modeMenu = !modeMenu)}>
+        <button
+          class="main"
+          title="Änderungen landen sofort in der gewählten Szene"
+          onclick={() => (modeMenu = !modeMenu)}
+        >
           Auto-Update
         </button>
       {:else}
         <button
           class="main"
           disabled={!scenes.dirty}
-          title={scenes.dirty ? `Änderungen in ${scenes.current.name} übernehmen` : 'Keine Änderungen'}
+          title={scenes.dirty
+            ? `Änderungen in ${scenes.current.name} übernehmen`
+            : "Keine Änderungen"}
           onclick={() => scenes.update()}
         >
           Übernehmen
@@ -200,7 +248,7 @@
     </div>
     {#if modeMenu}
       <div class="menu" role="menu" aria-label="Art des Übernehmens">
-        {#each [{ auto: false, label: 'Manuell', hint: 'mit «Übernehmen»' }, { auto: true, label: 'Auto', hint: 'sofort' }] as o (o.label)}
+        {#each [{ auto: false, label: "Manuell", hint: "mit «Übernehmen»" }, { auto: true, label: "Auto", hint: "sofort" }] as o (o.label)}
           <button
             role="menuitemradio"
             aria-checked={scenes.autoUpdate === o.auto}
@@ -209,7 +257,9 @@
               modeMenu = false;
             }}
           >
-            <span class="check" aria-hidden="true">{scenes.autoUpdate === o.auto ? '✓' : ''}</span>
+            <span class="check" aria-hidden="true"
+              >{scenes.autoUpdate === o.auto ? "✓" : ""}</span
+            >
             {o.label} <span class="hint">{o.hint}</span>
           </button>
         {/each}
@@ -224,15 +274,24 @@
       <button
         class="aplay"
         class:on={arrPlaying}
-        aria-label={arrPlaying ? 'Arrangement stoppen' : 'Arrangement von vorn abspielen'}
-        title={arrPlaying ? 'Stopp' : 'Arrangement von vorn abspielen'}
+        aria-label={arrPlaying
+          ? "Arrangement stoppen"
+          : "Arrangement von vorn abspielen"}
+        title={arrPlaying ? "Stopp" : "Arrangement von vorn abspielen"}
         disabled={!arrPlaying && arrangement.sections.length === 0}
         onclick={() => playback.toggleArrangement()}
       >
         <svg class="ring" viewBox="0 0 48 48" aria-hidden="true">
           <circle class="track" cx="24" cy="24" r={R} />
           {#if arrangement.position}
-            <circle class="done" cx="24" cy="24" r={R} stroke-dasharray={RING} stroke-dashoffset={RING * (1 - arrangement.position.progress)} />
+            <circle
+              class="done"
+              cx="24"
+              cy="24"
+              r={R}
+              stroke-dasharray={RING}
+              stroke-dashoffset={RING * (1 - arrangement.position.progress)}
+            />
           {/if}
         </svg>
         <svg class="icon" viewBox="0 0 16 16" aria-hidden="true">
@@ -243,7 +302,7 @@
           {/if}
         </svg>
       </button>
-      <ArrangementRow onSelect={(id) => ask({ kind: 'select', id })} />
+      <ArrangementRow onSelect={(id) => ask({ kind: "select", id })} />
     </div>
   {/if}
 </footer>
@@ -260,14 +319,16 @@
     <h2 id="unsaved-title">Änderungen übernehmen?</h2>
     <p>
       «{scenes.current.name}» hat Änderungen, die noch nicht übernommen sind.
-      {#if pending?.kind === 'duplicate'}
+      {#if pending?.kind === "duplicate"}
         Die neue Szene bekommt sie auf jeden Fall.
       {:else}
         Ohne Übernehmen gehen sie verloren.
       {/if}
     </p>
     <div class="answers">
-      <button class="primary" onclick={() => answer(true)}>In «{scenes.current.name}» übernehmen</button>
+      <button class="primary" onclick={() => answer(true)}
+        >In «{scenes.current.name}» übernehmen</button
+      >
       <button onclick={() => answer(false)}>Nicht übernehmen</button>
       <button onclick={() => answer(null)}>Abbrechen</button>
     </div>
@@ -317,9 +378,10 @@
     align-items: center;
     gap: 8px 10px;
     height: calc(var(--dock-h) + env(safe-area-inset-bottom, 0px));
-    padding: 8px max(12px, env(safe-area-inset-right, 0px)) calc(8px + env(safe-area-inset-bottom, 0px))
+    padding: 8px max(12px, env(safe-area-inset-right, 0px))
+      calc(8px + env(safe-area-inset-bottom, 0px))
       max(12px, env(safe-area-inset-left, 0px));
-    background: var(--panel);
+    background: var(--dock);
     border-top: 1.5px solid var(--line);
   }
   .take {
@@ -427,7 +489,11 @@
     border: none;
     background: transparent;
     color: inherit;
-    font: 700 14px system-ui, -apple-system, 'Segoe UI', sans-serif;
+    font:
+      700 14px system-ui,
+      -apple-system,
+      "Segoe UI",
+      sans-serif;
     border-radius: 10px 10px 0 0;
     text-overflow: ellipsis;
   }

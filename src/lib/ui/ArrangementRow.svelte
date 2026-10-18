@@ -17,6 +17,9 @@
    */
   let menu = $state<{ id: string; sceneId: string; left: number; bottom: number } | null>(null);
 
+  /** Breite des Menüs: zwei Knöpfe zu 34 px, Abstand, Rand und Rahmen. */
+  const MENU_WIDTH = 82;
+
   function toggleMenu(id: string, sceneId: string) {
     if (menu?.id === id) {
       menu = null;
@@ -25,7 +28,10 @@
     const el = document.querySelector(`[data-section="${id}"]`);
     if (!el) return;
     const r = el.getBoundingClientRect();
-    menu = { id, sceneId, left: r.left + r.width / 2, bottom: window.innerHeight - r.top + 6 };
+    // Mittig über dem Stein, aber ganz im Bild (der Stein kann in der Zeile halb hinausgescrollt sein)
+    const half = MENU_WIDTH / 2 + 8;
+    const left = Math.min(Math.max(r.left + r.width / 2, half), window.innerWidth - half);
+    menu = { id, sceneId, left, bottom: window.innerHeight - r.top + 6 };
   }
 
   /** Schliesst den Dropdown bei einem Tipp ausserhalb, mit Escape oder beim Scrollen. */
