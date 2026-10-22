@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { parse } from './parse.ts';
 import { trackToMini, toStrudelCode, toStrudelProgram } from './codegen.ts';
 import { adoptIds, insertAt, moveToken, removeAt, replaceAt, stackAt, wrapAt, wrapRange, wrapSpan, insertPair, quickSwitch, setGroup, unwrapAt } from './edit.ts';
-import { closeToken, defaultTrackName, openToken, rawToken, soundToken, trackName } from './types.ts';
+import { closeToken, defaultTrackName, openToken, rawToken, soundToken, trackName, uniqueName } from './types.ts';
 import type { Token } from './types.ts';
 
 const never = () => 0.99; // Zufall fällt nie aus
@@ -171,6 +171,13 @@ test('name: Standardname aus der Art mit der ersten freien Nummer', () => {
     const name = defaultTrackName(type, []);
     assert.equal(trackName(name), name, `${name} ist ein gültiger Name`);
   }
+});
+
+test('name: doppelte Namen bekommen die erste freie Nummer', () => {
+  assert.equal(uniqueName('drums', ['hats']), 'drums');
+  assert.equal(uniqueName('drums', ['drums', 'drums_2']), 'drums_3');
+  assert.equal(uniqueName('Klangspur_1', ['Klangspur_1']), 'Klangspur_2');
+  assert.equal(uniqueName('a_7', ['a_7', 'a_2']), 'a_3');
 });
 
 test('edit: Einzeltippen auf eine Klammer tauscht das ganze Paar', () => {

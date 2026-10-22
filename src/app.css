@@ -53,7 +53,7 @@ html {
 /*
  * Nie seitwärts scrollen: Was über den rechten Rand ragt (Menü über einem Stein am Rand, Geisterstein beim Ziehen,
  * vergrösserter Drehknopf), soll auf dem Handy keine Scrollfläche öffnen. `clip` statt `hidden`, weil `hidden` einen
- * Scrollbereich erzeugt und das klebende Feld der Palette (`position: sticky`) bricht.
+ * Scrollbereich erzeugt und klebende Elemente (`position: sticky`) bricht.
  */
 html,
 body {

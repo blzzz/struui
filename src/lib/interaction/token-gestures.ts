@@ -39,7 +39,10 @@ export interface TokenGestureOptions {
   /** Verweilen über der Mitte eines Klangsteins fügt mit Komma an (`[bd, hh]`) statt zu ersetzen. Nur mit `replaces`. */
   stacks?: boolean;
   onDragMove(target: DropTarget | null): void;
-  onDrop(target: DropTarget | null): void;
+  /** Jedes Bild beim Ziehen: wo der Zeiger steht (Bildschirmpixel), für Ziele ausserhalb der Steinreihen (freie Fläche). */
+  onDragAt?(x: number, y: number): void;
+  /** Losgelassen, mit der letzten Zeigerposition (Bildschirmpixel). */
+  onDrop(target: DropTarget | null, at: { x: number; y: number }): void;
 }
 
 const DOUBLE_TAP_MS = 260;
@@ -193,6 +196,7 @@ export function tokenGestures(get: () => TokenGestureOptions): Attachment<HTMLEl
         armDwell();
         get().onDragMove(target);
       }
+      get().onDragAt?.(e.clientX, e.clientY);
     };
 
     const onMove = (e: PointerEvent) => {
@@ -217,7 +221,7 @@ export function tokenGestures(get: () => TokenGestureOptions): Attachment<HTMLEl
       if (wasPressed) return;
       if (wasMoved) {
         get().onDragMove(null);
-        get().onDrop(t);
+        get().onDrop(t, { x: e.clientX, y: e.clientY });
         return;
       }
       if (get().immediateTap) {

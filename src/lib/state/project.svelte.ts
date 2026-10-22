@@ -24,6 +24,7 @@ import {
   soundToken,
   track,
   trackName,
+  uniqueName,
 } from '../domain/types.ts';
 import { analyze } from '../syntax/analyze.ts';
 import type { CodeLine, ValueRow } from '../syntax/from-code.ts';
@@ -202,11 +203,18 @@ class Project {
     return this.lane(laneId)?.tokens.findIndex((t) => t.id === tokenId) ?? -1;
   }
 
-  /** Neue Spur der gewählten Art ans Ende. Klangspuren sind leer, Notenspuren beginnen mit einem c, Sampler-Spuren mit vier Stellen. */
-  addTrack(type: TrackType = 'sound'): void {
+  /**
+   * Neue Spur der gewählten Art ans Ende. Klangspuren sind leer, Notenspuren beginnen mit einem c, Sampler-Spuren mit vier Stellen.
+   * Mit einem Klang aus der Palette ist er der erste Stein, Notenspuren klingen damit, Sampler-Spuren spielen ihn
+   * (die Pause nur in Klang- und MIDI-Spuren). Gibt ihre ID zurück.
+   */
+  addTrack(type: TrackType = 'sound', item?: PaletteItem): string {
     const t = { ...track([], this.freeName(type)), type };
     t.tokens = this.startTokens(t);
+    if (item && contentOf(type) === 'sounds') t.tokens = [soundToken(item.name)];
+    else if (item && item.name !== PAUSE) (type === 'note' ? t.voice : t.sample).tokens = [soundToken(item.name)];
     this.tracks.push(t);
+    return t.id;
   }
 
   /** Steine einer Spur, die zum ersten Mal diesen Inhalt bekommt. */
@@ -236,10 +244,19 @@ class Project {
     if (t) t.name = trackName(raw);
   }
 
-  /** Eine Spur ohne Namen bekommt den Standardnamen ihrer Art (beim Verlassen des Namensfelds). */
+  /**
+   * Beim Verlassen des Namensfelds: eine Spur ohne Namen bekommt den Standardnamen ihrer Art, ein Name, den schon eine andere
+   * Spur trägt, eine Nummer (`uniqueName`).
+   */
   ensureName(trackId: string): void {
     const t = this.find(trackId);
     if (t && !t.name) t.name = this.freeName(t.type, t);
+    else if (t) this.dedupe(t);
+  }
+
+  /** Name eindeutig machen: die Lage auf der Arbeitsfläche steht im Code unter dem Namen. */
+  private dedupe(t: Track): void {
+    t.name = uniqueName(t.name, this.tracks.filter((x) => x !== t).map((x) => x.name));
   }
 
   /**
@@ -249,6 +266,11 @@ class Project {
   applyCode(trackId: string, line: CodeLine): void {
     const t = this.find(trackId);
     if (!t) return;
+    this.applyLine(t, line);
+    this.dedupe(t);
+  }
+
+  private applyLine(t: Track, line: CodeLine): void {
     t.code = null;
     // Ohne Kommentar im Code: Standardname der Art (`Klangspur_1`)
     t.name = line.name || this.freeName(line.type, t);
@@ -287,6 +309,11 @@ class Project {
   setRaw(trackId: string, raw: { name: string; muted: boolean; code: string }): void {
     const t = this.find(trackId);
     if (!t) return;
+    this.applyRaw(t, raw);
+    this.dedupe(t);
+  }
+
+  private applyRaw(t: Track, raw: { name: string; muted: boolean; code: string }): void {
     t.code = raw.code;
     t.name = raw.name || this.freeName(t.type, t);
     t.muted = raw.muted;
@@ -296,6 +323,7 @@ class Project {
    * Den ganzen Code aus der Code-Ansicht übernehmen (`programToTracks`). Zeilen übernehmen die bisherige Spur mit gleichem
    * Namen, sonst an gleicher Stelle (`matchTracks`), und behalten so ihre IDs. Spuren ohne Steine standen nicht im Code und
    * bleiben, ans Ende gestellt; Spuren, deren Zeile fehlt, fallen weg. Tempo nur, wenn es im Code steht.
+   * Doppelte Namen bekommen danach von oben nach unten eine Nummer, der erste bleibt.
    */
   applyProgram(r: { entries: ProgramEntry[]; frame: Frame; tempo: { cps: number; unit: TempoUnit } | null }): void {
     const shown = this.codeTracks.map(inCode);
@@ -304,10 +332,14 @@ class Project {
     const order = arrangeTracks(old, matchTracks(old, names));
     this.tracks = order.map((i) => (i === null ? track() : this.tracks[i]));
     r.entries.forEach((e, i) => {
-      const id = this.tracks[i].id;
-      if (e.kind === 'raw') this.setRaw(id, e);
-      else this.applyCode(id, e.line);
+      if (e.kind === 'raw') this.applyRaw(this.tracks[i], e);
+      else this.applyLine(this.tracks[i], e.line);
     });
+    const seen: string[] = [];
+    for (const t of this.tracks) {
+      t.name = uniqueName(t.name, seen);
+      seen.push(t.name);
+    }
     this.frame = r.frame;
     if (r.tempo) {
       this.cps = r.tempo.cps;

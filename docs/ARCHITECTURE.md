@@ -12,12 +12,12 @@ Die Oberfläche kommt zuerst; die Kamera soll später dieselbe Datenstruktur fü
 ## 2. Schichten
 
 ```
-domain/   reine Logik: Token, parse, codegen, edit                    (kein DOM, kein Svelte, kein Audio)
+domain/   reine Logik: Token, parse, codegen, edit, board (Raster)     (kein DOM, kein Svelte, kein Audio)
 syntax/   Abgleich mit Strudels Grammatik: validate (Grammatik), analyze (eigener Parser + Grammatik),
           Code zu Steinen: from-text (Mini-Notation), from-code (Zeile einer Spur), from-program (ganzer Code, acorn)
 audio/    StrudelEngine (einzige Klang-Engine), EngineHost, Recorder, WAV
-state/    Svelte-5-Zustand: project, session, playback, sample-bank
-interaction/  Gesten als Attachments: tokenGestures (Tippen, Doppeltippen, Ziehen), knob (Drehen)
+state/    Svelte-5-Zustand: project, session, playback, sample-bank, board (Lage der Spuren)
+interaction/  Gesten als Attachments: tokenGestures (Tippen, Doppeltippen, Ziehen), knob (Drehen), boardDrag (Spur verschieben, verbreitern)
 ui/       Komponenten
 ```
 
@@ -115,6 +115,55 @@ von `codegen` stammt, kennen wir die Position jedes Klangnamens und finden so de
   `test:strudel` durchsuchen deshalb alle gemeldeten Positionen.
 - **Layout über den ganzen Bildschirm:** feste Leiste oben (Start/Stopp, Tempo, Gesamtlautstärke, Umschalter Steine/Code, `?` für den
   Erklärungsdialog).
+- **Arbeitsfläche statt Liste** (`domain/board.ts`, `state/board.svelte.ts`, `ui/Board.svelte`): Spuren sind abgerundete Rechtecke
+  auf einem unendlichen Punkteraster zwischen Palette und Szenen-Leiste. **Keine Scrollleisten** (`overflow: hidden`), eine
+  Kamera verschiebt und verkleinert die Ebene per `transform` (beim Bearbeiten `cam` in Punkten, in der Übersicht eingepasst);
+  zwischen Übersicht und Spur gleitet sie (250 ms). **Desktop:** Mausrad und Trackpad verschieben die Kamera in x und y
+  (`wheel`, Shift + Rad waagrecht). Die Kamera bleibt so,
+  dass mindestens zwei Punkte der Spuren sichtbar sind. Schon beim Scrollen zieht das Raster an (`magnet` in
+  `domain/board.ts`): nahe einem Punkt bewegt sich die Fläche kaum, dazwischen springt sie rasch weiter. Steht das Rad 80 ms
+  still (auch nach dem Nachlaufen des Trackpads), rastet sie auf ganze Punkte ein (gleitet 150 ms; das Raster ist so versetzt, dass eine Spur von `MIN_WIDTH`
+  Punkten danach waagrecht mittig und 12 px unter dem oberen Rand steht, wie beim Fokussieren); weiteres Scrollen
+  unterbricht das Gleiten sofort. Holt der Browser ein fokussiertes Feld selbst in den Blick, wird das in die
+  Kamera übernommen. In der Übersicht sind die Punkte kleiner und blasser.
+  Ausserdem bewegt sich die Ansicht, wenn in der Übersicht eine Spur gewählt wird (oder eine neue entsteht). Zu Beginn ist die
+  Spur oben links gewählt; danach wählt auch Antippen oder Bearbeiten einer Spur sie (`focusin`, `pointerdown`).
+  Eine Spur ist **immer so hoch wie ihr Inhalt** und scrollt nie in sich. Wächst die gewählte über den unteren Rand hinaus
+  (nicht beim Scrollen), gleitet die Kamera, bis ihr oberer Rand oben steht.
+  **Touch:** Wischen verschiebt die Kamera frei in x und y wie das Mausrad (`touchPan`, gleiche Begrenzung und gleicher
+  Magnet), beim Loslassen rastet sie ein (150 ms). Elemente mit eigener Geste (`touch-action: none`: Steine, Drehknöpfe,
+  Griffe) und Eingabefelder behalten ihre Geste. Die Fläche hat dafür `touch-action: none` (kein Pinch-Zoom der Seite darüber). Dort schneidet der Rand Menüs ab,
+  die über die Spur hinausragen (z. B. das Steinmenü über der obersten Reihe). Lage und Grösse in ganzen Punkten,
+  ein Rechteck reicht `PAD` (0,35 Abstand) über seine äussersten Punkte hinaus. Der Abstand der Punkte richtet sich nach der
+  Bildschirmbreite: eine Spur von 5 Punkten passt aufs Handy, mindestens 50 px, höchstens 80 px (`gapFor`).
+  Die **Breite** zieht man an der Ecke unten rechts (mindestens 5 Punkte, Tastatur ←/→), die **Höhe** folgt dem Inhalt,
+  aufgerundet auf ganze Punkte. Verschieben am Griff vor dem Namen. Überlappungen löst `settle`: die geänderte Spur bleibt,
+  die anderen rücken in Lesereihenfolge nach unten, nie nach oben (keine automatische Verdichtung).
+  **Die Lage ist reine Darstellung:** die Reihenfolge im Code bleibt die von `project.tracks`. Die Lage gehört nicht zur Szene,
+  sondern gilt für alle (Spuren behalten über Szenen ihre ID); fehlt eine Spur in einer Szene, merkt sich `board` ihren Platz.
+  Spuren ohne Platz (Start, Code-Übernahme) kommen unter alle anderen.
+  **Lage im Code als Sammelkommentar** (`boardComment`, `readBoardComment` in `domain/board.ts`, `board.comment`):
+  am Ende des Codes `/* board: drums 0,0; hats 6,-1,8 */`, je Spur der Name, die obere linke Ecke und die Breite (nur wenn sie
+  von `MIN_WIDTH` abweicht). Die Höhe ergibt sich aus dem Inhalt, eine aufgezogene Mindesthöhe geht dabei verloren. Er steht nur
+  in Anzeige, Kopieren und Link (`arrangement.codeFull`/`codeDisplay`); was Strudel spielt, hat ihn nicht, Verschieben wertet also nicht neu aus.
+  Er enthält die Spuren der gewählten Szene, auch im Arrangement. Beim Übernehmen des Codes liest `programToTracks` den ersten
+  Sammelkommentar (weitere fallen weg, keiner landet im Rahmen), `board.place` setzt die Lagen über die Namen, dann `settle`.
+  Spuren ohne Eintrag bleiben, wo sie sind; unlesbare Einträge und unbekannte Namen werden übergangen. Wer eine Spur im
+  Code umbenennt und den Sammelkommentar nicht, verliert ihre Lage (sie kommt unter die anderen).
+  Die Fläche reicht einen Bildschirm über die Spuren hinaus; wächst sie nach links oder oben, scrollt sie mit.
+  **Plus-Knöpfe**, nur in der Übersicht, in der Mitte jeder Seite aller Spuren (die Seite bestimmt nur, wo das Menü
+  erscheint, nicht den Platz der Spur). Antippen lässt die Übersicht gleiten, bis
+  das Plus in der Bildschirmmitte steht (250 ms), dann erscheint darunter die Wahl der Art; Schliessen gleitet zurück. Nach der
+  Wahl wird die Spur **aufgezogen**: die Übersicht zeigt rundum zwei freie Punkte mehr, die Plus-Knöpfe verschwinden;
+  Drücken auf einen Punkt setzt die obere linke Ecke, Ziehen nach unten die Höhe (nur nach unten, Breite fest `MIN_WIDTH`),
+  Loslassen legt die Spur an und fokussiert sie. Escape oder «Zurück» bricht ab. Die aufgezogene Höhe ist eine **Mindesthöhe**
+  (Annahme): braucht der Inhalt mehr, wächst die Spur weiter. Liegen am Ziel Spuren, rücken sie nach unten. Art wählen (Klang, Noten, MIDI, Sampler).
+  **Übersicht** (Knopf über der Szenen-Leiste, rechts): zwei Stufen, 1:1 oder alles passt mit Rand hinein (nur verkleinern).
+  In der Übersicht ist der Inhalt der Spuren nicht bedienbar; Antippen wählt eine Spur und rückt sie in den Blick
+  (oberer Rand oben am Bildschirm; waagrecht in der Mitte, ist sie breiter als der Bildschirm, ihre ersten `MIN_WIDTH` Punkte), Ziehen verschiebt sie.
+  «Zurück» kehrt an die vorige Stelle zurück.
+  Annahmen (vom Inhaber zu bestätigen): aufgezogene Höhe als Mindesthöhe, Nachunten-Rücken statt Zurückschnappen,
+  Lage nicht pro Szene, kein Pinch-Zoom, kein automatisches Scrollen beim Ziehen an den Rand (weite Wege über die Übersicht).
 - **Tempo** (`domain/tempo.ts`): intern `project.cps`, eingegeben als Zahl in BPM, CPM oder CPS (`project.tempoUnit`, Standard BPM).
   BPM nach Strudels Konvention mit 4 Schlägen pro Zyklus. Der Code folgt der Einheit: `setcpm(120/4)`, `setcpm(30)` oder `setcps(0.5)`.
   Erlaubt sind 0.05–2 cps (12–480 BPM). Szenen speichern nur `cps`, die Einheit bleibt.
@@ -223,7 +272,10 @@ von `codegen` stammt, kennen wir die Position jedes Klangnamens und finden so de
   wieder. Erlaubt sind Buchstaben, Ziffern und `_`, nicht am Ende (`trackName`), so kann ein Name den Kommentar nicht beenden.
   Fehlt der Kommentar oder bleibt das Namensfeld leer, bekommt die Spur den Namen ihrer Art mit der ersten freien Nummer
   (`defaultTrackName`: `Klangspur_1`, `Notenspur_1`, `MIDIspur_1`, `Samplerspur_1`). Neue Spuren heissen gleich so.
-  Gleiche Namen stören Strudel nicht; für ein späteres Arrangement, das Spuren über Namen zusammenführt, müssten sie eindeutig sein.
+  **Namen sind eindeutig** (`uniqueName`), weil die Lage im Sammelkommentar unter dem Namen steht: ein doppelter Name bekommt
+  beim Verlassen des Namensfelds, beim Bearbeiten der Codezeile und beim Übernehmen des ganzen Codes die erste freie Nummer
+  (`drums_2`, `Klangspur_1` wird `Klangspur_2`); beim ganzen Code behält der erste den Namen. Während des Tippens sind
+  doppelte Namen kurz möglich.
 - **Code pro Spur ist die ganze Zeile** (`syntax/from-code.ts`, `ui/TrackCode.svelte`): `/* name */ s("…").effekt(…)…`. Die Ansicht
   «Code» im Menü der Spur schaltet die Spur von Steinen auf diese Zeile um. Name, Stummschaltung, Klänge und Effekte ändern sich bei jedem gültigen
   Tastendruck; die Mini-Notation darin liest weiter Strudels Grammatik. Mehr JavaScript als diese Kette (andere Funktionen,
@@ -327,7 +379,8 @@ Jede mit Optionen. Keine Empfehlung festgelegt.
    (Text zu Steinen) ist entschieden und nutzt bereits Strudels Syntaxbaum (siehe Abschnitt 3).
    Weiter offen: ein am Stein ausgerichteter Abspielkopf. Dafür brauchte es die Zeitspanne jedes Steins im Zyklus. Sie lässt
    sich aus den Ereignissen von Strudel (`hap.whole`) oder aus dem Baum ableiten.
-7. **Layout.** Ganzer Bildschirm mit fester Leiste ist entschieden (Abschnitt 3). Offen: Umbruch der Steine (jetzt) oder vertikal, vor allem auf dem Handy. Tastatur- und Screenreader-Bedienung.
+7. **Layout.** Ganzer Bildschirm mit fester Leiste und die Arbeitsfläche mit Punkteraster sind entschieden (Abschnitt 3). Offen: Umbruch der Steine (jetzt) oder vertikal, vor allem auf dem Handy. Tastatur- und Screenreader-Bedienung (Verschieben auf der Fläche geht nur mit Zeiger).
+   Die Lage steht als Sammelkommentar im Code (Abschnitt 3); wo der Code selbst bleibt, gehört zu Punkt 4.
 8. **Fehlerverhalten.** Spur mit Klammerfehler bleibt stumm (jetzt). Alternativen: gültigen Teil spielen,
    Klammern automatisch ergänzen.
 9. **Build und Hosting.** Statisch, https wegen Mikrofon, PWA/offline, Lizenzfrage (AGPL) und SRF-Veröffentlichung.

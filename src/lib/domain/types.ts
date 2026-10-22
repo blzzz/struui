@@ -211,6 +211,19 @@ export function defaultTrackName(type: TrackType, taken: Iterable<string>): stri
   return `${TYPE_NAMES[type]}_${n}`;
 }
 
+/**
+ * `name`, wenn ihn keine andere Spur trägt, sonst mit der ersten freien Nummer (`drums_2`; `Klangspur_1` wird `Klangspur_2`).
+ * Namen müssen eindeutig sein: die Lage auf der Arbeitsfläche steht im Code unter dem Namen (`boardComment`).
+ */
+export function uniqueName(name: string, taken: Iterable<string>): string {
+  const names = new Set(taken);
+  if (!names.has(name)) return name;
+  const base = name.replace(/_\d+$/, '');
+  let n = 2;
+  while (names.has(`${base}_${n}`)) n += 1;
+  return `${base}_${n}`;
+}
+
 export const isPause = (t: Token): boolean => t.kind === 'sound' && t.sound === PAUSE;
 
 /** Liegt der Stein an `index` mit Komma im selben Stapel wie der Stein davor (`[bd, hh]`)? Nur Klangsteine stapeln sich. */

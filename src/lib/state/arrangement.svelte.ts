@@ -4,6 +4,7 @@ import { toArrangedProgram } from '../domain/codegen.ts';
 import type { CodeScene, CodeTrack } from '../domain/codegen.ts';
 import type { Scene } from '../domain/scene.ts';
 import { analyze } from '../syntax/analyze.ts';
+import { board } from './board.svelte.ts';
 import { codeTracksOf, project } from './project.svelte.ts';
 import { sampleBank } from './sample-bank.svelte.ts';
 import { scenes } from './scenes.svelte.ts';
@@ -68,12 +69,12 @@ class Arrangement {
       : null,
   );
 
-  /** Voller Code zum Kopieren und für den Link. Folgt dem Schalter, nicht der Wiedergabe. */
-  codeFull = $derived(this.active ? this.arranged.code : project.codeFull);
+  /** Voller Code zum Kopieren und für den Link, mit der Lage der Spuren. Folgt dem Schalter, nicht der Wiedergabe. */
+  codeFull = $derived(withBoard(this.active ? this.arranged.code : project.codeFull));
 
-  /** Gekürzter Code für die Anzeige. */
+  /** Gekürzter Code für die Anzeige, mit der Lage der Spuren. */
   codeDisplay = $derived(
-    this.active
+    withBoard(this.active
       ? toArrangedProgram(this.codeScenes, this.sections, {
           cps: project.cps,
           tempoUnit: project.tempoUnit,
@@ -81,7 +82,7 @@ class Arrangement {
           elideSamples: true,
           frame: project.frame,
         }).code
-      : project.codeDisplay,
+      : project.codeDisplay),
   );
 
   /** Variablenname je Szene, wie er im Code steht. */
@@ -112,6 +113,14 @@ class Arrangement {
     const x = this.sections.find((s) => s.id === id);
     if (x) x.times = clampTimes(times);
   }
+}
+
+/**
+ * Der Sammelkommentar mit der Lage der Spuren am Ende des Codes. Nur für Anzeige, Kopieren und Link: was Strudel spielt
+ * (`program`, `arranged`), hat ihn nicht, sonst würde jedes Verschieben neu ausgewertet.
+ */
+function withBoard(code: string): string {
+  return board.comment ? `${code}\n\n${board.comment}` : code;
 }
 
 export const arrangement = new Arrangement();

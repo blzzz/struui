@@ -6,9 +6,8 @@
   import HelpDialog from "./lib/ui/HelpDialog.svelte";
   import ValueSheet from "./lib/ui/ValueSheet.svelte";
   import TopBar from "./lib/ui/TopBar.svelte";
-  import TrackView from "./lib/ui/TrackView.svelte";
+  import Board from "./lib/ui/Board.svelte";
   import { playback } from "./lib/state/playback.svelte.ts";
-  import { project } from "./lib/state/project.svelte.ts";
   import { scenes } from "./lib/state/scenes.svelte.ts";
   import { session } from "./lib/state/session.svelte.ts";
 
@@ -26,7 +25,7 @@
 
 <TopBar />
 
-<main>
+<main class:fill={session.view === "ui"}>
   {#if session.status}
     <p
       class="status"
@@ -39,24 +38,8 @@
 
   {#if session.view === "ui"}
     <SoundPalette />
-    {#each project.tracks as track, i (track.id)}
-      <TrackView {track} index={i} />
-    {/each}
-    <!-- Neue Spur gleich in der gewünschten Art (später im Menü der Spur umschaltbar) -->
-    <div class="pad addtracks">
-      <button class="addtrack" onclick={() => project.addTrack("sound")}
-        >+ Klangspur</button
-      >
-      <button class="addtrack" onclick={() => project.addTrack("note")}
-        >+ Notenspur</button
-      >
-      <button class="addtrack" onclick={() => project.addTrack("midi")}
-        >+ MIDI-Spur</button
-      >
-      <button class="addtrack" onclick={() => project.addTrack("sampler")}
-        >+ Sampler-Spur</button
-      >
-    </div>
+    <!-- Spuren als Rechtecke auf einer Fläche, neue Spuren über die Plus-Knöpfe an ihrem Rand -->
+    <Board />
   {:else}
     <div class="pad">
       <CodeView />
@@ -75,21 +58,17 @@
     padding: calc(var(--bar-h) + env(safe-area-inset-top, 0px)) 0
       calc(var(--dock-h) + 40px + env(safe-area-inset-bottom, 0px));
   }
+  /* Steine: die Seite scrollt nicht, die Fläche füllt den Platz zwischen den Leisten und scrollt selbst */
+  main.fill {
+    height: 100dvh;
+    padding-bottom: calc(var(--dock-h) + env(safe-area-inset-bottom, 0px));
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
   .pad {
     padding: 12px max(12px, env(safe-area-inset-right, 0px)) 0
       max(12px, env(safe-area-inset-left, 0px));
-  }
-  .addtracks {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    padding: 20px;
-  }
-  .addtrack {
-    flex: 1 1 140px;
-    border-style: dashed;
-    border-color: var(--mute);
-    color: var(--mute);
   }
   .status {
     font-size: 13px;

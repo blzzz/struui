@@ -10,8 +10,10 @@
   import { VOLUME_MAX } from "../domain/types.ts";
   import { SLICES_MAX, clampSlices } from "../domain/sampler.ts";
   import type { Track } from "../domain/types.ts";
+  import type { Snippet } from "svelte";
 
-  let { track, index }: { track: Track; index: number } = $props();
+  /** `grip`: Griff vor dem Namen, an dem die Arbeitsfläche die Spur verschiebt. */
+  let { track, index, grip }: { track: Track; index: number; grip?: Snippet } = $props();
 
   /** Code statt Steine: die ganze Zeile der Spur samt Name und Effekten lässt sich bearbeiten. */
   let showCode = $state(false);
@@ -82,6 +84,7 @@
 >
   <header>
     <div class="left">
+      {@render grip?.()}
       <!-- Der Name steht im Code als Kommentar vor der Spur (/* drums */) -->
       <label class="name" title="Name der Spur, im Code als Kommentar davor">
         <!-- <span aria-hidden="true">$</span> -->
@@ -310,12 +313,9 @@
 </section>
 
 <style>
-  /* Spuren gehen über die ganze Breite, getrennt durch eine Linie */
+  /* Die Fläche dahinter (Rechteck auf der Arbeitsfläche) zeichnet `Board` */
   .track {
-    background: var(--panel);
-    border-bottom: 1.5px solid var(--line);
-    padding: 8px max(8px, env(safe-area-inset-right, 0px)) 12px
-      max(8px, env(safe-area-inset-left, 0px));
+    padding: 8px 10px 12px;
   }
   /* Drei Spalten: links der Name, in der Mitte der Kanalzug, rechts MIDI-Ausgang und Menü */
   header {

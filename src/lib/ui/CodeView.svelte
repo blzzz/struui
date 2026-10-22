@@ -1,5 +1,6 @@
 <script lang="ts">
   import { arrangement } from '../state/arrangement.svelte.ts';
+  import { board } from '../state/board.svelte.ts';
   import { project } from '../state/project.svelte.ts';
   import { programToTracks } from '../syntax/from-program.ts';
 
@@ -38,6 +39,7 @@
       return;
     }
     project.applyProgram(r);
+    if (r.board) board.place(r.board);
     draft = null;
     error = null;
   }

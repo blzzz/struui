@@ -1,5 +1,7 @@
 import { parse, parseExpressionAt } from 'acorn';
 import type { CallExpression, Comment, Expression, Literal, Node, Options, SpreadElement, Statement } from 'acorn';
+import { readBoardComment } from '../domain/board.ts';
+import type { Spot } from '../domain/board.ts';
 import type { Frame } from '../domain/codegen.ts';
 import type { TempoUnit } from '../domain/tempo.ts';
 import { trackName } from '../domain/types.ts';
@@ -17,6 +19,7 @@ import type { CodeLine } from './from-code.ts';
  * - Ein Eintrag, den `codeToTrack` nicht versteht, wird eine Spur mit rohem Code (`Track.code`).
  * - Tempo (`setcpm(120/4)`, `setcpm(30)`, `setcps(.5)`) und die eigenen Aufnahmen (`samples({ rec1: 'data:audio/…' })`)
  *   erzeugt Strudel-Steine selbst; diese Zeilen werden gelesen bzw. weggelassen.
+ * - Der Sammelkommentar mit der Lage der Spuren (`/* board: … *\/`, siehe `boardComment`) wird gelesen und weggelassen.
  * - Alles andere ist der Rahmen (`Frame`): Code davor, Aufrufe direkt am Stapel (`.fast(2)`) und Code danach.
  *
  * Fehler gibt es nur, wenn der Text kein gültiges JavaScript ist.
@@ -26,7 +29,14 @@ export type ProgramEntry =
   | { kind: 'raw'; name: string; muted: boolean; code: string };
 
 export type ProgramResult =
-  | { ok: true; entries: ProgramEntry[]; frame: Frame; tempo: { cps: number; unit: TempoUnit } | null }
+  | {
+      ok: true;
+      entries: ProgramEntry[];
+      frame: Frame;
+      tempo: { cps: number; unit: TempoUnit } | null;
+      /** Lage der Spuren nach Namen, null ohne Sammelkommentar. */
+      board: Map<string, Spot> | null;
+    }
   | { ok: false; offset: number; message: string };
 
 /** Wie Strudels Transpiler (`@strudel/transpiler`): neuestes JavaScript, `await` auf oberster Ebene. */
@@ -148,6 +158,14 @@ export function programToTracks(code: string, prefer?: (name: string) => TrackTy
   /** Stellen im Code, die nicht in den Rahmen gehen (Tempo, Aufnahmen, Spuren zwischen anderem Code). */
   const cuts: [number, number][] = [];
   let tempo: { cps: number; unit: TempoUnit } | null = null;
+  // Der erste Sammelkommentar gilt, alle gehören nicht in den Rahmen
+  let board: Map<string, Spot> | null = null;
+  for (const c of comments) {
+    const spots = c.type === 'Block' ? readBoardComment(c.value) : null;
+    if (!spots) continue;
+    board ??= spots;
+    cuts.push([c.start, c.end]);
+  }
   const rest = body.filter((s) => {
     const t = tempoOf(s);
     if (t) tempo = t;
@@ -231,7 +249,7 @@ export function programToTracks(code: string, prefer?: (name: string) => TrackTy
       sources.push({ start: comment?.start ?? s.start, end, entries: [entry(text)], chain: '' });
     }
   }
-  if (sources.length === 0) return { ok: true, entries: [], tempo, frame: frame(code.length, code.length) };
+  if (sources.length === 0) return { ok: true, entries: [], tempo, board, frame: frame(code.length, code.length) };
 
   // Code zwischen den Quellen kommt vor den Stapel, so ist alles definiert, was die Spuren brauchen
   const first = sources[0];
@@ -243,6 +261,7 @@ export function programToTracks(code: string, prefer?: (name: string) => TrackTy
     ok: true,
     entries: sources.flatMap((x) => x.entries),
     tempo,
+    board,
     frame: { ...f, before: [f.before, between].filter(Boolean).join('\n\n') },
   };
 }

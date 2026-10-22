@@ -5,6 +5,7 @@
   import { edgeFade } from "../interaction/edge-fade.ts";
   import { tokenGestures } from "../interaction/token-gestures.ts";
   import type { DropTarget } from "../interaction/token-gestures.ts";
+  import { board } from "../state/board.svelte.ts";
   import { playback } from "../state/playback.svelte.ts";
   import { project } from "../state/project.svelte.ts";
   import type { PaletteItem } from "../state/project.svelte.ts";
@@ -19,7 +20,8 @@
    * Unten waagrecht scrollbar: Pause, eigene Klänge, dann alle Steine nach Gruppen mit Überschrift.
    * Steine von hier in eine Klangreihe ziehen (nach oben/unten ziehen, seitwärts scrollt die Zeile): in eine Klangspur
    * oder in den Klang einer Notenspur (`.s`). Über der Mitte eines Klangsteins losgelassen, ersetzt ein Klang ihn.
-   * Steine kommen nur durch Ziehen in eine Spur, Antippen legt nichts ab. Langes Drücken spielt den Klang an.
+   * Auf freie Fläche des Boards gezogen, entsteht dort eine neue Spur mit dem Klang (erst wird ihre Art gewählt).
+   * Steine kommen nur durch Ziehen, Antippen legt nichts ab. Langes Drücken spielt den Klang an.
    * Pause gibt es im Klang einer Notenspur nicht (`.s("~")` wäre still). Notensteine kommen über das + der Reihe.
    * Klammerpaare kommen über das Menü eines Steins (Umschliessen).
    * Das Suchfeld filtert eigene und mitgelieferte Klänge, die Pause bleibt immer sichtbar.
@@ -117,9 +119,17 @@
       // Pause und Klang gleichzeitig ergibt nichts: die Pause ersetzt nur
       stacks: !isPause(item),
       canDrag: (dx, dy) => Math.abs(dy) > Math.abs(dx),
-      onDragMove: (drop) => (session.dropHint = fits(drop, item) ? drop : null),
-      onDrop: (drop) => {
-        if (!fits(drop, item)) return;
+      onDragMove: (drop) => {
+        session.dropHint = fits(drop, item) ? drop : null;
+        board.aim = null;
+      },
+      // Neben den Steinreihen: auf freier Fläche entsteht eine neue Spur (siehe `Board`)
+      onDragAt: (x, y) => (board.aim = session.dropHint ? null : { x, y }),
+      onDrop: (drop, at) => {
+        if (!fits(drop, item)) {
+          board.landed = { ...at, item };
+          return;
+        }
         if (drop.mode === "stack")
           project.stackItem(drop.laneId, drop.index, item);
         else if (drop.mode === "replace")
@@ -332,9 +342,9 @@
     display: flex;
     flex-direction: column;
     gap: 4px;
-    /* Klebt beim Scrollen unter der oberen Leiste, über den Spuren */
-    position: sticky;
-    top: calc(var(--bar-h) + env(safe-area-inset-top, 0px));
+    /* Steht fest unter der oberen Leiste: die Seite scrollt nicht, nur die Fläche darunter */
+    flex: none;
+    position: relative;
     z-index: 10;
     --edge-l: max(12px, env(safe-area-inset-left, 0px));
     --edge-r: max(12px, env(safe-area-inset-right, 0px));

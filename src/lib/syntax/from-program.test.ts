@@ -31,6 +31,26 @@ test('program: eigener Code wird gelesen und kommt unverändert wieder', () => {
   assert.deepEqual(r.frame, { before: '', chain: '', after: '' });
 });
 
+test('program: Sammelkommentar gibt die Lage her und bleibt nicht im Rahmen', () => {
+  const code = 'setcpm(120/4)\n\nstack(\n  /* drums */ s("bd"),\n  /* hats */ s("hh*8")\n)\n\n/* board: drums 0,0; hats 6,-1,8 */';
+  const r = read(code);
+  assert.deepEqual(r.entries.map(brief), ['sound drums', 'sound hats']);
+  assert.deepEqual(
+    r.board,
+    new Map([
+      ['drums', { x: 0, y: 0, w: 5 }],
+      ['hats', { x: 6, y: -1, w: 8 }],
+    ]),
+  );
+  assert.deepEqual(r.frame, { before: '', chain: '', after: '' });
+  // Auch zwischen eigenem Code, nur der erste gilt
+  const mixed = read('const a = 1\n/* board: x 1,1 */\ns("bd")\n// Ende\n/* board: y 2,2 */');
+  assert.deepEqual([...(mixed.board ?? [])].map(([n]) => n), ['x']);
+  assert.equal(mixed.frame.before, 'const a = 1');
+  assert.equal(mixed.frame.after, '\n// Ende');
+  assert.equal(read('s("bd")').board, null);
+});
+
 test('program: Code rund um den Stapel bleibt stehen, Aufrufe am Stapel auch', () => {
   const code = `await samples('github:tidalcycles/dirt-samples')\nconst lead = n("0 2 4").scale("C:minor")\n\nstack(\n  s("bd"),\n  lead\n).fast(2).room(.3);\n\n// Ende`;
   const r = read(code);

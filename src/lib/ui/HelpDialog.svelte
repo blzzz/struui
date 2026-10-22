@@ -57,6 +57,16 @@
         Der Pfeil vor dem Namen klappt die Spur zur Kompaktansicht ein und wieder aus. Der Regler darunter ist die Lautstärke
         der Spur (im Code <code>.postgain()</code>, Doppelklick = 100 %). <code>M</code> schaltet stumm (im Code <code>.hush()</code> am Ende der Zeile).
       </dd>
+      <dt>Fläche</dt>
+      <dd>
+        Jede Spur ist ein Rechteck auf einem Punkteraster. Mausrad, Trackpad oder Wischen verschieben die Fläche;
+        sie rastet an den Punkten ein.
+        Am Griff vor dem Namen ziehen verschiebt die Spur; liegt am Ziel schon eine, rückt sie nach unten. Die Ecke unten rechts
+        ändert die Breite (mindestens fünf Punkte), die Höhe folgt dem Inhalt. Die Lage ändert nichts am Code.
+        «Übersicht» unten rechts zeigt alle Spuren; Antippen einer Spur holt sie in den Blick, Ziehen verschiebt sie.
+        Dort legen die Plus-Knöpfe an den vier Seiten eine neue Spur an: Art wählen, dann einen Punkt
+        als obere linke Ecke drücken und die Höhe nach unten aufziehen.
+      </dd>
       <dt>Name</dt>
       <dd>
         Oben links in der Spur. Er steht im Code als Kommentar vor der Spur, z. B. <code>/* drums */ s("bd")</code>.
