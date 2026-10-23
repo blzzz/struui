@@ -39,6 +39,11 @@ von `@strudel/repl` die Version von `@strudel/mini` mitziehen. Lehnt sie die Spu
 **Aufleuchten:** Strudel meldet pro Ereignis die Zeichenposition im Code (`hap.context.locations`). Weil der Code
 von `codegen` stammt, kennen wir die Position jedes Klangnamens und finden so den Stein.
 
+**Vorladen:** Wird ein Klangstein einer Klangspur sichtbar (`onceVisible`, ein gemeinsamer `IntersectionObserver`),
+lädt `StrudelEngine.preload` sein Sample über superdoughs `getSampleBuffer` in Strudels eigenen Puffer-Cache, danach die
+übrigen Varianten (`bd:1`, `bd:2` …). Sichtbare Steine gehen vor, höchstens 4 Downloads gleichzeitig. Strudel selbst wird
+dafür ohne Ladeanzeige geladen. Synths, Soundfonts (`gm_…`) und eigene Aufnahmen werden nicht vorgeladen.
+
 ## 3. Bereits entschieden (aus dem Prototyp)
 
 - **Token-Modell:** `sound`, `open`, `close`. Klammern sind eigene Steine, Modifier hängen wie im Code
@@ -370,6 +375,8 @@ Jede mit Optionen. Keine Empfehlung festgelegt.
    Hinweis: `@strudel/repl` entspricht der Website vermutlich, ist aber nicht dieselbe Datei wie das Prebake der Website.
 3. **Zustandsverwaltung.** Singleton-Klassen mit Runes (jetzt), Svelte-Kontext, oder anderes? Undo/Redo?
    Mehrere Projekte?
+   Heute: Undo (ohne Redo) als Schnappschüsse von Spuren und Tempo, je Szene ein Verlauf, nur im Speicher
+   (`domain/undo.ts`, `state/history.svelte.ts`). Board-Anordnung, Code-Rahmen und Szenenliste sind nicht darin.
 4. **Persistenz und Teilen.** URL-Hash, localStorage, IndexedDB für Aufnahmen, Export/Import als Datei.
    Versionierung des Formats. IDs bei Persistenz (heute einfache Zähler, `types.ts`).
 5. **Umfang der Notation.** Euclid, `,` zwischen Folgen (Stapel einzelner Klänge sind drin), `bd:3`, `n()` mit Skalen, Zahlen als eigene Steine. Effekte pro Spur sind drin (Abschnitt 3).

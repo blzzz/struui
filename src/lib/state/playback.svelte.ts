@@ -44,7 +44,7 @@ function stop(): void {
   session.playing = false;
 }
 
-/** Steuert das Abspielen. Strudel wird erst beim ersten Start geladen. */
+/** Steuert das Abspielen. Strudel wird erst beim ersten Start, Anspielen oder Vorladen geladen. */
 export const playback = {
   /** Was gerade spielt bzw. beim Start spielen würde. Liest reaktiv, für den Effekt in `App.svelte`. */
   program,
@@ -86,6 +86,17 @@ export const playback = {
     } catch (e) {
       session.status = { kind: 'error', text: `Anspielen fehlgeschlagen: ${(e as Error)?.message ?? e}` };
     }
+  },
+
+  /**
+   * Samples eines Klangs (auch `bd:3`) vorladen, danach seine übrigen Varianten. Für Klangsteine, die sichtbar werden.
+   * Eigene Aufnahmen nicht: Sie stecken als Data-URL im Code und brauchen kein Netz.
+   */
+  preload(sound: string): void {
+    const { name, variant } = splitVariant(sound);
+    if (sampleBank.dataUrls.has(name)) return;
+    engine ??= new StrudelEngine(host);
+    void engine.preload(name, variant);
   },
 
   /** Hauptlautstärke setzen (0–1). */

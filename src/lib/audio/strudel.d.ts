@@ -34,6 +34,12 @@ declare module '@strudel/webaudio' {
   export function superdough(value: Record<string, unknown>, t: number, duration: number): Promise<void>;
   /** Meldet Klänge an: Name zu Adresse (auch Data-URL). */
   export function samples(map: Record<string, string>): Promise<void>;
+  /** Adressen eines Sample-Klangs: Liste der Varianten oder, nach Tonhöhe, Note zu Liste (`piano`). */
+  export type SampleBank = string[] | Record<string, string | string[]>;
+  /** Aus superdough: angemeldeter Klang (Name in beliebiger Schreibweise). Samples haben `type: 'sample'`. */
+  export function getSound(name: string): { data?: { type?: string; samples?: SampleBank } } | undefined;
+  /** Aus superdough: lädt und dekodiert das Sample zu `{ s, n }` in Strudels Cache (nach Adresse). */
+  export function getSampleBuffer(value: { s: string; n: number }, bank: SampleBank): Promise<unknown>;
   /** Aus superdough: Ausgang mit der Hauptlautstärke. */
   export function getSuperdoughAudioController(): { output: { destinationGain: GainNode | null } };
 }

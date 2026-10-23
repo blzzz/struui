@@ -7,7 +7,9 @@
   import ValueSheet from "./lib/ui/ValueSheet.svelte";
   import TopBar from "./lib/ui/TopBar.svelte";
   import Board from "./lib/ui/Board.svelte";
+  import { history } from "./lib/state/history.svelte.ts";
   import { playback } from "./lib/state/playback.svelte.ts";
+  import { project } from "./lib/state/project.svelte.ts";
   import { scenes } from "./lib/state/scenes.svelte.ts";
   import { session } from "./lib/state/session.svelte.ts";
 
@@ -21,7 +23,26 @@
   $effect(() => {
     if (scenes.autoUpdate && scenes.dirty) untrack(() => scenes.update());
   });
+
+  // Jede Änderung an Spuren und Tempo kommt in den Verlauf der gewählten Szene.
+  $effect(() => {
+    void scenes.currentId;
+    void project.cps;
+    void JSON.stringify(project.tracks);
+    untrack(() => history.record());
+  });
+
+  /** Strg/⌘+Z macht rückgängig, ausser in Textfeldern (die haben ihr eigenes). */
+  function onKey(e: KeyboardEvent) {
+    if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey || e.key.toLowerCase() !== "z") return;
+    const t = e.target as HTMLElement | null;
+    if (t?.closest?.("input, textarea, [contenteditable]")) return;
+    e.preventDefault();
+    history.undo();
+  }
 </script>
+
+<svelte:window onkeydown={onKey} />
 
 <TopBar />
 

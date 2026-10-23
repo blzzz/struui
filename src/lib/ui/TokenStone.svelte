@@ -3,6 +3,8 @@
   import { isValueAtom, singleValue, stepValue } from '../domain/effects.ts';
   import { DEFAULT_VOICE, isNote, stepNote } from '../domain/notes.ts';
   import { isSoundName, stepVariant } from '../domain/sounds.ts';
+  import { onceVisible } from '../interaction/in-view.ts';
+  import { press } from '../interaction/press.ts';
   import { tokenGestures } from '../interaction/token-gestures.ts';
   import { CLOSING, hasModifiers, hasSteps, isPause, label } from '../domain/types.ts';
   import { playback } from '../state/playback.svelte.ts';
@@ -122,6 +124,16 @@
   }
 
   /**
+   * Klangstein einer Klangspur: sobald er sichtbar wird, sein Sample vorladen (danach die übrigen Varianten), damit das
+   * Abspielen nicht erst laden muss. Ändert sich der Klang, gilt das für den neuen.
+   */
+  const preloadSound = $derived.by(() => {
+    if (value || token.kind !== 'sound' || isPause(token) || !isSoundName(token.sound)) return null;
+    const lane = project.lane(laneId);
+    return lane && lane.track.type !== 'midi' && lane.content === 'sounds' ? token.sound : null;
+  });
+
+  /**
    * Andere Steine öffnen beim Tippen ein Menü darüber: Entfernen. Ersetzen geht durch Ziehen eines Klangs aus der Palette
    * auf den Stein. Bei Klammern wählt das Menü zusätzlich die Klammerart des Paars, Entfernen löst das Paar auf.
    */
@@ -207,6 +219,7 @@
   aria-label={`${value ? 'Wert' : notes ? 'Note' : 'Stein'} ${text}`}
   onpointerenter={() => hover(true)}
   onpointerleave={() => hover(false)}
+  {@attach preloadSound ? onceVisible(() => preloadSound && playback.preload(preloadSound)) : null}
   {@attach tokenGestures(() => ({
     onTap: () => {
       if (finishWrap()) return;
@@ -260,7 +273,7 @@
     {#if hasSteps(token) && token.steps !== null}<i class="mk m"></i>{/if}
   </div>
   <!-- Menü darüber: beim Tippen auf Klang- und Klammersteine, bei Noten und Werten zusammen mit dem Eingabefeld.
-       Während der Eingabe verhindert pointerdown den Fokuswechsel, sonst schliesst sich das Feld vor dem Klick. -->
+       Die Knöpfe lösen über `press` beim Aufsetzen aus, sonst schliesst der Fokuswechsel das Feld vor dem Klick. -->
   {#if menuOpen || editing}
     <div class="menu" role="menu" aria-label={`Stein ${text}`}>
       <button
@@ -268,8 +281,7 @@
         tabindex={editing ? -1 : 0}
         aria-label={bracket ? 'Klammerpaar auflösen' : 'Entfernen'}
         title={bracket ? 'Klammerpaar auflösen' : 'Entfernen'}
-        onpointerdown={(e) => editing && e.preventDefault()}
-        onclick={removeIt}
+        {@attach press(removeIt)}
       >
         <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.7 8.5h5.6l.7-8.5M7 7v4M9 7v4" /></svg>
       </button>
@@ -283,11 +295,10 @@
             class="wrapstone {BRACKET_TONES[g]}"
             aria-label={`Mit ${g} ${CLOSING[g]} umschliessen`}
             title={`Mit ${g} ${CLOSING[g]} umschliessen, dann den letzten Stein antippen`}
-            onpointerdown={(e) => editing && e.preventDefault()}
-            onclick={() => {
+            {@attach press(() => {
               input?.blur();
               session.startWrap(laneId, token.id, g);
-            }}>{g}&#8239;{CLOSING[g]}</button
+            })}>{g}&#8239;{CLOSING[g]}</button
           >
         {/each}
       {:else}
@@ -297,17 +308,17 @@
             aria-checked={bracket === g}
             class="br {BRACKET_TONES[g]}"
             aria-label={`Klammerart ${g}`}
-            onclick={() => chooseGroup(g)}>{g}</button
+            {@attach press(() => chooseGroup(g))}>{g}</button
           >
         {/each}
       {/if}
     </div>
   {/if}
   {#if editing}
-    <!-- Für Touch ohne Pfeiltasten. pointerdown verhindern, damit das Feld den Fokus behält. -->
+    <!-- Für Touch ohne Pfeiltasten. `press` lässt dem Feld den Fokus. -->
     <div class="steps">
-      <button tabindex="-1" aria-label={notes ? 'Halbton tiefer' : value ? 'Kleinerer Wert' : 'Vorherige Variante'} onpointerdown={(e) => e.preventDefault()} onclick={() => step(-1)}>−</button>
-      <button tabindex="-1" aria-label={notes ? 'Halbton höher' : value ? 'Grösserer Wert' : 'Nächste Variante'} onpointerdown={(e) => e.preventDefault()} onclick={() => step(1)}>+</button>
+      <button tabindex="-1" aria-label={notes ? 'Halbton tiefer' : value ? 'Kleinerer Wert' : 'Vorherige Variante'} {@attach press(() => step(-1))}>−</button>
+      <button tabindex="-1" aria-label={notes ? 'Halbton höher' : value ? 'Grösserer Wert' : 'Nächste Variante'} {@attach press(() => step(1))}>+</button>
     </div>
   {/if}
 </div>
@@ -449,6 +460,18 @@
     line-height: 1;
     background: var(--panel);
     box-shadow: 0 3px 10px rgba(0, 0, 0, 0.2);
+  }
+  /* Finger: grössere Knöpfe mit mehr Abstand */
+  @media (pointer: coarse) {
+    .menu,
+    .steps {
+      gap: 8px;
+    }
+    .menu button,
+    .steps button {
+      width: 42px;
+      height: 42px;
+    }
   }
   .slot.dragging {
     opacity: 0.35;

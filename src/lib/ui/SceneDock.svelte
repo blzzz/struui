@@ -6,6 +6,7 @@
     ARRANGEMENT_LANE,
     arrangement,
   } from "../state/arrangement.svelte.ts";
+  import { history } from "../state/history.svelte.ts";
   import { playback } from "../state/playback.svelte.ts";
   import { scenes } from "../state/scenes.svelte.ts";
   import { session } from "../state/session.svelte.ts";
@@ -215,6 +216,20 @@
     >
       {#if arrangement.active}<span aria-hidden="true">✓</span>{/if}
       Arrangement
+    </button>
+    <button
+      class="undo"
+      aria-label="Rückgängig"
+      title={history.depth
+        ? "Letzte Änderung rückgängig (Strg/⌘+Z)"
+        : "Nichts rückgängig zu machen"}
+      disabled={history.depth === 0}
+      onclick={() => history.undo()}
+    >
+      <svg viewBox="0 0 16 16" aria-hidden="true">
+        <path d="M5.5 3 2.5 6l3 3" />
+        <path d="M2.5 6h7a3.5 3.5 0 0 1 0 7H7" />
+      </svg>
     </button>
     <div class="split">
       {#if scenes.autoUpdate}
@@ -559,6 +574,30 @@
     padding: 0 10px;
     font-size: 13px;
     white-space: nowrap;
+  }
+  /* Rechts neben dem Arrangement-Schalter, direkt vor dem geteilten Knopf */
+  .undo {
+    margin-left: auto;
+    margin-right: -6px;
+    height: 30px;
+    width: 34px;
+    padding: 0;
+    display: grid;
+    place-items: center;
+    border-radius: 8px;
+  }
+  .undo svg {
+    width: 16px;
+    height: 16px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .undo:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
   }
   .split {
     display: flex;

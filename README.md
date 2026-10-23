@@ -12,7 +12,7 @@ npm run test:strudel  # Prüfung mit echtem Strudel (ohne Browser)
 npm run build    # Produktions-Build
 ```
 
-Stack: Svelte 5 (Runes), TypeScript, Vite. Der Ton kommt ausschliesslich von Strudel (`@strudel/core` und `@strudel/webaudio`, werden erst beim ersten Abspielen geladen), mit denselben
+Stack: Svelte 5 (Runes), TypeScript, Vite. Der Ton kommt ausschliesslich von Strudel (`@strudel/core` und `@strudel/webaudio`, werden erst geladen, wenn ein Klangstein sichtbar wird oder etwas erklingt), mit denselben
 Klangquellen aus dem Paket `@strudel/repl`. Dafür braucht die Seite beim ersten Abspielen Internet.
 
 Das Mikrofon (eigene Sounds aufnehmen) braucht eine https-Adresse oder `localhost`.
