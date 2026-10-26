@@ -77,5 +77,5 @@ export function sceneVariables(names: readonly string[]): string[] {
  */
 const RESERVED = new Set([
   ...'break case catch class const continue debugger default delete do else export extends false finally for function if import in instanceof let new null return super switch this throw true try typeof var void while with yield await enum implements interface package private protected public static arguments eval undefined NaN Infinity'.split(' '),
-  ...'s n note sound stack cat seq fastcat slowcat arrange silence samples setcps setcpm slider pure sequence register hush'.split(' '),
+  ...'s n note sound stack cat seq fastcat slowcat arrange silence samples setcps setcpm slider rand pure sequence register hush'.split(' '),
 ]);

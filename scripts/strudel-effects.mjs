@@ -1,12 +1,21 @@
 // Liest die Effekte aus den JSDoc-Kommentaren von `@strudel/core/controls.mjs`, statt sie abzuschreiben,
-// dazu die Sample-Funktionen (`chop`, `fit` …) und die Rechenarten für Noten (`add`, `div` …) aus `@strudel/core/pattern.mjs`.
+// dazu die Sample-Funktionen (`chop`, `fit` …) und die Rechenarten für Noten (`add`, `div` …) aus `@strudel/core/pattern.mjs`,
+// die Musterbefehle (`fast`, `struct`, `degradeBy`, `transpose`, `scale` …) aus `@strudel/core` und `@strudel/tonal`
+// und die Tonleitern für `scale` aus Tonal.js.
 // Aufruf: npm run gen:effects (schreibt src/lib/domain/effects.generated.ts).
 // Der Test `effects.test.ts` prüft, dass die Datei zum installierten Strudel passt.
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export const CONTROLS = fileURLToPath(new URL('../node_modules/@strudel/core/controls.mjs', import.meta.url));
-export const PATTERN = fileURLToPath(new URL('../node_modules/@strudel/core/pattern.mjs', import.meta.url));
+const core = (file) => fileURLToPath(new URL(`../node_modules/@strudel/core/${file}`, import.meta.url));
+export const CONTROLS = core('controls.mjs');
+export const PATTERN = core('pattern.mjs');
+export const SIGNAL = core('signal.mjs');
+export const EUCLID = core('euclid.mjs');
+const TONAL_PACKAGE = fileURLToPath(new URL('../node_modules/@strudel/tonal/package.json', import.meta.url));
+export const TONAL = join(dirname(TONAL_PACKAGE), 'tonal.mjs');
 export const OUTPUT = fileURLToPath(new URL('../src/lib/domain/effects.generated.ts', import.meta.url));
 
 /**
@@ -58,7 +67,8 @@ function exampleValues(text, names) {
   const numbers = new Map();
   const words = new Set();
   for (const n of names) {
-    const call = new RegExp(`\\.${escape(n)}\\(\\s*(?:"([^"]*)"|'([^']*)'|(-?[\\d.]+))\\s*\\)`, 'g');
+    // `.transpose("<0 -2 5 3>".slow(2))`: `.slow`/`.fast` danach ändern nur die Zeit; `.div(8)` die Werte, das zählt nicht
+    const call = new RegExp(`\\.${escape(n)}\\(\\s*(?:"([^"]*)"|'([^']*)'|(-?[\\d.]+))(?:\\.(?:slow|fast)\\([^()]*\\))*\\s*\\)`, 'g');
     for (const m of text.matchAll(call)) {
       // `1000:20` = Wert und Zusatzparameter (hier Resonanz), nur der Wert zählt
       // Zahlen hinter Modifiern (`!2`, `@3`, `*4`, `/2`, `%8`, `?0.3`) sind keine Werte
@@ -108,6 +118,9 @@ export function extractEffects(source = readFileSync(CONTROLS, 'utf8'), patternS
     effects.set(name, describe(name, groupOf(name), doc));
   }
   for (const op of extractSampleOps(source, patternSource)) effects.set(op.name, op);
+  const taken = new Set([...effects.values()].flatMap((e) => [e.name, ...e.synonyms]));
+  for (const n of [...extractNoteOps(patternSource).map((o) => o.name), ...Object.keys(SAMPLER_MODES)]) taken.add(n);
+  for (const op of extractPatternOps(taken)) effects.set(op.name, op);
   return [...effects.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
@@ -150,6 +163,125 @@ export function extractSamplerModes(controls = readFileSync(CONTROLS, 'utf8'), p
 }
 
 /**
+ * Woher die Musterbefehle kommen und in welche Gruppe sie gehören: `pattern` ordnet Ereignisse in der Zeit um (`fast`, `rev`,
+ * `struct`), `random` mit Zufall (`degradeBy`, `shuffle`), `tonal` verändert Tonhöhen (`transpose`, `scale`).
+ * Welche Spur welche Gruppe anbietet, entscheidet `offersEffect` in `effects.ts`.
+ */
+const PATTERN_SOURCES = [
+  [PATTERN, 'pattern'],
+  [EUCLID, 'pattern'],
+  [SIGNAL, 'random'],
+  [TONAL, 'tonal'],
+];
+
+/**
+ * Befehle, die eine Struktur aus Treffern und Pausen nehmen (`struct("x ~ x")`). Ihr Wert ist immer Mini-Notation
+ * (`miniOnly`), neue Boxen beginnen mit `x` (ein Treffer, an der Spur ändert sich nichts). Strudel baut sie nicht mit
+ * `register`, sondern als `Pattern.prototype.struct = function (...args)`.
+ */
+const STRUCTURE_OPS = ['struct', 'mask', 'reset', 'restart'];
+
+/**
+ * Musterbefehle mit höchstens einem Wert, die trotzdem nicht in eine Box gehören. Ein Filter wie `NOT_EFFECTS`:
+ * Neue Befehle in Strudel kommen ohne Zutun dazu.
+ * `round` … `ratio` rechnen mit Zahlen in der Mini-Notation (wie `add`), eine Spur aus Klängen oder Noten hat keine.
+ * `keyDown` fragt die Tastatur ab, `segment` tastet stetige Signale ab und `pace` setzt Schritte für `stepcat`.
+ */
+const NOT_PATTERN_OPS = new Set(['round', 'floor', 'ceil', 'toBipolar', 'fromBipolar', 'ratio', 'keyDown', 'segment', 'pace']);
+
+/** Parameter, die eine Funktion oder ein Objekt nehmen (`jux(rev)`, `pick({…})`): nicht als Wertreihe darstellbar. */
+const FUNCTION_PARAM = /^(func|funcs|f|fn|test|lookup|_)$/;
+
+/**
+ * Grundtöne für die Auswahl bei `scale`. Strudel nimmt jeden Notennamen, auch mit Oktave (`Bb4:dorian`), die Auswahl
+ * bietet die zwölf üblichen Schreibweisen an. Anderes geht über die Wertsteine.
+ */
+const SCALE_ROOTS = ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B'];
+
+/**
+ * Die Definitionen in einer Quelldatei: `register('fast', function (factor, pat)`, `register(['fast', 'density'], (factor, pat) =>`
+ * und die Strukturbefehle (`Pattern.prototype.struct = function (...args)`). `params` ohne das Muster am Schluss.
+ */
+function* definitions(source) {
+  const register = /register\(\s*(\[[^\]]*\]|'[^']+')\s*,\s*(?:function\s*\w*\s*)?\(([^)]*)\)/g;
+  for (const m of source.matchAll(register)) {
+    const names = [...m[1].matchAll(/'([^']+)'/g)].map((x) => x[1]);
+    // `offset /* : number | string */` → `offset`
+    const params = m[2].replace(/\/\*.*?\*\//g, '').split(',').map((p) => p.trim()).filter(Boolean);
+    yield { names, params: params.slice(0, -1), at: m.index };
+  }
+  for (const m of source.matchAll(/Pattern\.prototype\.(\w+) = function \(\.\.\.args\)/g)) {
+    if (STRUCTURE_OPS.includes(m[1])) yield { names: [m[1]], params: ['structure'], at: m.index };
+  }
+}
+
+/**
+ * Der JSDoc-Kommentar direkt vor einer Definition (dazwischen höchstens `export const x =`), sonst einer mit passendem `@name`.
+ * Ohne Kommentar fehlt die Beschreibung: solche Befehle lässt das Skript weg.
+ */
+function docOf(source, at, names, docs) {
+  const before = source.slice(0, at);
+  const end = before.lastIndexOf('*/');
+  const start = before.lastIndexOf('/**', end);
+  if (end >= 0 && start >= 0 && /^\s*((export\s+)?(const|let)\s+[^;=]*=\s*)?$/.test(before.slice(end + 2))) {
+    const [doc] = docComments(source.slice(start, end + 2));
+    if (doc) return doc;
+  }
+  return names.map((n) => docs.get(n)).find(Boolean) ?? null;
+}
+
+/**
+ * Musterbefehle mit höchstens einem Wert, der keine Funktion ist: `fast(2)`, `rev()`, `struct("x ~ x")`, `degradeBy(.5)`,
+ * `transpose(7)`, `scale("C:minor")`. Im Code nach dem Muster wie Effekte. Befehle mit mehreren Werten (`euclid(3, 8)`)
+ * oder mit einer Funktion (`jux(rev)`, `every(4, fast(2))`) lassen sich nicht als eine Wertreihe darstellen und fehlen.
+ * `taken`: Namen, die schon Effekte, Sample-Funktionen oder Rechenarten sind.
+ */
+export function extractPatternOps(taken, sources = PATTERN_SOURCES.map(([file, group]) => [readFileSync(file, 'utf8'), group]), scaleTypes = extractScaleTypes()) {
+  const ops = new Map();
+  for (const [source, group] of sources) {
+    const docs = new Map();
+    for (const doc of docComments(source)) {
+      for (const n of [...doc.tag('name'), ...(doc.tag('synonyms')[0] ?? '').split(/[,\s]+/)]) if (n && !docs.has(n)) docs.set(n, doc);
+    }
+    for (const { names, params, at } of definitions(source)) {
+      // `density` ist auch ein Steuerparameter: dann fehlt nur das Synonym, `fast` bleibt
+      if (taken.has(names[0]) || ops.has(names[0]) || NOT_PATTERN_OPS.has(names[0])) continue;
+      if (params.length > 1 || params.some((p) => FUNCTION_PARAM.test(p))) continue;
+      const doc = docOf(source, at, names, docs);
+      if (!doc || doc.tag('param').some((p) => /^\{[^}]*(function|object)/i.test(p))) continue;
+      const [docName] = doc.tag('name');
+      const name = names.includes(docName) ? docName : names[0];
+      const info = describe(name, group, doc);
+      info.synonyms = [...new Set([...info.synonyms, ...names])].filter((n) => n !== name && !taken.has(n));
+      if (params.length === 0) info.noValue = true;
+      if (STRUCTURE_OPS.includes(name)) Object.assign(info, { miniOnly: true, start: 'x' });
+      // Pfeiltasten schalten den Grundton weiter, die Tonleiter nach dem Doppelpunkt bleibt (`stepValue`)
+      if (name === 'scale') Object.assign(info, { values: SCALE_ROOTS, start: 'C:major', parts: [SCALE_ROOTS, scaleTypes] });
+      ops.set(name, info);
+    }
+  }
+  return [...ops.values()];
+}
+
+/**
+ * Die Tonleitern, die `scale` kennt: Tonal.js, wie es `@strudel/tonal` mitbringt (`@tonaljs/scale-type`, Liste `SCALES`),
+ * je der erste Name, Leerzeichen als Doppelpunkt (`major:pentatonic`), wie Strudel sie in der Mini-Notation verlangt.
+ * Namen mit Apostroph (`messiaen's mode #3`) kann die Mini-Notation nicht lesen. Alphabetisch.
+ */
+export function extractScaleTypes() {
+  const tonal = createRequire(realpathSync(TONAL_PACKAGE)).resolve('@tonaljs/tonal/package.json');
+  const scaleType = createRequire(tonal).resolve('@tonaljs/scale-type/package.json');
+  const source = readFileSync(join(dirname(scaleType), 'dist', 'index.mjs'), 'utf8');
+  const m = /const SCALES = (\[[\s\S]*?\n\]);/.exec(source);
+  if (!m) throw new Error('Liste SCALES in @tonaljs/scale-type nicht gefunden');
+  const scales = JSON.parse(m[1].replace(/,(\s*\])/g, '$1'));
+  return scales
+    .map(([, name]) => name.replaceAll(' ', ':'))
+    .filter((name) => !name.includes("'"))
+    .sort((a, b) => a.localeCompare(b));
+}
+
+/**
  * Rechenarten für Noten: die Verknüpfungen, die Strudel mit `numeralArgs` baut (Notennamen werden dabei zu MIDI-Zahlen),
  * soweit sie dokumentiert sind (`add`, `sub`, `mul`, `div`). Reihenfolge wie im Quelltext.
  * Im Code stehen sie an der Mini-Notation: `note("c e".add("<0 3>"))`.
@@ -165,7 +297,7 @@ export function extractNoteOps(source = readFileSync(PATTERN, 'utf8')) {
 }
 
 export function renderModule(effects, noteOps, samplerModes) {
-  return `// Erzeugt von scripts/strudel-effects.mjs aus @strudel/core/controls.mjs und pattern.mjs. Nicht von Hand ändern: npm run gen:effects
+  return `// Erzeugt von scripts/strudel-effects.mjs aus @strudel/core, @strudel/tonal und Tonal.js. Nicht von Hand ändern: npm run gen:effects
 import type { EffectInfo } from './effects.ts';
 
 export const EFFECTS: readonly EffectInfo[] = ${JSON.stringify(effects, null, 2)};
@@ -180,5 +312,5 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const effects = extractEffects();
   const noteOps = extractNoteOps();
   writeFileSync(OUTPUT, renderModule(effects, noteOps, extractSamplerModes()));
-  console.log(`${effects.length} Effekte und ${noteOps.length} Rechenarten für Noten nach ${OUTPUT}`);
+  console.log(`${effects.length} Effekte und Befehle, ${noteOps.length} Rechenarten für Noten nach ${OUTPUT}`);
 }

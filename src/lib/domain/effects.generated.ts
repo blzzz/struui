@@ -1,4 +1,4 @@
-// Erzeugt von scripts/strudel-effects.mjs aus @strudel/core/controls.mjs und pattern.mjs. Nicht von Hand ändern: npm run gen:effects
+// Erzeugt von scripts/strudel-effects.mjs aus @strudel/core, @strudel/tonal und Tonal.js. Nicht von Hand ändern: npm run gen:effects
 import type { EffectInfo } from './effects.ts';
 
 export const EFFECTS: readonly EffectInfo[] = [
@@ -10,6 +10,18 @@ export const EFFECTS: readonly EffectInfo[] = [
     "hint": "attack time in seconds",
     "values": [
       ".1"
+    ]
+  },
+  {
+    "name": "arp",
+    "group": "pattern",
+    "synonyms": [],
+    "description": "Selects indices in in stacked notes.",
+    "hint": "",
+    "values": [
+      "0",
+      "1",
+      "2"
     ]
   },
   {
@@ -212,6 +224,15 @@ export const EFFECTS: readonly EffectInfo[] = [
     "values": []
   },
   {
+    "name": "brak",
+    "group": "pattern",
+    "synonyms": [],
+    "description": "Returns a new pattern where every other cycle is played once, twice as fast, and offset in time by one quarter of a cycle.",
+    "hint": "",
+    "values": [],
+    "noValue": true
+  },
+  {
     "name": "busgain",
     "group": "audio",
     "synonyms": [
@@ -348,6 +369,26 @@ export const EFFECTS: readonly EffectInfo[] = [
     ]
   },
   {
+    "name": "degrade",
+    "group": "random",
+    "synonyms": [],
+    "description": "Randomly removes 50% of events from the pattern.",
+    "hint": "",
+    "values": [],
+    "noValue": true
+  },
+  {
+    "name": "degradeBy",
+    "group": "random",
+    "synonyms": [],
+    "description": "Randomly removes events from the pattern by a given amount.",
+    "hint": "- a number between 0 and 1",
+    "values": [
+      "0.2",
+      ".5"
+    ]
+  },
+  {
     "name": "delay",
     "group": "audio",
     "synonyms": [],
@@ -410,7 +451,12 @@ export const EFFECTS: readonly EffectInfo[] = [
     "synonyms": [],
     "description": "Noise crackle density",
     "hint": "between 0 and x",
-    "values": []
+    "values": [
+      "0.01",
+      "0.04",
+      "0.2",
+      "0.5"
+    ]
   },
   {
     "name": "detune",
@@ -553,6 +599,16 @@ export const EFFECTS: readonly EffectInfo[] = [
     ]
   },
   {
+    "name": "early",
+    "group": "pattern",
+    "synonyms": [],
+    "description": "Nudge a pattern to start earlier in time.",
+    "hint": "number of cycles to nudge left",
+    "values": [
+      ".1"
+    ]
+  },
+  {
     "name": "end",
     "group": "audio",
     "synonyms": [],
@@ -575,6 +631,28 @@ export const EFFECTS: readonly EffectInfo[] = [
       "0",
       ".5",
       "1"
+    ]
+  },
+  {
+    "name": "fast",
+    "group": "pattern",
+    "synonyms": [],
+    "description": "Speed up a pattern by the given factor.",
+    "hint": "speed up factor",
+    "values": [
+      "2"
+    ]
+  },
+  {
+    "name": "fastGap",
+    "group": "pattern",
+    "synonyms": [
+      "fastgap"
+    ],
+    "description": "speeds up a pattern like fast, but rather than it playing multiple times as fast would it instead leaves a gap in the remaining space of the cycle.",
+    "hint": "",
+    "values": [
+      "2"
     ]
   },
   {
@@ -725,6 +803,17 @@ export const EFFECTS: readonly EffectInfo[] = [
     "hint": "gain",
     "values": [
       ".4",
+      "1"
+    ]
+  },
+  {
+    "name": "grow",
+    "group": "pattern",
+    "synonyms": [],
+    "description": "Experimental Progressively grows the pattern by 'n' steps until the full pattern is played, or if a second value is given (using mininotation list syntax with :), that number of times.",
+    "hint": "",
+    "values": [
+      "-1",
       "1"
     ]
   },
@@ -903,6 +992,30 @@ export const EFFECTS: readonly EffectInfo[] = [
     "values": []
   },
   {
+    "name": "hurry",
+    "group": "pattern",
+    "synonyms": [],
+    "description": "Both speeds up the pattern (like 'fast') and the sample playback (like 'speed').",
+    "hint": "",
+    "values": [
+      "1",
+      "2",
+      "3",
+      "4"
+    ]
+  },
+  {
+    "name": "invert",
+    "group": "pattern",
+    "synonyms": [
+      "inv"
+    ],
+    "description": "Swaps 1s and 0s in a binary pattern.",
+    "hint": "",
+    "values": [],
+    "noValue": true
+  },
+  {
     "name": "irbegin",
     "group": "audio",
     "synonyms": [
@@ -939,6 +1052,51 @@ export const EFFECTS: readonly EffectInfo[] = [
       ".5",
       "1",
       "2"
+    ]
+  },
+  {
+    "name": "iter",
+    "group": "pattern",
+    "synonyms": [],
+    "description": "Divides a pattern into a given number of subdivisions, plays the subdivisions in order, but increments the starting subdivision each cycle.",
+    "hint": "",
+    "values": [
+      "4"
+    ]
+  },
+  {
+    "name": "iterBack",
+    "group": "pattern",
+    "synonyms": [
+      "iterback"
+    ],
+    "description": "Like iter, but plays the subdivisions in reverse order.",
+    "hint": "",
+    "values": [
+      "4"
+    ]
+  },
+  {
+    "name": "late",
+    "group": "pattern",
+    "synonyms": [],
+    "description": "Nudge a pattern to start later in time.",
+    "hint": "number of cycles to nudge right",
+    "values": [
+      ".1"
+    ]
+  },
+  {
+    "name": "linger",
+    "group": "pattern",
+    "synonyms": [],
+    "description": "Selects the given fraction of the pattern and repeats that part to fill the remainder of the cycle.",
+    "hint": "fraction to select",
+    "values": [
+      ".125",
+      ".25",
+      ".5",
+      "1"
     ]
   },
   {
@@ -1181,6 +1339,19 @@ export const EFFECTS: readonly EffectInfo[] = [
     ]
   },
   {
+    "name": "mask",
+    "group": "pattern",
+    "synonyms": [],
+    "description": "Returns silence when mask is 0 or \"~\"",
+    "hint": "",
+    "values": [
+      "0",
+      "1"
+    ],
+    "miniOnly": true,
+    "start": "x"
+  },
+  {
     "name": "midibend",
     "group": "midi",
     "synonyms": [],
@@ -1269,6 +1440,15 @@ export const EFFECTS: readonly EffectInfo[] = [
       "4",
       "5"
     ]
+  },
+  {
+    "name": "palindrome",
+    "group": "pattern",
+    "synonyms": [],
+    "description": "Applies rev to a pattern every other cycle, so that the pattern alternates between forwards and backwards.",
+    "hint": "",
+    "values": [],
+    "noValue": true
   },
   {
     "name": "pan",
@@ -1412,6 +1592,18 @@ export const EFFECTS: readonly EffectInfo[] = [
     ]
   },
   {
+    "name": "ply",
+    "group": "pattern",
+    "synonyms": [],
+    "description": "The ply function repeats each event the given number of times.",
+    "hint": "",
+    "values": [
+      "1",
+      "2",
+      "3"
+    ]
+  },
+  {
     "name": "prelease",
     "group": "audio",
     "synonyms": [
@@ -1424,6 +1616,27 @@ export const EFFECTS: readonly EffectInfo[] = [
       ".1",
       ".25",
       ".5"
+    ]
+  },
+  {
+    "name": "press",
+    "group": "pattern",
+    "synonyms": [],
+    "description": "Syncopates a rhythm, by shifting each event halfway into its timespan.",
+    "hint": "",
+    "values": [],
+    "noValue": true
+  },
+  {
+    "name": "pressBy",
+    "group": "pattern",
+    "synonyms": [],
+    "description": "Like press, but allows you to specify the amount by which each event is shifted.",
+    "hint": "",
+    "values": [
+      "0",
+      "0.25",
+      "0.5"
     ]
   },
   {
@@ -1488,6 +1701,62 @@ export const EFFECTS: readonly EffectInfo[] = [
       ".6",
       "1"
     ]
+  },
+  {
+    "name": "repeatCycles",
+    "group": "pattern",
+    "synonyms": [],
+    "description": "Repeats each cycle the given number of times.",
+    "hint": "",
+    "values": [
+      "2"
+    ]
+  },
+  {
+    "name": "reset",
+    "group": "pattern",
+    "synonyms": [],
+    "description": "Resets the pattern to the start of the cycle for each onset of the reset pattern.",
+    "hint": "",
+    "values": [
+      "5",
+      "8",
+      "x"
+    ],
+    "miniOnly": true,
+    "start": "x"
+  },
+  {
+    "name": "restart",
+    "group": "pattern",
+    "synonyms": [],
+    "description": "Restarts the pattern for each onset of the restart pattern.",
+    "hint": "",
+    "values": [
+      "5",
+      "8",
+      "x"
+    ],
+    "miniOnly": true,
+    "start": "x"
+  },
+  {
+    "name": "rev",
+    "group": "pattern",
+    "synonyms": [],
+    "description": "Reverse all cycles in a pattern.",
+    "hint": "",
+    "values": [],
+    "noValue": true
+  },
+  {
+    "name": "revv",
+    "group": "pattern",
+    "synonyms": [],
+    "description": "Reverse a whole pattern.",
+    "hint": "",
+    "values": [],
+    "noValue": true
   },
   {
     "name": "room",
@@ -1560,6 +1829,162 @@ export const EFFECTS: readonly EffectInfo[] = [
     ]
   },
   {
+    "name": "scale",
+    "group": "tonal",
+    "synonyms": [],
+    "description": "Turns numbers into notes in the scale (zero indexed) or quantizes notes to a scale.",
+    "hint": "Name of scale",
+    "values": [
+      "C",
+      "C#",
+      "D",
+      "Eb",
+      "E",
+      "F",
+      "F#",
+      "G",
+      "Ab",
+      "A",
+      "Bb",
+      "B"
+    ],
+    "start": "C:major",
+    "parts": [
+      [
+        "C",
+        "C#",
+        "D",
+        "Eb",
+        "E",
+        "F",
+        "F#",
+        "G",
+        "Ab",
+        "A",
+        "Bb",
+        "B"
+      ],
+      [
+        "altered",
+        "augmented",
+        "augmented:heptatonic",
+        "balinese",
+        "bebop",
+        "bebop:locrian",
+        "bebop:major",
+        "bebop:minor",
+        "chromatic",
+        "composite:blues",
+        "diminished",
+        "dorian",
+        "dorian:#4",
+        "dorian:b2",
+        "double:harmonic:lydian",
+        "double:harmonic:major",
+        "egyptian",
+        "enigmatic",
+        "flamenco",
+        "flat:six:pentatonic",
+        "flat:three:pentatonic",
+        "half-whole:diminished",
+        "harmonic:major",
+        "harmonic:minor",
+        "hirajoshi",
+        "hungarian:major",
+        "hungarian:minor",
+        "ichikosucho",
+        "in-sen",
+        "ionian:pentatonic",
+        "iwato",
+        "kafi:raga",
+        "kumoijoshi",
+        "leading:whole:tone",
+        "locrian",
+        "locrian:#2",
+        "locrian:6",
+        "locrian:major",
+        "locrian:pentatonic",
+        "lydian",
+        "lydian:#5p:pentatonic",
+        "lydian:#9",
+        "lydian:augmented",
+        "lydian:diminished",
+        "lydian:dominant",
+        "lydian:dominant:pentatonic",
+        "lydian:minor",
+        "lydian:pentatonic",
+        "major",
+        "major:augmented",
+        "major:blues",
+        "major:pentatonic",
+        "malkos:raga",
+        "melodic:minor",
+        "minor",
+        "minor:#7m:pentatonic",
+        "minor:bebop",
+        "minor:blues",
+        "minor:hexatonic",
+        "minor:pentatonic",
+        "minor:six:diminished",
+        "minor:six:pentatonic",
+        "mixolydian",
+        "mixolydian:b6",
+        "mixolydian:pentatonic",
+        "mystery:#1",
+        "neapolitan:major",
+        "neapolitan:major:pentatonic",
+        "oriental",
+        "pelog",
+        "persian",
+        "phrygian",
+        "phrygian:dominant",
+        "piongio",
+        "prometheus",
+        "prometheus:neapolitan",
+        "purvi:raga",
+        "ritusen",
+        "scriabin",
+        "six:tone:symmetric",
+        "spanish:heptatonic",
+        "super:locrian:pentatonic",
+        "todi:raga",
+        "ultralocrian",
+        "vietnamese:1",
+        "whole:tone",
+        "whole:tone:pentatonic"
+      ]
+    ]
+  },
+  {
+    "name": "scaleTranspose",
+    "group": "tonal",
+    "synonyms": [
+      "scaleTrans",
+      "strans"
+    ],
+    "description": "Transposes notes inside the scale by the number of steps.",
+    "hint": "number of steps inside the scale",
+    "values": [
+      "-6",
+      "-5",
+      "-4",
+      "-3",
+      "-2",
+      "-1",
+      "0"
+    ]
+  },
+  {
+    "name": "scramble",
+    "group": "random",
+    "synonyms": [],
+    "description": "Slices a pattern into the given number of parts, then plays those parts at random.",
+    "hint": "",
+    "values": [
+      "4"
+    ]
+  },
+  {
     "name": "scrub",
     "group": "sample",
     "synonyms": [],
@@ -1570,6 +1995,16 @@ export const EFFECTS: readonly EffectInfo[] = [
       ".25",
       "0.7",
       "0.8"
+    ]
+  },
+  {
+    "name": "seed",
+    "group": "random",
+    "synonyms": [],
+    "description": "Change the seed for random signals.",
+    "hint": "A new seed. Can be any number",
+    "values": [
+      "1"
     ]
   },
   {
@@ -1584,6 +2019,39 @@ export const EFFECTS: readonly EffectInfo[] = [
       ".4",
       ".6",
       ".8"
+    ]
+  },
+  {
+    "name": "shrink",
+    "group": "pattern",
+    "synonyms": [],
+    "description": "Experimental Progressively shrinks the pattern by 'n' steps until there's nothing left, or if a second value is given (using mininotation list syntax with :), that number of times.",
+    "hint": "",
+    "values": [
+      "-1",
+      "1"
+    ]
+  },
+  {
+    "name": "shuffle",
+    "group": "random",
+    "synonyms": [],
+    "description": "Slices a pattern into the given number of parts, then plays those parts in random order.",
+    "hint": "",
+    "values": [
+      "4"
+    ]
+  },
+  {
+    "name": "slow",
+    "group": "pattern",
+    "synonyms": [
+      "sparsity"
+    ],
+    "description": "Slow down a pattern over the given number of cycles.",
+    "hint": "slow down factor",
+    "values": [
+      "2"
     ]
   },
   {
@@ -1635,6 +2103,18 @@ export const EFFECTS: readonly EffectInfo[] = [
     ]
   },
   {
+    "name": "struct",
+    "group": "pattern",
+    "synonyms": [],
+    "description": "Applies the given structure to the pattern:",
+    "hint": "",
+    "values": [
+      "x"
+    ],
+    "miniOnly": true,
+    "start": "x"
+  },
+  {
     "name": "sustain",
     "group": "audio",
     "synonyms": [
@@ -1651,6 +2131,16 @@ export const EFFECTS: readonly EffectInfo[] = [
     ]
   },
   {
+    "name": "swing",
+    "group": "pattern",
+    "synonyms": [],
+    "description": "Shorthand for swingBy with 1/3:",
+    "hint": "",
+    "values": [
+      "4"
+    ]
+  },
+  {
     "name": "transient",
     "group": "audio",
     "synonyms": [],
@@ -1662,6 +2152,21 @@ export const EFFECTS: readonly EffectInfo[] = [
       "0",
       "0.5",
       "1"
+    ]
+  },
+  {
+    "name": "transpose",
+    "group": "tonal",
+    "synonyms": [
+      "trans"
+    ],
+    "description": "Change the pitch of each value by the given amount.",
+    "hint": "Either number of semitones or interval string",
+    "values": [
+      "-2",
+      "0",
+      "3",
+      "5"
     ]
   },
   {
@@ -1744,6 +2249,26 @@ export const EFFECTS: readonly EffectInfo[] = [
     "hint": "modulation speed in cycles",
     "values": [
       "4"
+    ]
+  },
+  {
+    "name": "undegrade",
+    "group": "random",
+    "synonyms": [],
+    "description": "Inverse of degrade: Randomly removes 50% of events from the pattern.",
+    "hint": "",
+    "values": [],
+    "noValue": true
+  },
+  {
+    "name": "undegradeBy",
+    "group": "random",
+    "synonyms": [],
+    "description": "Inverse of degradeBy: Randomly removes events from the pattern by a given amount.",
+    "hint": "- a number between 0 and 1",
+    "values": [
+      "0.2",
+      "0.8"
     ]
   },
   {

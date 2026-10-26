@@ -46,7 +46,7 @@ export interface TokenGestureOptions {
 }
 
 const DOUBLE_TAP_MS = 260;
-const LONG_PRESS_MS = 450;
+export const LONG_PRESS_MS = 450;
 const DRAG_THRESHOLD = 8;
 /** So lange über der Mitte eines Steins, dann wird aus «ersetzen» «anfügen». */
 const DWELL_MS = 600;

@@ -1,9 +1,9 @@
 import { EMPTY_FRAME, inCode, toStrudelCode, toStrudelProgram } from '../domain/codegen.ts';
 import type { Frame } from '../domain/codegen.ts';
 import { arrangeTracks, matchTracks } from '../domain/program.ts';
-import { adoptIds, insertAt, insertPair, moveToken, removeAt, replaceAt, setGroup, stackAt, unwrapAt, wrapAt, wrapRange } from '../domain/edit.ts';
+import { adoptIds, duplicateAt, duplicateRange, insertAt, insertPair, moveToken, removeAt, removeRange, replaceAt, setGroup, stackAt, unwrapAt, wrapAt, wrapRange } from '../domain/edit.ts';
 import { defaultValue, effectInfo, noteOpInfo, singleValue, valueInfo } from '../domain/effects.ts';
-import type { Effect, EffectInfo, SliderRange } from '../domain/effects.ts';
+import type { Effect, EffectInfo, RandSeries, SliderRange } from '../domain/effects.ts';
 import { DEFAULT_SAMPLE, clampSlices, convertValue, samplerInfo, startValues, takesSpeed } from '../domain/sampler.ts';
 import type { SamplerMode } from '../domain/sampler.ts';
 import { DEFAULT_VOICE } from '../domain/notes.ts';
@@ -32,6 +32,7 @@ import type { ProgramEntry } from '../syntax/from-program.ts';
 import type { CodeTrack } from '../domain/codegen.ts';
 import type { GroupType, Token, Track, TrackContent, TrackType } from '../domain/types.ts';
 import { sampleBank } from './sample-bank.svelte.ts';
+import { session } from './session.svelte.ts';
 
 /** Erste Note einer neuen Notenspur und des + in einer leeren Notenreihe. */
 const FIRST_NOTE = 'c';
@@ -45,11 +46,13 @@ export type RowKind = 'effects' | 'noteOps';
 function adoptRows(old: readonly Effect[], next: readonly ValueRow[]): Effect[] {
   return next.map((n, i) => {
     const o = old[i];
-    if (o?.name !== n.name) return { ...effect(n.name, n.tokens), slider: n.slider };
+    if (o?.name !== n.name) return { ...effect(n.name, n.tokens), slider: n.slider, rand: n.rand };
+    // Mit Zufallsreihe stehen keine Steine im Code: die bisherigen bleiben, samt Bereich
+    if (n.rand) return { ...o, rand: n.rand };
     adoptIds(o.tokens, n.tokens);
     // Ohne slider() im Code bleibt ein eingestellter Bereich, solange der Wert Mini-Notation ist (dort steht er nie im Code)
     const keep = n.slider ?? (singleValue(n.tokens) === null ? (o.slider ?? null) : null);
-    return { id: o.id, name: n.name, tokens: n.tokens, slider: keep };
+    return { id: o.id, name: n.name, tokens: n.tokens, slider: keep, rand: null };
   });
 }
 
@@ -74,6 +77,9 @@ export interface Lane {
   info: EffectInfo | null;
 }
 
+/** Tempo beim Start und in einem neuen Pattern (Zyklen pro Sekunde). */
+const START_CPS = 0.5;
+
 function startTracks(): Track[] {
   return [
     track(
@@ -95,12 +101,18 @@ function startTracks(): Track[] {
 /**
  * Spuren, wie sie in den Code gehen. `ok(id)`: Reihe ohne Klammerfehler. Reihen mit Fehler (Klang, Sample, Rechenart,
  * Effekt) bleiben weg, damit die Spur weiterläuft. Auch für Szenen, die gerade nicht angezeigt werden (Arrangement).
+ * `solo`: ist eine dieser Spuren darin, bekommen alle anderen `.hush()`.
  */
-export function codeTracksOf(tracks: readonly Track[], ok: (laneId: string) => boolean): CodeTrack[] {
+export function codeTracksOf(
+  tracks: readonly Track[],
+  ok: (laneId: string) => boolean,
+  solo: ReadonlySet<string> = new Set(),
+): CodeTrack[] {
+  const soloing = tracks.some((t) => solo.has(t.id));
   return tracks.map((t) => ({
     tokens: t.tokens,
     name: t.name,
-    muted: t.muted,
+    muted: t.muted || (soloing && !solo.has(t.id)),
     volume: t.volume,
     type: t.type,
     orbit: t.orbit,
@@ -119,7 +131,7 @@ export function codeTracksOf(tracks: readonly Track[], ok: (laneId: string) => b
 /** Der Projektzustand: Spuren, Tempo und alles, was daraus abgeleitet wird. */
 class Project {
   tracks = $state<Track[]>(startTracks());
-  cps = $state(0.5);
+  cps = $state(START_CPS);
   /** Einheit, in der das Tempo angezeigt, eingegeben und in den Code geschrieben wird. */
   tempoUnit = $state<TempoUnit>('bpm');
   /** Eigener Code rund um die Spuren, aus der Code-Ansicht. Gilt für alle Szenen. */
@@ -139,7 +151,9 @@ class Project {
   );
 
   /** Was in den Code geht: Effekte mit Klammerfehler bleiben weg, damit die Spur weiterläuft. */
-  codeTracks = $derived<CodeTrack[]>(codeTracksOf(this.tracks, (id) => this.parsed.get(id)?.errors.length === 0));
+  codeTracks = $derived<CodeTrack[]>(
+    codeTracksOf(this.tracks, (id) => this.parsed.get(id)?.errors.length === 0, session.solo),
+  );
 
   /** Code samt Positionen der Klang- und Wertsteine. Das spielt Strudel ab. */
   program = $derived(
@@ -158,6 +172,17 @@ class Project {
       elideSamples: true,
       frame: this.frame,
     }),
+  );
+
+  /**
+   * Code zum Speichern (`patterns`): wie `codeFull`, aber ohne Solo, das ist flüchtig. Sonst kämen die anderen Spuren
+   * beim nächsten Laden stumm zurück.
+   */
+  codeSaved = $derived(
+    toStrudelCode(
+      codeTracksOf(this.tracks, (id) => this.parsed.get(id)?.errors.length === 0),
+      { cps: this.cps, tempoUnit: this.tempoUnit, samples: sampleBank.dataUrls, frame: this.frame },
+    ),
   );
 
   /** Ganzen Zustand ersetzen (Szene wählen). */
@@ -188,10 +213,13 @@ class Project {
     return null;
   }
 
-  /** Dürfen die Wertsteine der Reihe einen Doppelpunkt tragen (`.5:2`)? Nur bei `scrub`, als Sampler-Art oder als Effekt. */
+  /**
+   * Dürfen die Wertsteine der Reihe einen Doppelpunkt tragen (`.5:2`, `C:minor`)? Bei `scrub` (als Sampler-Art oder als Effekt)
+   * und bei Werten aus Teilen (`scale`).
+   */
   valueLists(laneId: string): boolean {
     const lane = this.lane(laneId);
-    return lane?.content === 'values' && !!lane.info && takesSpeed(lane.info.name);
+    return lane?.content === 'values' && !!lane.info && (takesSpeed(lane.info.name) || !!lane.info.parts);
   }
 
   /** Inhalt einer Reihe, null wenn es sie nicht gibt. Paletten legen nur in passende Reihen ab. */
@@ -347,6 +375,19 @@ class Project {
     }
   }
 
+  /**
+   * Anderes Pattern laden: nichts vom bisherigen bleibt, dann der Code wie aus der Code-Ansicht (`applyProgram`).
+   * Ohne Tempo im Code gilt der Anfangswert, ohne Spuren gibt es eine leere Klangspur.
+   */
+  loadProgram(r: { entries: ProgramEntry[]; frame: Frame; tempo: { cps: number; unit: TempoUnit } | null }): void {
+    this.tracks = [];
+    this.frame = EMPTY_FRAME;
+    this.cps = START_CPS;
+    this.tempoUnit = 'bpm';
+    this.applyProgram(r);
+    if (this.tracks.length === 0) this.tracks = [track([], defaultTrackName('sound', []))];
+  }
+
   setVolume(trackId: string, volume: number): void {
     const t = this.find(trackId);
     if (t) t.volume = Math.max(0, Math.min(VOLUME_MAX, volume));
@@ -406,6 +447,24 @@ class Project {
     if (t) t.muted = !t.muted;
   }
 
+  /**
+   * Inhalt wie bei einer neuen Spur dieser Art: Steine, Effekte, Rechenarten, Klang, Sample und Sampler-Einstellungen
+   * auf Anfang, Geparktes weg. Name, Art, Stummschaltung, Lautstärke, Orbit und MIDI-Ausgang bleiben.
+   */
+  resetTrack(trackId: string): void {
+    const t = this.find(trackId);
+    if (!t || t.code !== null) return;
+    const fresh = track();
+    t.parked = {};
+    t.noteOps = [];
+    t.effects = [];
+    t.voice = fresh.voice;
+    t.sample = fresh.sample;
+    t.samplerMode = fresh.samplerMode;
+    t.slices = fresh.slices;
+    t.tokens = this.startTokens(t);
+  }
+
   removeTrack(trackId: string): void {
     this.tracks = this.tracks.filter((t) => t.id !== trackId);
   }
@@ -458,6 +517,12 @@ class Project {
     if (e) e.slider = range;
   }
 
+  /** Zufallsreihe setzen (steht dann statt der Wertsteine im Code) oder entfernen (null, wieder die Steine). */
+  setEffectRand(effectId: string, series: RandSeries | null): void {
+    const e = this.lane(effectId)?.effect;
+    if (e) e.rand = series;
+  }
+
   /** Klang oder Wert anhängen (tokenId null), davor einfügen oder den Stein ersetzen. */
   placeSound(laneId: string, tokenId: string | null, mode: PlaceMode, name: string): void {
     const lane = this.lane(laneId);
@@ -507,6 +572,29 @@ class Project {
     const from = this.indexOf(laneId, fromId);
     const to = this.indexOf(laneId, toId);
     if (lane && from >= 0 && to >= 0) wrapRange(lane.tokens, from, to, group);
+  }
+
+  /** Stein verdoppeln (bei einer Klammer das ganze Paar), die Kopie steht dahinter. */
+  duplicateToken(laneId: string, tokenId: string): void {
+    const lane = this.lane(laneId);
+    const index = this.indexOf(laneId, tokenId);
+    if (lane && index >= 0) duplicateAt(lane.tokens, index);
+  }
+
+  /** Steine von `fromId` bis `toId` verdoppeln, die Kopie folgt direkt. Angeschnittene Klammerpaare kommen ganz mit. */
+  duplicateRange(laneId: string, fromId: string, toId: string): void {
+    const lane = this.lane(laneId);
+    const from = this.indexOf(laneId, fromId);
+    const to = this.indexOf(laneId, toId);
+    if (lane && from >= 0 && to >= 0) duplicateRange(lane.tokens, from, to);
+  }
+
+  /** Steine von `fromId` bis `toId` entfernen. Angeschnittene Klammerpaare gehen ganz weg. */
+  removeRange(laneId: string, fromId: string, toId: string): void {
+    const lane = this.lane(laneId);
+    const from = this.indexOf(laneId, fromId);
+    const to = this.indexOf(laneId, toId);
+    if (lane && from >= 0 && to >= 0) removeRange(lane.tokens, from, to);
   }
 
   setGroup(laneId: string, tokenId: string, group: GroupType): void {

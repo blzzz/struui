@@ -67,7 +67,7 @@ function convert(el: Element, text: string, out: Token[]): void {
     return;
   }
   if (src.type_ === 'atom') {
-    if (src.source_ === PAUSE && (mods.random !== null || mods.repeat !== null)) return raw();
+    if (src.source_ === PAUSE && !pauseMods(mods)) return raw();
     out.push(soundToken(atomText(el), mods));
     return;
   }
@@ -92,7 +92,7 @@ function stackContent(src: Atom | Pattern): Element[] | null {
     const el = seq.source_[0] as Element;
     const mods = modifiers(el);
     if (el.source_.type_ !== 'atom' || !mods) return null;
-    if (el.source_.source_ === PAUSE && (mods.random !== null || mods.repeat !== null)) return null;
+    if (el.source_.source_ === PAUSE && !pauseMods(mods)) return null;
     members.push(el);
   }
   return members.length > 1 ? members : null;
@@ -167,6 +167,11 @@ function modifiers(el: Element): Modifiers | null {
     }
   }
   return result;
+}
+
+/** Die Pause trägt nur ein Gewicht (`~@2`, siehe `repeatOps`). */
+function pauseMods(m: Modifiers): boolean {
+  return m.random === null && (m.repeat === null || m.repeat.op === '@');
 }
 
 function isNumberAtom(x: unknown): x is Atom {

@@ -1,16 +1,22 @@
 <script lang="ts">
-  import { flushSync, untrack } from 'svelte';
-  import { isValueAtom, singleValue, stepValue } from '../domain/effects.ts';
-  import { DEFAULT_VOICE, isNote, stepNote } from '../domain/notes.ts';
-  import { isSoundName, stepVariant } from '../domain/sounds.ts';
-  import { onceVisible } from '../interaction/in-view.ts';
-  import { press } from '../interaction/press.ts';
-  import { tokenGestures } from '../interaction/token-gestures.ts';
-  import { CLOSING, hasModifiers, hasSteps, isPause, label } from '../domain/types.ts';
-  import { playback } from '../state/playback.svelte.ts';
-  import { project } from '../state/project.svelte.ts';
-  import { session } from '../state/session.svelte.ts';
-  import type { GroupType, Repeat, Token } from '../domain/types.ts';
+  import { flushSync, untrack } from "svelte";
+  import { isValueAtom, singleValue, stepValue } from "../domain/effects.ts";
+  import { DEFAULT_VOICE, isNote, stepNote } from "../domain/notes.ts";
+  import { isSoundName, stepVariant } from "../domain/sounds.ts";
+  import { onceVisible } from "../interaction/in-view.ts";
+  import { press } from "../interaction/press.ts";
+  import { tokenGestures } from "../interaction/token-gestures.ts";
+  import {
+    hasModifiers,
+    hasSteps,
+    isPause,
+    label,
+    repeatOps,
+  } from "../domain/types.ts";
+  import { playback } from "../state/playback.svelte.ts";
+  import { project } from "../state/project.svelte.ts";
+  import { session } from "../state/session.svelte.ts";
+  import type { GroupType, Repeat, Token } from "../domain/types.ts";
 
   /** `value`: Stein in einer Effektreihe, er trägt einen Wert statt eines Klangs. */
   let {
@@ -21,6 +27,7 @@
     replacing = false,
     stacking = false,
     spanned = false,
+    selectable = false,
     stackPrev = false,
     stackNext = false,
   }: {
@@ -35,54 +42,88 @@
     /** Stapel: hängt am Stein davor bzw. der nächste hängt an ihm (eckige Ecken auf dieser Seite). */
     stackPrev?: boolean;
     stackNext?: boolean;
-    /** Umschliessen im Gang: der Stein liegt im Bereich, den das Klammerpaar fassen würde. */
+    /** Auswahl im Gang: der Stein liegt im ausgewählten Bereich. */
     spanned?: boolean;
+    /** Die Reihe hat mehr als einen Stein: das Menü bietet «Auswählen». */
+    selectable?: boolean;
   } = $props();
 
   const lit = $derived(session.lit.has(token.id));
-  const BRACKET_TONES: Record<GroupType, string> = { '[': 'br1', '<': 'br2', '{': 'br3' };
+  const BRACKET_TONES: Record<GroupType, string> = {
+    "[": "br1",
+    "<": "br2",
+    "{": "br3",
+  };
   /** Kompaktansicht: Farbe des Strichs unten. */
-  const REPEAT_MARKS: Record<Repeat['op'], string> = { '*': 'b', '!': 'g', '@': 'o' };
+  const REPEAT_MARKS: Record<Repeat["op"], string> = {
+    "*": "b",
+    "!": "g",
+    "@": "o",
+  };
 
   const tone = $derived(
-    token.kind === 'sound'
+    token.kind === "sound"
       ? isPause(token)
-        ? 'pause'
+        ? "pause"
         : value
-          ? 'val'
-          : 'snd'
-      : token.kind === 'raw'
-        ? 'raw'
+          ? "val"
+          : "snd"
+      : token.kind === "raw"
+        ? "raw"
         : BRACKET_TONES[token.group],
   );
   const text = $derived(label(token));
-  const fontSize = $derived(token.kind !== 'sound' ? null : text.length > 7 ? '8px' : text.length > 4 ? '10px' : '12px');
+  /** Wiederholung für die Markierung in der Kompaktansicht, auch das Gewicht einer Pause. */
+  const repeatMark = $derived(
+    (token.kind === "sound" || token.kind === "close") &&
+      repeatOps(token).length > 0
+      ? token.repeat
+      : null,
+  );
+  const fontSize = $derived(
+    token.kind !== "sound"
+      ? null
+      : text.length > 7
+        ? "8px"
+        : text.length > 4
+          ? "10px"
+          : "12px",
+  );
 
   /**
    * Wertsteine werden direkt bearbeitet: Tippen öffnet ein Feld im Stein, jede gültige Eingabe gilt sofort.
    * ↑/↓ (oder − und +) springen zum nächsten Wert aus Strudels Beispielen. Langes Drücken öffnet den Dialog.
    */
   /** Notenstein (Notenspur): bearbeitet sich wie ein Wert, ↑/↓ gehen einen Halbton weiter. Pausen nicht. */
-  const notes = $derived(!value && project.contentOf(laneId) === 'notes');
+  const notes = $derived(!value && project.contentOf(laneId) === "notes");
   /**
    * Klangstein: ebenso, Tippen öffnet ein Feld für den Namen, wahlweise mit Variante (`bd:3`).
    * ↑/↓ und −/+ zählen die Variante. Pausen nicht. Langes Drücken öffnet wie bei Noten das Menü.
    */
-  const editable = $derived(token.kind === 'sound' && (value || !isPause(token)));
+  const editable = $derived(
+    token.kind === "sound" && (value || !isPause(token)),
+  );
   /** Positionen einer Sampler-Spur mit `scrub`: auch mit Geschwindigkeit nach dem Doppelpunkt (`.5:2`). */
   const lists = $derived(value && project.valueLists(laneId));
-  const valid = (text: string) => (notes ? isNote(text) : value ? isValueAtom(text, lists) : isSoundName(text));
-  const values = $derived(value ? (project.lane(laneId)?.info?.values ?? []) : []);
+  const valid = (text: string) =>
+    notes ? isNote(text) : value ? isValueAtom(text, lists) : isSoundName(text);
+  const values = $derived(
+    value ? (project.lane(laneId)?.info?.values ?? []) : [],
+  );
   /** Zahlentastatur, wenn Strudels Beispiele nur Zahlen ab 0 zeigen. Nicht bei Listen: Sie hat keinen Doppelpunkt. */
-  const numeric = $derived(!lists && values.length > 0 && values.every((v) => /^(\d+\.?\d*|\.\d+)$/.test(v)));
+  const numeric = $derived(
+    !lists &&
+      values.length > 0 &&
+      values.every((v) => /^(\d+\.?\d*|\.\d+)$/.test(v)),
+  );
   let editing = $state(false);
-  let draft = $state('');
-  let before = '';
+  let draft = $state("");
+  let before = "";
   let input = $state<HTMLInputElement>();
 
   // Eben über das + angehängt (Note oder Wert): gleich offen. Das + fokussiert das Feld noch in seiner Geste (iOS-Tastatur).
   untrack(() => {
-    if (editable && token.kind === 'sound' && session.editNew === token.id) {
+    if (editable && token.kind === "sound" && session.editNew === token.id) {
       session.editNew = null;
       before = draft = token.sound;
       editing = true;
@@ -90,7 +131,7 @@
   });
 
   function startEdit() {
-    if (token.kind !== 'sound') return;
+    if (token.kind !== "sound") return;
     before = draft = token.sound;
     editing = true;
     // Noch in der Geste fokussieren, sonst öffnet iOS keine Tastatur
@@ -105,8 +146,14 @@
   }
 
   function step(dir: 1 | -1) {
-    const current = token.kind === 'sound' ? token.sound : draft;
-    apply(notes ? stepNote(current, dir) : value ? stepValue(current, values, dir) : stepVariant(current, dir));
+    const current = token.kind === "sound" ? token.sound : draft;
+    apply(
+      notes
+        ? stepNote(current, dir)
+        : value
+          ? stepValue(current, values, dir)
+          : stepVariant(current, dir),
+    );
     audition();
   }
 
@@ -115,12 +162,16 @@
    * Sampler-Spur), eine Note mit dem Klang ihrer Spur. Nicht bei Pausen, Werten und MIDI-Spuren (die klingen nicht im Browser).
    */
   function audition() {
-    if (session.playing || token.kind !== 'sound' || isPause(token)) return;
+    if (session.playing || token.kind !== "sound" || isPause(token)) return;
     const lane = project.lane(laneId);
-    if (!lane || lane.track.type === 'midi') return;
-    if (lane.content === 'sounds' && isSoundName(token.sound)) void playback.preview(token.sound);
-    else if (lane.content === 'notes' && isNote(token.sound))
-      void playback.preview(singleValue(lane.track.voice.tokens) ?? DEFAULT_VOICE, token.sound);
+    if (!lane || lane.track.type === "midi") return;
+    if (lane.content === "sounds" && isSoundName(token.sound))
+      void playback.preview(token.sound);
+    else if (lane.content === "notes" && isNote(token.sound))
+      void playback.preview(
+        singleValue(lane.track.voice.tokens) ?? DEFAULT_VOICE,
+        token.sound,
+      );
   }
 
   /**
@@ -128,17 +179,30 @@
    * Abspielen nicht erst laden muss. Ändert sich der Klang, gilt das für den neuen.
    */
   const preloadSound = $derived.by(() => {
-    if (value || token.kind !== 'sound' || isPause(token) || !isSoundName(token.sound)) return null;
+    if (
+      value ||
+      token.kind !== "sound" ||
+      isPause(token) ||
+      !isSoundName(token.sound)
+    )
+      return null;
     const lane = project.lane(laneId);
-    return lane && lane.track.type !== 'midi' && lane.content === 'sounds' ? token.sound : null;
+    return lane && lane.track.type !== "midi" && lane.content === "sounds"
+      ? token.sound
+      : null;
   });
 
   /**
-   * Andere Steine öffnen beim Tippen ein Menü darüber: Entfernen. Ersetzen geht durch Ziehen eines Klangs aus der Palette
-   * auf den Stein. Bei Klammern wählt das Menü zusätzlich die Klammerart des Paars, Entfernen löst das Paar auf.
+   * Andere Steine öffnen beim Tippen ein Menü darüber: Entfernen, Verdoppeln, Auswählen (Noten, Klänge und Werte zeigen es
+   * zusammen mit ihrem Feld). Ersetzen geht durch Ziehen eines Klangs aus der Palette auf den Stein.
+   * Bei Klammern wählt das Menü zusätzlich die Klammerart des Paars, Entfernen löst das Paar auf, Verdoppeln nimmt es ganz.
    */
-  const menuOpen = $derived(session.menu?.laneId === laneId && session.menu.tokenId === token.id);
-  const bracket = $derived(token.kind === 'open' || token.kind === 'close' ? token.group : null);
+  const menuOpen = $derived(
+    session.menu?.laneId === laneId && session.menu.tokenId === token.id,
+  );
+  const bracket = $derived(
+    token.kind === "open" || token.kind === "close" ? token.group : null,
+  );
   let root = $state<HTMLElement>();
 
   $effect(() => {
@@ -147,13 +211,13 @@
       if (!root?.contains(e.target as Node)) session.menu = null;
     };
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') session.menu = null;
+      if (e.key === "Escape") session.menu = null;
     };
-    document.addEventListener('pointerdown', onDown);
-    document.addEventListener('keydown', onKeyDown);
+    document.addEventListener("pointerdown", onDown);
+    document.addEventListener("keydown", onKeyDown);
     return () => {
-      document.removeEventListener('pointerdown', onDown);
-      document.removeEventListener('keydown', onKeyDown);
+      document.removeEventListener("pointerdown", onDown);
+      document.removeEventListener("keydown", onKeyDown);
     };
   });
 
@@ -164,24 +228,28 @@
     else project.removeToken(laneId, token.id);
   }
 
-  /** Umschliessen im Gang in dieser Reihe: Antippen wählt den Stein, bis zu dem das Paar reicht. */
-  const picking = $derived(session.wrap?.laneId === laneId);
-  const anchor = $derived(picking && session.wrap?.tokenId === token.id);
-
-  /** Antippen während des Umschliessens schliesst es ab. Gibt true zurück, wenn der Tipp dafür verbraucht wurde. */
-  function finishWrap(): boolean {
-    const w = session.wrap;
-    if (!w || w.laneId !== laneId) return false;
-    session.wrap = null;
-    project.wrapRange(laneId, w.tokenId, token.id, w.group);
-    return true;
+  function duplicateIt() {
+    session.menu = null;
+    editing = false;
+    project.duplicateToken(laneId, token.id);
   }
 
-  function hover(on: boolean) {
-    const w = session.wrap;
-    if (!w || w.laneId !== laneId) return;
-    if (on) w.hoverId = token.id;
-    else if (w.hoverId === token.id) w.hoverId = null;
+  function selectIt() {
+    editing = false;
+    session.startSelection(laneId, token.id);
+  }
+
+  /** Auswahl im Gang in dieser Reihe: Antippen setzt das Ende des Bereichs. */
+  const picking = $derived(session.selection?.laneId === laneId);
+  const anchor = $derived(picking && session.selection?.fromId === token.id);
+
+  /** Antippen während der Auswahl setzt ihr Ende. Gibt true zurück, wenn der Tipp dafür verbraucht wurde. */
+  function extendSelection(): boolean {
+    const sel = session.selection;
+    if (!sel || sel.laneId !== laneId) return false;
+    sel.toId = token.id;
+    sel.chosen = true;
+    return true;
   }
 
   function chooseGroup(group: GroupType) {
@@ -190,13 +258,13 @@
   }
 
   function onKey(e: KeyboardEvent) {
-    if (e.key === 'Enter') input?.blur();
-    else if (e.key === 'Escape') {
+    if (e.key === "Enter") input?.blur();
+    else if (e.key === "Escape") {
       apply(before);
       input?.blur();
-    } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+    } else if (e.key === "ArrowUp" || e.key === "ArrowDown") {
       e.preventDefault();
-      step(e.key === 'ArrowUp' ? 1 : -1);
+      step(e.key === "ArrowUp" ? 1 : -1);
     }
   }
 </script>
@@ -204,7 +272,7 @@
 <div
   bind:this={root}
   class="slot"
-  class:wide={token.kind === 'raw'}
+  class:wide={token.kind === "raw"}
   class:on={lit}
   class:replacing
   class:stacking
@@ -216,27 +284,35 @@
   class:spanned
   role="button"
   tabindex="0"
-  aria-label={`${value ? 'Wert' : notes ? 'Note' : 'Stein'} ${text}`}
-  onpointerenter={() => hover(true)}
-  onpointerleave={() => hover(false)}
-  {@attach preloadSound ? onceVisible(() => preloadSound && playback.preload(preloadSound)) : null}
+  aria-label={`${value ? "Wert" : notes ? "Note" : "Stein"} ${text}`}
+  {@attach preloadSound
+    ? onceVisible(() => preloadSound && playback.preload(preloadSound))
+    : null}
   {@attach tokenGestures(() => ({
     onTap: () => {
-      if (finishWrap()) return;
+      if (extendSelection()) return;
       audition();
       if (editable) startEdit();
       else session.openMenu(laneId, token.id);
     },
     // Nur noch per Tastatur (Enter): Wertsteine öffnen den Wertdialog, Noten und Klänge das Feld, andere ihr Menü
     onDoubleTap: () =>
-      finishWrap() ||
-      (!value && editable ? startEdit() : editable ? session.openSheet(laneId, token.id) : session.openMenu(laneId, token.id)),
+      extendSelection() ||
+      (!value && editable
+        ? startEdit()
+        : editable
+          ? session.openSheet(laneId, token.id)
+          : session.openMenu(laneId, token.id)),
     immediateTap: true,
-    // Noten und Klänge: langes Drücken öffnet das Menü (Entfernen, Umschliessen), weil Tippen schon bearbeitet
-    onLongPress: !editable ? undefined : !value ? () => session.openMenu(laneId, token.id) : () => session.openSheet(laneId, token.id),
+    // Noten und Klänge: langes Drücken öffnet das Menü allein, ohne Feld
+    onLongPress: !editable
+      ? undefined
+      : !value
+        ? () => session.openMenu(laneId, token.id)
+        : () => session.openSheet(laneId, token.id),
     onDragMove: (target) => {
       session.menu = null;
-      session.wrap = null;
+      session.selection = null;
       session.dropHint = target;
     },
     onDrop: (target) => {
@@ -249,10 +325,10 @@
       <input
         bind:this={input}
         type="text"
-        inputmode={numeric ? 'decimal' : 'text'}
+        inputmode={numeric ? "decimal" : "text"}
         value={draft}
         size={Math.max(draft.length, 2) + 1}
-        aria-label={notes ? 'Note' : value ? 'Wert' : 'Klang'}
+        aria-label={notes ? "Note" : value ? "Wert" : "Klang"}
         aria-invalid={!valid(draft.trim())}
         spellcheck="false"
         autocomplete="off"
@@ -269,7 +345,7 @@
       {text}
     {/if}
     {#if hasModifiers(token) && token.random !== null}<i class="mk r"></i>{/if}
-    {#if hasModifiers(token) && token.repeat}<i class="mk {REPEAT_MARKS[token.repeat.op]}"></i>{/if}
+    {#if repeatMark}<i class="mk {REPEAT_MARKS[repeatMark.op]}"></i>{/if}
     {#if hasSteps(token) && token.steps !== null}<i class="mk m"></i>{/if}
   </div>
   <!-- Menü darüber: beim Tippen auf Klang- und Klammersteine, bei Noten und Werten zusammen mit dem Eingabefeld.
@@ -279,46 +355,81 @@
       <button
         role="menuitem"
         tabindex={editing ? -1 : 0}
-        aria-label={bracket ? 'Klammerpaar auflösen' : 'Entfernen'}
-        title={bracket ? 'Klammerpaar auflösen' : 'Entfernen'}
+        aria-label={bracket ? "Klammerpaar auflösen" : "Entfernen"}
+        title={bracket ? "Klammerpaar auflösen" : "Entfernen"}
         {@attach press(removeIt)}
       >
-        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.7 8.5h5.6l.7-8.5M7 7v4M9 7v4" /></svg>
+        <svg viewBox="0 0 16 16" aria-hidden="true"
+          ><path
+            d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.7 8.5h5.6l.7-8.5M7 7v4M9 7v4"
+          /></svg
+        >
       </button>
-      {#if !bracket}
-        <!-- Umschliessen als kleine Klammersteine: danach den Stein antippen, bis zu dem das Paar reichen soll -->
-        <span class="sep" aria-hidden="true"></span>
-        {#each ['[', '<', '{'] as const as g (g)}
-          <button
-            role="menuitem"
-            tabindex={editing ? -1 : 0}
-            class="wrapstone {BRACKET_TONES[g]}"
-            aria-label={`Mit ${g} ${CLOSING[g]} umschliessen`}
-            title={`Mit ${g} ${CLOSING[g]} umschliessen, dann den letzten Stein antippen`}
-            {@attach press(() => {
-              input?.blur();
-              session.startWrap(laneId, token.id, g);
-            })}>{g}&#8239;{CLOSING[g]}</button
+      <button
+        role="menuitem"
+        tabindex={editing ? -1 : 0}
+        aria-label={bracket ? "Klammerpaar verdoppeln" : "Verdoppeln"}
+        title={bracket ? "Klammerpaar samt Inhalt verdoppeln" : "Verdoppeln"}
+        {@attach press(duplicateIt)}
+      >
+        <svg viewBox="0 0 16 16" aria-hidden="true"
+          ><rect x="5.5" y="5.5" width="8" height="8" rx="1.5" /><path
+            d="M10.5 5.5v-2a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2"
+          /></svg
+        >
+      </button>
+      {#if selectable}
+        <button
+          role="menuitem"
+          tabindex={editing ? -1 : 0}
+          aria-label="Auswählen"
+          title="Auswählen, dann weitere Steine antippen"
+          {@attach press(selectIt)}
+        >
+          <svg viewBox="0 0 16 16" aria-hidden="true"
+            ><path
+              d="M2.5 5V3.5a1 1 0 0 1 1-1H5M7 2.5h2M11 2.5h1.5a1 1 0 0 1 1 1V5M13.5 7v2M13.5 11v1.5a1 1 0 0 1-1 1H11M9 13.5H7M5 13.5H3.5a1 1 0 0 1-1-1V11M2.5 9V7"
+            /></svg
           >
-        {/each}
-      {:else}
-        {#each ['[', '<', '{'] as const as g (g)}
-          <button
-            role="menuitemradio"
-            aria-checked={bracket === g}
-            class="br {BRACKET_TONES[g]}"
-            aria-label={`Klammerart ${g}`}
-            {@attach press(() => chooseGroup(g))}>{g}</button
-          >
-        {/each}
+        </button>
       {/if}
+    </div>
+  {/if}
+  {#if menuOpen && bracket}
+    <!-- Klammerart darunter, wie −/+ bei Klängen, Noten und Werten -->
+    <div class="steps" role="radiogroup" aria-label="Klammerart">
+      {#each ["[", "<", "{"] as const as g (g)}
+        <button
+          role="radio"
+          aria-checked={bracket === g}
+          class="br {BRACKET_TONES[g]}"
+          aria-label={`Klammerart ${g}`}
+          {@attach press(() => chooseGroup(g))}>{g}</button
+        >
+      {/each}
     </div>
   {/if}
   {#if editing}
     <!-- Für Touch ohne Pfeiltasten. `press` lässt dem Feld den Fokus. -->
     <div class="steps">
-      <button tabindex="-1" aria-label={notes ? 'Halbton tiefer' : value ? 'Kleinerer Wert' : 'Vorherige Variante'} {@attach press(() => step(-1))}>−</button>
-      <button tabindex="-1" aria-label={notes ? 'Halbton höher' : value ? 'Grösserer Wert' : 'Nächste Variante'} {@attach press(() => step(1))}>+</button>
+      <button
+        tabindex="-1"
+        aria-label={notes
+          ? "Halbton tiefer"
+          : value
+            ? "Kleinerer Wert"
+            : "Vorherige Variante"}
+        {@attach press(() => step(-1))}>−</button
+      >
+      <button
+        tabindex="-1"
+        aria-label={notes
+          ? "Halbton höher"
+          : value
+            ? "Grösserer Wert"
+            : "Nächste Variante"}
+        {@attach press(() => step(1))}>+</button
+      >
     </div>
   {/if}
 </div>
@@ -327,7 +438,7 @@
   .slot {
     position: relative;
     width: var(--s);
-    height: var(--s);
+    height: var(--sh, var(--s));
     display: flex;
     align-items: center;
     justify-content: center;
@@ -355,7 +466,7 @@
     z-index: 13;
     width: auto;
     min-width: var(--s);
-    height: var(--s);
+    height: var(--sh, var(--s));
     padding: 0 6px;
     border: none;
     border-radius: 8px;
@@ -369,18 +480,23 @@
     user-select: text;
     -webkit-user-select: text;
     /* 16px verhindert das automatische Zoomen auf iOS */
-    font: 700 16px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font:
+      700 16px ui-monospace,
+      SFMono-Regular,
+      Menlo,
+      Consolas,
+      monospace;
   }
-  input[aria-invalid='true'] {
+  input[aria-invalid="true"] {
     outline-color: var(--red);
   }
   /* Menü über dem Stein, mittig */
-  /* Menü, ± und Eingabefeld in einer verkleinerten Reihe (Lane) oder Effektliste (EffectList) in normaler Grösse.
+  /* Menü, ± und Eingabefeld in einer verkleinerten Reihe (Lane) in normaler Grösse.
      Beim Feld nicht die Reihe zurücksetzen, sie spränge unter dem Finger (siehe input). In normaler Grösse zoomt iOS nicht ins Feld. */
   .menu,
   .steps,
   input {
-    zoom: calc(1 / (var(--fit, 1) * var(--fx-fit, 1)));
+    zoom: calc(1 / var(--fit, 1));
   }
   .menu {
     position: absolute;
@@ -389,7 +505,7 @@
     transform: translateX(-50%);
     z-index: 25;
     display: flex;
-    gap: 4px;
+    gap: 0px;
     padding: 4px;
     background: var(--panel);
     border: 1.5px solid var(--line);
@@ -404,6 +520,7 @@
     align-items: center;
     justify-content: center;
     border-color: var(--line);
+    border: none;
   }
   .menu svg {
     width: 18px;
@@ -414,32 +531,11 @@
     stroke-linecap: round;
     stroke-linejoin: round;
   }
-  .menu .br {
+  .steps .br {
     color: #fff;
-    font-size: 18px;
     border-color: transparent;
   }
-  /* Klammerpaar als kleiner Stein, im Menü und unter dem Eingabefeld */
-  .slot .wrapstone {
-    width: auto;
-    padding: 0 7px;
-    border: none;
-    border-radius: 8px;
-    color: #fff;
-    font-size: 15px;
-    font-weight: 500;
-    white-space: nowrap;
-    box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.25);
-  }
-  .slot .wrapstone.br1 { background: var(--br1); }
-  .slot .wrapstone.br2 { background: var(--br2); }
-  .slot .wrapstone.br3 { background: var(--br3); }
-  .menu .sep {
-    width: 1.5px;
-    margin: 4px 2px;
-    background: var(--line);
-  }
-  .menu .br[aria-checked='true'] {
+  .steps .br[aria-checked="true"] {
     outline: 2px solid var(--ink);
     outline-offset: 1px;
   }
@@ -556,13 +652,24 @@
     padding: 0 7px;
     background: var(--code-bg);
     color: var(--code-ink);
-    font: 600 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font:
+      600 12px ui-monospace,
+      SFMono-Regular,
+      Menlo,
+      Consolas,
+      monospace;
     white-space: nowrap;
     box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.35);
   }
-  .br1 { background: var(--br1); }
-  .br2 { background: var(--br2); }
-  .br3 { background: var(--br3); }
+  .br1 {
+    background: var(--br1);
+  }
+  .br2 {
+    background: var(--br2);
+  }
+  .br3 {
+    background: var(--br3);
+  }
 
   /* Markierungen am Stein, wenn Zufalls- oder Drehknöpfe verborgen sind: sonst unsichtbar */
   .mk {
@@ -591,9 +698,17 @@
     /* folgt den runden Ecken des Steins */
     border-radius: 0 0 8px 8px;
   }
-  :global(.noknobs) .mk.b { background: var(--blue); }
-  :global(.noknobs) .mk.g { background: var(--green); }
-  :global(.noknobs) .mk.o { background: var(--orange); }
+  :global(.noknobs) .mk.b {
+    background: var(--blue);
+  }
+  :global(.noknobs) .mk.g {
+    background: var(--green);
+  }
+  :global(.noknobs) .mk.o {
+    background: var(--orange);
+  }
   /* Modulo auf der hellen Klammer weiss, damit er sich abhebt */
-  :global(.noknobs) .mk.m { background: rgba(255, 255, 255, 0.85); }
+  :global(.noknobs) .mk.m {
+    background: rgba(255, 255, 255, 0.85);
+  }
 </style>

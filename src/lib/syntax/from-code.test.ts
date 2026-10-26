@@ -31,6 +31,9 @@ test('code: ganze Zeile mit Name (Kommentar), Stummschaltung (.hush()) und Effek
     ['/* n */ note("c")', '/* n */ note("c")'],
     ['/* n */ note("f d" .add("<0 3>").div( 2 )).s("sine")', '/* n */ note("f d".add("<0 3>").div(2)).s("sine")'],
     ['/* b */ s("brk/2").fit( ).scrub("<0 .25>").chop(4)', '/* b */ s("brk/2").fit().scrub("<0 .25>").chop(4)'],
+    ['/* d */ s("bd sd").fast(2).struct("x ~ x x").rev().degradeBy(.3)', '/* d */ s("bd sd").fast(2).struct("x ~ x x").rev().degradeBy(0.3)'],
+    ['/* n */ note("c e g").s("piano").scale("C:major:pentatonic").transpose("<0 3M>")', '/* n */ note("c e g").s("piano").scale("C:major:pentatonic").transpose("<0 3M>")'],
+    ['/* n */ note("c e").trans(-2)', '/* n */ note("c e").trans(-2)'],
   ];
   for (const [input, expected] of cases) assert.equal(roundTrip(input), expected, input);
 });
@@ -123,4 +126,28 @@ test('code: slider(wert, min, max, step) wird zum Regler und zurück', () => {
   assert.ok(!bad.ok);
   assert.equal(bad.offset, '/* a */ s("bd").lpf('.length);
   assert.ok(!codeToTrack('/* a */ s("bd").lpf(slider("<1 2>"))').ok, 'slider nimmt nur Zahlen');
+});
+
+test('code: rand.range(…).segment(…).ribbon(…) wird zur Zufallsreihe und zurück', () => {
+  const cases: [string, string][] = [
+    ['/* a */ s("bd").lpf(rand.range(200, 2000).segment(4).ribbon(0, 1))', '/* a */ s("bd").lpf(rand.range(200, 2000).segment(4).ribbon(0, 1))'],
+    ['/* a */ s("bd").coarse( rand .range( 1,16 ) .round( ) .seg(8) .rib(12, .5) )', '/* a */ s("bd").coarse(rand.range(1, 16).round().segment(8).ribbon(12, 0.5))'],
+    ['/* n */ note("c e".add(rand.range(0, 7).round().segment(4).ribbon(3, 2))).s("sine")', '/* n */ note("c e".add(rand.range(0, 7).round().segment(4).ribbon(3, 2))).s("sine")'],
+  ];
+  for (const [input, expected] of cases) assert.equal(roundTrip(input), expected, input);
+  const r = codeToTrack('/* a */ s("bd").lpf(rand.range(200, 2000).segment(4).ribbon(12, 2)).room(.5)');
+  assert.ok(r.ok);
+  assert.deepEqual(r.effects[0].rand, { min: 200, max: 2000, segments: 4, offset: 12, cycles: 2, whole: false });
+  assert.deepEqual(r.effects[0].tokens, []);
+  assert.equal(r.effects[1].rand, null);
+
+  for (const bad of [
+    '/* a */ s("bd").lpf(rand)',
+    '/* a */ s("bd").lpf(rand.range(200, 2000))',
+    '/* a */ s("bd").lpf(rand.range(200, 2000).ribbon(0, 1))',
+    '/* a */ s("bd").lpf(rand.range(200, 2000).segment(4))',
+    '/* a */ s("bd").lpf(rand.range(2000, 200).segment(4).ribbon(0, 1))',
+    '/* a */ s("bd").lpf(rand.range(200, 2000).segment(0).ribbon(0, 1))',
+    '/* a */ s("bd").lpf(rand.range(200, 2000).segment(4).ribbon(0, 1).fast(2))',
+  ]) assert.ok(!codeToTrack(bad).ok, bad);
 });

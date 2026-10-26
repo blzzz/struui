@@ -12,8 +12,10 @@ export interface EffectInfo {
    * `audio` wirkt auf den Klang, `pitch` setzt die Tonhöhe, `midi` geht nur an MIDI-Geräte (`ccv`, `progNum` …).
    * `sample` zerschneidet oder streckt Samples (`chop`, `scrub`, `fit` …), nur in Klangspuren.
    * `arith` rechnet mit den Noten einer Notenspur (`add`, `div` …, siehe `NOTE_OPS`), kein Effekt.
+   * Musterbefehle verändern die Ereignisse der ganzen Spur: `pattern` in der Zeit (`fast`, `rev`, `struct`), `random` mit Zufall
+   * (`degradeBy`, `shuffle`), `tonal` die Tonhöhe (`transpose`, `scale`).
    */
-  group: 'audio' | 'pitch' | 'midi' | 'sample' | 'arith';
+  group: 'audio' | 'pitch' | 'midi' | 'sample' | 'arith' | 'pattern' | 'random' | 'tonal';
   /** Andere Namen, unter denen Strudel denselben Effekt kennt (`lpf` = `cutoff`). */
   synonyms: string[];
   /** Erster Satz aus Strudels Dokumentation (englisch). */
@@ -24,6 +26,15 @@ export interface EffectInfo {
   values: string[];
   /** Nimmt keinen Wert (`fit`): steht immer als `.fit()` im Code, die Box hat keine Wertreihe. */
   noValue?: true;
+  /** Der Wert ist eine Struktur aus Treffern und Pausen (`struct("x ~ x")`): die Box zeigt immer die Wertsteine, keinen Regler. */
+  miniOnly?: true;
+  /** Startwert einer neuen Box, wenn nicht der mittlere Beispielwert passt (`struct` → `x`, `scale` → `C:major`). */
+  start?: string;
+  /**
+   * Der Wert besteht aus Teilen mit Doppelpunkt, jeder aus einer eigenen Liste: `scale` = Grundton und Tonleiter (`C:minor`,
+   * `F#:major:pentatonic`). Die Box zeigt je Teil eine Auswahl, die Wertsteine dürfen Doppelpunkte tragen.
+   */
+  parts?: string[][];
 }
 
 export interface Effect {
@@ -37,6 +48,25 @@ export interface Effect {
    * gespeichert, steht aber nicht im Code.
    */
   slider?: SliderRange | null;
+  /**
+   * Zufallsreihe statt Wert (`RandSeries`): gesetzt, steht sie im Code statt der Wertsteine. Die Steine bleiben erhalten
+   * für den Rückweg zu Wertebereich oder Notation.
+   */
+  rand?: RandSeries | null;
+}
+
+/**
+ * Wiederholbarer Zufall: `rand.range(min, max).segment(segments).ribbon(offset, cycles)`. Zufallswerte zwischen min und max,
+ * `segments` feste Stufen pro Zyklus, `ribbon` schneidet ab `offset` ein Stück von `cycles` Zyklen heraus und wiederholt es.
+ * Ein anderer offset ist eine andere Reihe. `whole`: dazu `.round()`, ganze Zahlen (`wholeValues`).
+ */
+export interface RandSeries {
+  min: number;
+  max: number;
+  segments: number;
+  offset: number;
+  cycles: number;
+  whole: boolean;
 }
 
 /** Die drei Angaben zu Strudels `slider(wert, min, max, step)`. */
@@ -75,21 +105,34 @@ export function valueInfo(name: string): EffectInfo | undefined {
   return effectInfo(name) ?? noteOpInfo(name);
 }
 
-/** Startwert eines neuen Effekts: der mittlere Beispielwert, oder null, wenn Strudel keinen zeigt. */
+/** Startwert eines neuen Effekts: `start`, sonst der mittlere Beispielwert, oder null, wenn Strudel keinen zeigt. */
 export function defaultValue(info: EffectInfo): string | null {
+  if (info.start !== undefined) return info.start;
   return info.values.length === 0 ? null : info.values[Math.floor((info.values.length - 1) / 2)];
 }
 
-const VALUE_WORD = String.raw`(-?(\d+\.?\d*|\.\d+)|[A-Za-z][\w.#]*)`;
+const VALUE_WORD = String.raw`(-?(\d+\.?\d*|\.\d+)|-?\d+[A-Za-z]+|[A-Za-z][\w.#]*)`;
 const VALUE = new RegExp(`^${VALUE_WORD}$`);
-const VALUE_LIST = new RegExp(`^${VALUE_WORD}(:${VALUE_WORD})*$`);
+/** Teile nach dem ersten Doppelpunkt: dazu Tonleitern wie `in-sen` und `lydian:#5p:pentatonic`. */
+const VALUE_LIST = new RegExp(String.raw`^${VALUE_WORD}(:(${VALUE_WORD}|[\w#][\w.#-]*))*$`);
 
 /**
- * Ein Wert ist ein einzelnes Wort der Mini-Notation: eine Zahl (`800`, `-1`, `.5`) oder ein Name (`a`, `sine`).
- * `list`: auch mehrere Wörter mit Doppelpunkt (`.5:2`), Strudel macht daraus eine Liste. Nur wo sie gelesen wird (`scrub`).
+ * Ein Wert ist ein einzelnes Wort der Mini-Notation: eine Zahl (`800`, `-1`, `.5`), ein Intervall (`3M`, `-2m`) oder ein
+ * Name (`a`, `sine`). `list`: auch mehrere Wörter mit Doppelpunkt (`.5:2`, `C:minor`), Strudel macht daraus eine Liste.
+ * Nur wo sie gelesen wird (`scrub`, `scale`).
  */
 export function isValueAtom(text: string, list = false): boolean {
   return (list ? VALUE_LIST : VALUE).test(text);
+}
+
+/**
+ * Ein Wert aus Teilen (`EffectInfo.parts`) in `count` Teile: an den ersten Doppelpunkten getrennt, der letzte Teil behält
+ * seine (`C:major:pentatonic` → `C`, `major:pentatonic`). Fehlende Teile sind leer.
+ */
+export function splitParts(value: string, count: number): string[] {
+  const parts = value.split(':');
+  const head = parts.slice(0, count - 1);
+  return [...head, parts.slice(count - 1).join(':'), ...Array<string>(Math.max(0, count - 1 - head.length)).fill('')].slice(0, count);
 }
 
 /** Audio-Effekte, die `@strudel/midi` auch für MIDI liest: Strudel schickt `gain × velocity` als Anschlagstärke. */
@@ -97,9 +140,12 @@ const MIDI_AUDIO = new Set(['velocity', 'gain']);
 
 /**
  * Was eine Spur anbietet: Klang- und Sampler-Spuren Audio, Tonhöhe und Sample-Funktionen, Notenspuren nur Audio (die Tonhöhe tragen
- * die Steine), MIDI-Spuren MIDI, Tonhöhe und die Anschlagstärke.
+ * die Steine), MIDI-Spuren MIDI, Tonhöhe und die Anschlagstärke. Musterbefehle in der Zeit und mit Zufall gibt es überall,
+ * die für Tonhöhen (`transpose`, `scale`) nur bei Noten- und MIDI-Spuren: Klänge aus `s("…")` haben keine Tonhöhe.
  */
 export function offersEffect(type: TrackType, e: EffectInfo): boolean {
+  if (e.group === 'pattern' || e.group === 'random') return true;
+  if (e.group === 'tonal') return type === 'note' || type === 'midi';
   if (type === 'sound' || type === 'sampler') return e.group === 'audio' || e.group === 'pitch' || e.group === 'sample';
   if (type === 'note') return e.group === 'audio';
   return e.group === 'midi' || e.group === 'pitch' || MIDI_AUDIO.has(e.name);
@@ -229,6 +275,23 @@ export function fromSlider(pos: number, stops: readonly number[]): number {
   return Number(raw.toFixed(decimals));
 }
 
+/** Nachkommastellen einer Zahl, wie sie im Code steht (`0.25` → 2). */
+function decimalsOf(n: number): number {
+  return String(n).split('.')[1]?.length ?? 0;
+}
+
+/** Position eines Werts im eingestellten Bereich (`slider()`), 0 … 1, linear. Werte ausserhalb landen am Rand. */
+export function toRange(value: number, r: SliderRange): number {
+  return Math.min(1, Math.max(0, (value - r.min) / (r.max - r.min)));
+}
+
+/** Wert an einer Position (0 … 1) im eingestellten Bereich: auf `step` ab `min` gerundet, nie über `max`. */
+export function fromRange(pos: number, r: SliderRange): number {
+  const steps = Math.round((Math.min(1, Math.max(0, pos)) * (r.max - r.min)) / r.step);
+  const value = Math.min(r.max, r.min + steps * r.step);
+  return Number(value.toFixed(Math.max(decimalsOf(r.min), decimalsOf(r.step))));
+}
+
 /** Brauchbar als `slider()`: endliche Zahlen, min unter max, Schritt grösser 0. */
 export function isSliderRange(r: SliderRange): boolean {
   return [r.min, r.max, r.step].every(Number.isFinite) && r.min < r.max && r.step > 0;
@@ -247,6 +310,46 @@ export function suggestSliderRange(info: EffectInfo | undefined, current: number
     min = Math.min(min, current);
     max = Math.max(max, current);
   }
-  const step = 10 ** Math.floor(Math.log10((max - min) / 100));
-  return { min, max, step };
+  return { min, max, step: sliderStep(min, max) };
+}
+
+/** Schritt zu einem Bereich: eine runde Zahl um ein Hundertstel davon (100–8000 → 10). Ohne gültigen Bereich 1. */
+export function sliderStep(min: number, max: number): number {
+  if (!Number.isFinite(min) || !Number.isFinite(max) || max <= min) return 1;
+  return 10 ** Math.floor(Math.log10((max - min) / 100));
+}
+
+/** Brauchbar als Zufallsreihe: endliche Zahlen, min unter max, Segmente eine ganze Zahl ab 1, Zyklen über 0. */
+export function isRandSeries(r: RandSeries): boolean {
+  return (
+    [r.min, r.max, r.offset, r.cycles].every(Number.isFinite) &&
+    r.min < r.max &&
+    Number.isInteger(r.segments) &&
+    r.segments >= 1 &&
+    r.cycles > 0
+  );
+}
+
+/**
+ * Ganze Zahlen für eine Zufallsreihe (`.round()`): wenn min und max ganz sind und alle Beispielwerte aus Strudels
+ * Dokumentation auch (`n`, `coarse`; nicht `room` mit `.5`). Ohne Beispielwerte nie.
+ */
+export function wholeValues(info: EffectInfo | undefined, min: number, max: number): boolean {
+  const values = info?.values ?? [];
+  return (
+    Number.isInteger(min) &&
+    Number.isInteger(max) &&
+    values.length > 0 &&
+    values.every((v) => /^-?\d+$/.test(v.trim()))
+  );
+}
+
+/** Vorschlag für eine neue Zufallsreihe: der eingestellte Bereich oder der Vorschlag dafür, 4 Segmente, ein Zyklus ab 0. */
+export function suggestRandSeries(
+  info: EffectInfo | undefined,
+  current: number | null,
+  range?: SliderRange | null,
+): RandSeries {
+  const { min, max } = range ?? suggestSliderRange(info, current);
+  return { min, max, segments: 4, offset: 0, cycles: 1, whole: wholeValues(info, min, max) };
 }

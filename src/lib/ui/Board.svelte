@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { untrack } from "svelte";
+  import { tick, untrack } from "svelte";
   import type { Attachment } from "svelte/attachments";
   import { MIN_WIDTH, PAD, dotsFor, gapFor, magnet, pxFor } from "../domain/board.ts";
   import type { Rect, Side } from "../domain/board.ts";
@@ -21,6 +21,7 @@
    * Wahl der Art. Danach tippt man einen Punkt als obere linke Ecke an und zieht nach unten die Höhe auf (Breite fest).
    * Ein Klang aus der Palette, auf freie Fläche gezogen, zeigt gleich die neue Spur unter dem Zeiger (obere linke Ecke);
    * beim Loslassen erscheint dort die Wahl der Art, die Spur beginnt dann mit dem Klang.
+   * Ein Doppelklick auf freie Fläche zeigt dort ebenso die Wahl der Art, die Spur beginnt dann leer.
    */
 
   /** Abstand der Übersicht zum Rand, Platz für die Plus-Knöpfe. */
@@ -359,7 +360,13 @@
   /** Wahl der Art schliessen, ob vom Plus oder für einen Klang aus der Palette. */
   function closeMenu() {
     closeAdd();
+    if (!arriving) return;
     arriving = null;
+    // Nach einem Doppelklick in der Übersicht gleitet sie zurück
+    if (pan.x || pan.y) {
+      pan = { x: 0, y: 0 };
+      glideThen();
+    }
   }
 
   $effect(() => {
@@ -380,8 +387,11 @@
     };
   });
 
-  /** Klang aus der Palette auf freier Fläche losgelassen: hier entsteht die neue Spur, sobald ihre Art gewählt ist. */
-  let arriving = $state<{ x: number; y: number; item: PaletteItem } | null>(null);
+  /**
+   * Klang aus der Palette auf freier Fläche losgelassen oder Doppelklick (ohne `item`): hier entsteht die neue Spur,
+   * sobald ihre Art gewählt ist.
+   */
+  let arriving = $state<{ x: number; y: number; item?: PaletteItem } | null>(null);
 
   // Losgelassen: auf freier Fläche erscheint die Wahl der Art, sonst passiert nichts
   $effect(() => {
@@ -396,6 +406,32 @@
       arriving = { ...at, item: l.item };
     });
   });
+
+  /**
+   * Doppelklick auf freie Fläche: dort erscheint die Wahl der Art für eine leere Spur (wie das Plus, nur gleich an Ort).
+   * Die Kamera (in der Übersicht die Verschiebung) gleitet, bis die Wahl in der Mitte steht.
+   */
+  const dblclickAdd: Attachment<HTMLElement> = (el) => {
+    const onDbl = async (e: MouseEvent) => {
+      if (placing) return;
+      const at = freeDot(e.clientX, e.clientY);
+      if (!at) return;
+      closeAdd();
+      arriving = at;
+      // `$state` hält einen Proxy, nicht `at` selbst
+      const mine = arriving;
+      await tick();
+      if (!menuAt || !addMenu || arriving !== mine) return;
+      // Mitte der Wahl: 8 px unter `menuAt` (`.addmenu.below`), dann ihre halbe Höhe
+      const dx = menuAt.x - vw / 2;
+      const dy = menuAt.y + 8 + addMenu.offsetHeight / 2 - vh / 2;
+      glideThen();
+      if (board.overview) pan = { x: pan.x - dx, y: pan.y - dy };
+      else cam = { x: cam.x + dx / gap, y: cam.y + dy / gap };
+    };
+    el.addEventListener("dblclick", onDbl);
+    return () => el.removeEventListener("dblclick", onDbl);
+  };
 
   /** Wo die Wahl der Art steht: unter dem Plus in der Mitte bzw. unter der Mitte der neuen Spur aus der Palette. */
   const menuAt = $derived.by(() => {
@@ -414,6 +450,7 @@
     if (arriving) {
       const id = board.add(type, arriving.x, arriving.y, 1, arriving.item);
       arriving = null;
+      pan = { x: 0, y: 0 };
       select(id);
       return;
     }
@@ -580,6 +617,7 @@
   style:background-position="{view.tx}px {view.ty}px"
   {onscroll}
   {@attach wheel}
+  {@attach dblclickAdd}
   {@attach touchPan}
 >
   <div
@@ -953,7 +991,8 @@
       background-position var(--glide) ease,
       background-size var(--glide) ease;
   }
-  .glide .plus {
+  .glide .plus,
+  .glide .addmenu {
     transition:
       left var(--glide) ease,
       top var(--glide) ease;

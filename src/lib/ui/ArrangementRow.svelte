@@ -1,9 +1,12 @@
 <script lang="ts">
-  import { TIMES_VALUES } from '../domain/arrangement.ts';
-  import { tokenGestures } from '../interaction/token-gestures.ts';
-  import { ARRANGEMENT_LANE, arrangement } from '../state/arrangement.svelte.ts';
-  import { scenes } from '../state/scenes.svelte.ts';
-  import Knob from './Knob.svelte';
+  import { TIMES_VALUES } from "../domain/arrangement.ts";
+  import { tokenGestures } from "../interaction/token-gestures.ts";
+  import {
+    ARRANGEMENT_LANE,
+    arrangement,
+  } from "../state/arrangement.svelte.ts";
+  import { scenes } from "../state/scenes.svelte.ts";
+  import Knob from "./Knob.svelte";
 
   interface Props {
     /** Szene wählen (fragt bei nicht übernommenen Änderungen nach). */
@@ -15,7 +18,12 @@
    * Offenes Menü über einem Abschnitt, wie bei den Steinen der Spuren: nur Icons. Fest am Fenster, weil die Zeile
    * scrollt und es sonst abschneiden würde; deshalb hier die Lage des Steins.
    */
-  let menu = $state<{ id: string; sceneId: string; left: number; bottom: number } | null>(null);
+  let menu = $state<{
+    id: string;
+    sceneId: string;
+    left: number;
+    bottom: number;
+  } | null>(null);
 
   /** Breite des Menüs: zwei Knöpfe zu 34 px, Abstand, Rand und Rahmen. */
   const MENU_WIDTH = 82;
@@ -30,7 +38,10 @@
     const r = el.getBoundingClientRect();
     // Mittig über dem Stein, aber ganz im Bild (der Stein kann in der Zeile halb hinausgescrollt sein)
     const half = MENU_WIDTH / 2 + 8;
-    const left = Math.min(Math.max(r.left + r.width / 2, half), window.innerWidth - half);
+    const left = Math.min(
+      Math.max(r.left + r.width / 2, half),
+      window.innerWidth - half,
+    );
     menu = { id, sceneId, left, bottom: window.innerHeight - r.top + 6 };
   }
 
@@ -38,25 +49,26 @@
   function closeOutside(node: HTMLElement) {
     const down = (e: PointerEvent) => {
       const t = e.target as Element;
-      if (!node.contains(t) && !t.closest('[data-section]')) menu = null;
+      if (!node.contains(t) && !t.closest("[data-section]")) menu = null;
     };
     const key = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') menu = null;
+      if (e.key === "Escape") menu = null;
     };
     const close = () => (menu = null);
-    window.addEventListener('pointerdown', down);
-    window.addEventListener('keydown', key);
-    window.addEventListener('resize', close);
-    window.addEventListener('scroll', close, true);
+    window.addEventListener("pointerdown", down);
+    window.addEventListener("keydown", key);
+    window.addEventListener("resize", close);
+    window.addEventListener("scroll", close, true);
     return () => {
-      window.removeEventListener('pointerdown', down);
-      window.removeEventListener('keydown', key);
-      window.removeEventListener('resize', close);
-      window.removeEventListener('scroll', close, true);
+      window.removeEventListener("pointerdown", down);
+      window.removeEventListener("keydown", key);
+      window.removeEventListener("resize", close);
+      window.removeEventListener("scroll", close, true);
     };
   }
 
-  const name = (sceneId: string) => scenes.list.find((s) => s.id === sceneId)?.name ?? '?';
+  const name = (sceneId: string) =>
+    scenes.list.find((s) => s.id === sceneId)?.name ?? "?";
 
   /** Abschnitt antippen öffnet das Menü, doppelt antippen wählt seine Szene, Ziehen verschiebt ihn in der Zeile. */
   function gestures(id: string, sceneId: string) {
@@ -95,7 +107,8 @@
       data-drop-kind="col"
       class:hint={arrangement.hint === i}
       class:playing={arrangement.position?.sectionId === x.id}
-      class:hint-after={i === arrangement.sections.length - 1 && arrangement.hint === i + 1}
+      class:hint-after={i === arrangement.sections.length - 1 &&
+        arrangement.hint === i + 1}
     >
       <div
         class="section"
@@ -123,13 +136,22 @@
       />
     </div>
   {:else}
-    <p class="empty">Arrangement: Szenen hierher ziehen. Der !-Knopf darunter zählt die Zyklen.</p>
+    <p class="empty">
+      Arrangement: Szenen hierher ziehen. Der !-Knopf darunter zählt die Zyklen.
+    </p>
   {/each}
 </div>
 
 {#if menu}
   {@const m = menu}
-  <div class="menu" role="menu" aria-label={name(m.sceneId)} style:left="{m.left}px" style:bottom="{m.bottom}px" {@attach closeOutside}>
+  <div
+    class="menu"
+    role="menu"
+    aria-label={name(m.sceneId)}
+    style:left="{m.left}px"
+    style:bottom="{m.bottom}px"
+    {@attach closeOutside}
+  >
     <button
       role="menuitem"
       aria-label="Szene bearbeiten"
@@ -139,7 +161,11 @@
         onSelect(m.sceneId);
       }}
     >
-      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 13l.8-3.2L10.5 3.1l2.4 2.4-6.7 6.7zM9.3 4.3l2.4 2.4" /></svg>
+      <svg viewBox="0 0 16 16" aria-hidden="true"
+        ><path
+          d="M3 13l.8-3.2L10.5 3.1l2.4 2.4-6.7 6.7zM9.3 4.3l2.4 2.4"
+        /></svg
+      >
     </button>
     <button
       role="menuitem"
@@ -150,7 +176,11 @@
         arrangement.remove(m.id);
       }}
     >
-      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.7 8.5h5.6l.7-8.5M7 7v4M9 7v4" /></svg>
+      <svg viewBox="0 0 16 16" aria-hidden="true"
+        ><path
+          d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.7 8.5h5.6l.7-8.5M7 7v4M9 7v4"
+        /></svg
+      >
     </button>
   </div>
 {/if}

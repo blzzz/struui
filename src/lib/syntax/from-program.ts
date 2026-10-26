@@ -36,6 +36,8 @@ export type ProgramResult =
       tempo: { cps: number; unit: TempoUnit } | null;
       /** Lage der Spuren nach Namen, null ohne Sammelkommentar. */
       board: Map<string, Spot> | null;
+      /** Eigene Aufnahmen aus `samples({ name: 'data:audio/…' })`, Name zu Data-URL. Gekürzte aus der Anzeige fehlen. */
+      recordings: Map<string, string>;
     }
   | { ok: false; offset: number; message: string };
 
@@ -136,6 +138,19 @@ function isRecordings(s: Statement): boolean {
   );
 }
 
+/** Name und Data-URL der Aufnahmen in `samples({…})` (siehe `isRecordings`), ohne die gekürzten aus der Anzeige. */
+function recordingsOf(s: Statement): [string, string][] {
+  if (s.type !== 'ExpressionStatement' || s.expression.type !== 'CallExpression') return [];
+  const arg = s.expression.arguments[0];
+  if (arg?.type !== 'ObjectExpression') return [];
+  return arg.properties.flatMap((p) => {
+    if (p.type !== 'Property' || p.value.type !== 'Literal' || typeof p.value.value !== 'string') return [];
+    const name = p.key.type === 'Identifier' ? p.key.name : p.key.type === 'Literal' ? String(p.key.value) : null;
+    const url = p.value.value;
+    return name && !url.includes('…') ? [[name, url] as [string, string]] : [];
+  });
+}
+
 /** Der Aufruf `stack(…)` am Anfang einer Kette (`stack(…).fast(2).room(.3)`), sonst null. */
 function stackHead(e: Expression): CallExpression | null {
   let head: Expression = e;
@@ -166,10 +181,12 @@ export function programToTracks(code: string, prefer?: (name: string) => TrackTy
     board ??= spots;
     cuts.push([c.start, c.end]);
   }
+  const recordings = new Map<string, string>();
   const rest = body.filter((s) => {
     const t = tempoOf(s);
     if (t) tempo = t;
-    if (!t && !isRecordings(s)) return true;
+    if (isRecordings(s)) for (const [name, url] of recordingsOf(s)) recordings.set(name, url);
+    else if (!t) return true;
     cuts.push([s.start, s.end]);
     return false;
   });
@@ -249,7 +266,7 @@ export function programToTracks(code: string, prefer?: (name: string) => TrackTy
       sources.push({ start: comment?.start ?? s.start, end, entries: [entry(text)], chain: '' });
     }
   }
-  if (sources.length === 0) return { ok: true, entries: [], tempo, board, frame: frame(code.length, code.length) };
+  if (sources.length === 0) return { ok: true, entries: [], tempo, board, recordings, frame: frame(code.length, code.length) };
 
   // Code zwischen den Quellen kommt vor den Stapel, so ist alles definiert, was die Spuren brauchen
   const first = sources[0];
@@ -262,6 +279,7 @@ export function programToTracks(code: string, prefer?: (name: string) => TrackTy
     entries: sources.flatMap((x) => x.entries),
     tempo,
     board,
+    recordings,
     frame: { ...f, before: [f.before, between].filter(Boolean).join('\n\n') },
   };
 }

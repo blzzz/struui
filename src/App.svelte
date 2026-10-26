@@ -4,14 +4,25 @@
   import SoundPalette from "./lib/ui/SoundPalette.svelte";
   import SceneDock from "./lib/ui/SceneDock.svelte";
   import HelpDialog from "./lib/ui/HelpDialog.svelte";
+  import PatternDialog from "./lib/ui/PatternDialog.svelte";
   import ValueSheet from "./lib/ui/ValueSheet.svelte";
   import TopBar from "./lib/ui/TopBar.svelte";
   import Board from "./lib/ui/Board.svelte";
   import { history } from "./lib/state/history.svelte.ts";
+  import { patterns } from "./lib/state/patterns.svelte.ts";
   import { playback } from "./lib/state/playback.svelte.ts";
   import { project } from "./lib/state/project.svelte.ts";
   import { scenes } from "./lib/state/scenes.svelte.ts";
   import { session } from "./lib/state/session.svelte.ts";
+
+  // Zuletzt bearbeitetes Pattern aus dem localStorage, bevor irgendetwas gespeichert wird
+  patterns.init();
+
+  // Jede Änderung am Code kommt kurz danach ins aktuelle Pattern
+  $effect(() => {
+    const code = patterns.code;
+    untrack(() => patterns.changed(code));
+  });
 
   // Läuft die Wiedergabe, bekommt die Engine jede Codeänderung mit.
   $effect(() => {
@@ -42,7 +53,8 @@
   }
 </script>
 
-<svelte:window onkeydown={onKey} />
+<!-- Beim Verlassen der Seite nicht auf das verzögerte Speichern warten -->
+<svelte:window onkeydown={onKey} onpagehide={() => patterns.flush()} />
 
 <TopBar />
 
@@ -71,6 +83,7 @@
 <SceneDock />
 <ValueSheet />
 <HelpDialog />
+<PatternDialog />
 
 <style>
   main {

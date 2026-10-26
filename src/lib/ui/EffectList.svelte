@@ -12,18 +12,15 @@
   import { session } from "../state/session.svelte.ts";
   import { reorder } from "../interaction/reorder.ts";
   import EffectBox from "./EffectBox.svelte";
-  import FitButton from "./FitButton.svelte";
-  import { watchFit } from "./fit.ts";
-  import { PARSE_MESSAGES } from "./messages.ts";
+  import { GROUP_LABELS, PARSE_MESSAGES } from "./messages.ts";
   import type { Track } from "../domain/types.ts";
 
   /**
-   * Effekte einer Spur: eine kleine Box pro Effekt (Titel, darunter Regler und Zahl oder die Wertsteine, siehe `EffectBox`),
+   * Effekte einer Spur: eine kleine Box pro Effekt (Titel mittig, darunter Drehknopf oder die Wertsteine, dann Modus, Stift und ×, siehe `EffectBox`),
    * von links nach rechts umbrechend, darunter ein Suchfeld zum Hinzufügen. Ziehen am Titel verschiebt eine Box
    * (die Reihenfolge ist die im Code). Wertsteine verhalten sich wie Klangsteine (Tippen, Ziehen, Klammern, Zufall, Wiederholung).
    * `kind = 'noteOps'`: dieselbe Liste für die Rechenarten einer Notenspur (`add`, `div` …), direkt nach den Noten.
-   * Brechen die Boxen um, erscheint daneben eine Lupe: sie verkleinert alle auf eine Zeile (`fit.ts`).
-   * Standard ist hier die Originalgrösse (`session.fitEffects`), anders als bei den Steinreihen.
+   * Die Boxen brechen um, sie werden nie verkleinert (anders als die Klangreihen).
    */
   let { track, kind = "effects" }: { track: Track; kind?: RowKind } = $props();
   const ops = $derived(kind === "noteOps");
@@ -49,7 +46,7 @@
     ops ? searchNoteOps(query) : searchEffects(query, track.type),
   );
   const placeholder = $derived(
-    ops ? "Mit Noten rechnen (add, div …)" : "Effekt hinzufügen …",
+    ops ? "Mit Noten rechnen (add, div …)" : "Effekt oder Befehl hinzufügen …",
   );
 
   function pick(info: EffectInfo) {
@@ -61,23 +58,6 @@
 
   let boxes = $state<HTMLElement>();
 
-  /** Schlüssel für `session.fitEffects`: eine Spur hat bis zu zwei Listen (Effekte, Rechenarten). */
-  const fitKey = $derived(`${track.id}:${kind}`);
-  /** Verkleinerung, damit alle Boxen auf eine Zeile passen (1 = passen in Originalgrösse). */
-  let fit = $state(1);
-  /** Die Boxen brechen in Originalgrösse um: nur dann gibt es die Lupe. */
-  let overflows = $state(false);
-  const original = $derived(!session.fitEffects.has(fitKey));
-  const zoom = $derived(original ? 1 : fit);
-
-  $effect(() => {
-    if (!boxes) return;
-    void track[kind].map((fx) => fx.id);
-    return watchFit(boxes, zoom, (r) => {
-      overflows = r.overflows;
-      if (Math.abs(r.fit - fit) > 0.005) fit = r.fit;
-    });
-  });
   /** Einfügeposition beim Ziehen einer Box (vor dem Entfernen), null = kein Ziehen. */
   let hint = $state<number | null>(null);
 
@@ -124,64 +104,57 @@
 
 <div class="effects">
   {#if track[kind].length > 0}
-    <div class="fitrow">
-      <div class="boxes" bind:this={boxes} style:--fx-fit={zoom === 1 ? undefined : zoom}>
-        {#each track[kind] as fx, i (fx.id)}
-          {@const info = valueInfo(fx.name)}
-          {@const errors = messages(fx.id)}
-          <div
-            class="box"
-            class:off={fx.tokens.length === 0 && !info?.noValue}
-            class:bad={errors.length > 0}
-            class:wide={session.mini.has(fx.id) ||
-              (fx.tokens.length > 0 && singleValue(fx.tokens) === null)}
-            class:before={hint === i}
-            class:after={hint === i + 1 && i === track[kind].length - 1}
-            data-effect-id={fx.id}
-            animate:flip={{ duration: 150 }}
-          >
-            <div class="head">
-              <!-- Griff: Ziehen verschiebt die Box, mit der Tastatur Pfeil links/rechts -->
-              <span
-                class="name"
-                role="button"
-                tabindex="0"
-                title={info
-                  ? `${info.description}${info.hint ? ` (${info.hint})` : ""}`
-                  : undefined}
-                aria-label={`${fx.name} verschieben (Pfeil links/rechts)`}
-                onkeydown={(e) => onHandleKey(e, fx.id, i)}
-                {@attach reorder(() => ({
-                  item: () =>
-                    boxes?.querySelector<HTMLElement>(
-                      `[data-effect-id="${fx.id}"]`,
-                    ) ?? null,
-                  items: () => [
-                    ...(boxes?.querySelectorAll<HTMLElement>(":scope > .box") ??
-                      []),
-                  ],
-                  onHint: (index) => (hint = index),
-                  onDrop: (index) =>
-                    project.moveEffect(track.id, fx.id, index, kind),
-                }))}>{fx.name}</span
-              >
-              <button
-                class="remove"
-                aria-label={`${fx.name} entfernen`}
-                onclick={() => project.removeEffect(track.id, fx.id, kind)}
-                >×</button
-              >
-            </div>
-            <EffectBox {fx} />
-            {#if errors.length > 0}
-              <p class="error">{errors.join(" ")} Dieser Effekt ist aus.</p>
-            {/if}
+    <div class="boxes" bind:this={boxes}>
+      {#each track[kind] as fx, i (fx.id)}
+        {@const info = valueInfo(fx.name)}
+        {@const errors = messages(fx.id)}
+        <div
+          class="box"
+          class:off={fx.tokens.length === 0 && !fx.rand && !info?.noValue}
+          class:bad={errors.length > 0}
+          class:wide={!fx.rand &&
+            (session.mini.has(fx.id) ||
+              (fx.tokens.length > 0 && singleValue(fx.tokens) === null))}
+          class:before={hint === i}
+          class:after={hint === i + 1 && i === track[kind].length - 1}
+          data-effect-id={fx.id}
+          animate:flip={{ duration: 150 }}
+        >
+          <div class="head">
+            <!-- Griff: Ziehen verschiebt die Box, mit der Tastatur Pfeil links/rechts -->
+            <span
+              class="name"
+              role="button"
+              tabindex="0"
+              title={info
+                ? `${info.description}${info.hint ? ` (${info.hint})` : ""}`
+                : undefined}
+              aria-label={`${fx.name} verschieben (Pfeil links/rechts)`}
+              onkeydown={(e) => onHandleKey(e, fx.id, i)}
+              {@attach reorder(() => ({
+                item: () =>
+                  boxes?.querySelector<HTMLElement>(
+                    `[data-effect-id="${fx.id}"]`,
+                  ) ?? null,
+                items: () => [
+                  ...(boxes?.querySelectorAll<HTMLElement>(":scope > .box") ??
+                    []),
+                ],
+                onHint: (index) => (hint = index),
+                onDrop: (index) =>
+                  project.moveEffect(track.id, fx.id, index, kind),
+              }))}>{fx.name}</span
+            >
           </div>
-        {/each}
-      </div>
-      {#if overflows}
-        <FitButton {original} onclick={() => session.toggleFitEffects(fitKey)} />
-      {/if}
+          <EffectBox
+            {fx}
+            onRemove={() => project.removeEffect(track.id, fx.id, kind)}
+          />
+          {#if errors.length > 0}
+            <p class="error">{errors.join(" ")} Dieser Effekt ist aus.</p>
+          {/if}
+        </div>
+      {/each}
     </div>
   {/if}
 
@@ -219,6 +192,9 @@
         aria-label={ops ? "Rechenarten" : "Effekte"}
       >
         {#each options as info, i (info.name)}
+          {@const extra = [GROUP_LABELS[info.group], info.synonyms.join(", ")]
+            .filter(Boolean)
+            .join(" · ")}
           <!-- Tastatur bedient das Suchfeld (Pfeile, Enter), die Optionen bekommen keinen Fokus -->
           <!-- svelte-ignore a11y_click_events_have_key_events -->
           <li
@@ -231,9 +207,7 @@
             onclick={() => pick(info)}
           >
             <span class="opt-name">{info.name}</span>
-            {#if info.synonyms.length > 0}<span class="syn"
-                >{info.synonyms.join(", ")}</span
-              >{/if}
+            {#if extra}<span class="syn">{extra}</span>{/if}
             <span class="opt-desc">{info.description}</span>
           </li>
         {/each}
@@ -249,39 +223,27 @@
     gap: 8px;
     margin-top: 10px;
   }
-  /* Boxen und daneben die Lupe */
-  .fitrow {
-    display: flex;
-    align-items: flex-start;
-    gap: 4px;
-  }
-  /* Effekte als kleine Boxen, von links umbrechend, oder verkleinert auf einer Zeile */
+  /* Effekte als kleine Boxen, von links umbrechend */
   .boxes {
-    flex: 1;
-    min-width: 0;
-    zoom: var(--fx-fit, 1);
     display: flex;
     flex-wrap: wrap;
     align-items: flex-start;
     gap: 8px;
   }
-  /* Beim Tippen in ein Zahlenfeld Originalgrösse (iOS zoomt sonst hinein). Schlägt den Wert im style-Attribut.
-     Nicht bei Wertsteinen: deren Feld hat selbst normale Grösse (TokenStone), die Boxen sollen dabei nicht springen. */
-  .boxes:has(:global(input.num:focus)) {
-    --fx-fit: 1 !important;
-  }
-  /* Eine Box: oben der Titel (Griff zum Verschieben) und ×, darunter Regler und Zahl. Mit Wertsteinen wird sie breiter. */
+  /* Eine Box: oben mittig der Titel (Griff zum Verschieben), darunter Drehknopf, Auswahl oder Wertsteine, dann Modus, Stift und ×. Mit Wertsteinen wird sie breiter. */
   .box {
     position: relative;
     display: flex;
     flex-direction: column;
     width: 96px;
     padding: 4px 4px 5px;
-    border: 1.5px solid var(--val-edge);
+    /* border: 1.5px solid var(--val-edge); */
     border-radius: 8px;
-    background: var(--panel);
+    background: var(--box);
   }
-  .box.wide {
+  /* Mit Zusatzfeldern neben dem Knopf (Stift in der Box) wird sie breiter */
+  .box.wide,
+  .box:has(:global(.fields)) {
     width: auto;
     min-width: 64px;
     max-width: 100%;
@@ -320,8 +282,10 @@
   .name {
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     font-weight: 600;
+    padding: 0 2px;
   }
   .box .name {
+    text-align: center;
     flex: 1;
     min-width: 0;
     font-size: 12px;
@@ -338,13 +302,6 @@
     cursor: grabbing;
   }
   .box.off .name {
-    color: var(--mute);
-  }
-  .remove {
-    padding: 0 3px;
-    font-size: 14px;
-    line-height: 1.1;
-    border-color: transparent;
     color: var(--mute);
   }
   .error {

@@ -237,6 +237,15 @@ export function hasModifiers(t: Token): t is SoundToken | CloseToken {
   return (t.kind === 'sound' && t.sound !== PAUSE) || (t.kind === 'close' && t.group !== '{');
 }
 
+/**
+ * Welche Wiederholungen (`*`, `!`, `@`) ein Stein tragen kann. Wo es Zufall gibt, alle drei; die Pause nur das Gewicht
+ * (`~@2`, eine längere Pause), Zufall und Vervielfachen ergeben an ihr nichts.
+ */
+export function repeatOps(t: Token): readonly Repeat['op'][] {
+  if (hasModifiers(t)) return ['*', '!', '@'];
+  return isPause(t) ? ['@'] : [];
+}
+
 /** `}` trägt den Modulowert. */
 export function hasSteps(t: Token): t is CloseToken {
   return t.kind === 'close' && t.group === '{';

@@ -11,7 +11,10 @@
     STAR_VALUES,
     STEPS_VALUES,
     WEIGHT_VALUES,
+    parseModValue,
   } from '../domain/scales.ts';
+  import type { ModOp } from '../domain/scales.ts';
+  import { repeatOps } from '../domain/types.ts';
   import type { CloseToken, Repeat, SoundToken } from '../domain/types.ts';
 
   /** `random` oben, `repeat` unten. `steps` ist der Modulowert unter `}` (statt Zufall und Wiederholung). */
@@ -39,9 +42,29 @@
     return FRACTIONS[String(v)] ?? String(v);
   }
 
-  const placeholders = { random: '?', repeat: '*!@', steps: '%' };
+  /** Wiederholungen, die der Stein tragen kann: Pausen nur das Gewicht. */
+  const ops = $derived(repeatOps(token));
+  const placeholders = $derived({ random: '?', repeat: ops.join(''), steps: '%' });
+  const STARTS: Record<Repeat['op'], number> = { '*': DEFAULT_STAR, '!': DEFAULT_BANG, '@': DEFAULT_WEIGHT };
 
-  /** Tippen: Zufall und Modulo an/aus. Wiederholung: aus, Stern, Ausrufezeichen, Gewicht, aus. */
+  /** Operator, für den ein eingetippter Wert gilt. Bei ausgeschalteter Wiederholung der erste, den der Stein trägt. */
+  const repeatOp = $derived(token.repeat?.op ?? ops[0] ?? '*');
+  const modOp = $derived<ModOp>(kind === 'random' ? '?' : kind === 'steps' ? '%' : repeatOp);
+
+  /**
+   * Eingetippter Wert (langes Drücken): beliebige Zahl, solange sie zum Operator passt (`parseModValue`).
+   * War der Knopf aus, schaltet ein gültiger Wert ihn damit ein; ungültig oder leer bleibt alles, wie es war.
+   */
+  function edit(text: string): boolean {
+    const value = parseModValue(modOp, text);
+    if (value === null) return false;
+    if (kind === 'random') token.random = value;
+    else if (kind === 'steps') (token as CloseToken).steps = value;
+    else token.repeat = { op: repeatOp, value };
+    return true;
+  }
+
+  /** Tippen: Zufall und Modulo an/aus. Wiederholung: aus, dann die Operatoren des Steins der Reihe nach (`*`, `!`, `@`), aus. */
   function tap() {
     if (kind === 'random') {
       token.random = token.random === null ? DEFAULT_RANDOM : null;
@@ -49,15 +72,8 @@
       const close = token as CloseToken;
       close.steps = close.steps === null ? DEFAULT_STEPS : null;
     } else {
-      const r = token.repeat;
-      token.repeat =
-        r === null
-          ? { op: '*', value: DEFAULT_STAR }
-          : r.op === '*'
-            ? { op: '!', value: DEFAULT_BANG }
-            : r.op === '!'
-              ? { op: '@', value: DEFAULT_WEIGHT }
-              : null;
+      const next = ops[token.repeat ? ops.indexOf(token.repeat.op) + 1 : 0];
+      token.repeat = next ? { op: next, value: STARTS[next] } : null;
     }
   }
 
@@ -79,4 +95,6 @@
   text={format}
   onTap={tap}
   onStage={setStage}
+  onEdit={edit}
+  valid={(t) => parseModValue(modOp, t) !== null}
 />

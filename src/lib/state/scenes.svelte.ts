@@ -5,7 +5,7 @@ import { session } from './session.svelte.ts';
 
 /**
  * Szenen des ganzen Projekts. Es gibt immer mindestens eine und genau eine ist gewählt; das Bearbeiten wirkt auf sie.
- * Nur im Speicher, beim Neuladen sind sie weg (Persistenz ist offen, siehe `docs/ARCHITECTURE.md`, Abschnitt 4).
+ * Nur im Speicher: gespeichert wird je Pattern nur der Code der gewählten Szene (`patterns.svelte.ts`).
  */
 class Scenes {
   list = $state<Scene[]>([scene(sceneName([]), $state.snapshot(project.tracks), project.cps)]);
@@ -28,6 +28,13 @@ class Scenes {
     if (i < 0) return;
     // Ohne Proxy: `structuredClone` kopiert keine Proxys
     this.list[i] = withContent(this.list[i], $state.snapshot(project.tracks), project.cps);
+  }
+
+  /** Nur noch eine Szene mit dem aktuellen Zustand (anderes Pattern geladen). */
+  reset(): void {
+    const s = scene(sceneName([]), $state.snapshot(project.tracks), project.cps);
+    this.list = [s];
+    this.currentId = s.id;
   }
 
   /** Neue Szene als Kopie des aktuellen Zustands, gleich hinter der gewählten. Sie wird gewählt. Gibt die ID zurück. */

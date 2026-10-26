@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { hasModifiers, hasSteps, isPause } from '../domain/types.ts';
+  import { hasModifiers, hasSteps, isPause, repeatOps } from '../domain/types.ts';
   import { session } from '../state/session.svelte.ts';
   import ModSlot from './ModSlot.svelte';
   import TokenStone from './TokenStone.svelte';
@@ -12,6 +12,7 @@
     error,
     value = false,
     spanned = false,
+    selectable = false,
     last = false,
     stackPrev = false,
     stackNext = false,
@@ -23,6 +24,8 @@
     value?: boolean;
     /** Liegt im Bereich, den ein Klammerpaar beim Umschliessen fassen würde. */
     spanned?: boolean;
+    /** Die Reihe hat mehr als einen Stein, das Steinmenü bietet «Auswählen». */
+    selectable?: boolean;
     /** Letzter Stein einer Reihe ohne Feld am Ende: zeigt auch das Einfügen dahinter. */
     last?: boolean;
     /** Stapel (`[bd, hh]`): hängt mit Komma am Stein davor bzw. der nächste hängt an ihm. Ohne Abstand dazwischen. */
@@ -66,10 +69,10 @@
       <div class="spacer"></div>
     {/if}
   </div>
-  <TokenStone {token} {laneId} {error} {value} {replacing} {stacking} {spanned} {stackPrev} {stackNext} />
+  <TokenStone {token} {laneId} {error} {value} {replacing} {stacking} {spanned} {selectable} {stackPrev} {stackNext} />
   <!-- Drehknöpfe unten: nur wenn die Spur sie zeigt, sonst ein farbiger Balken am Stein -->
   <div class="bottom">
-    {#if hasModifiers(token)}
+    {#if (token.kind === 'sound' || token.kind === 'close') && repeatOps(token).length > 0}
       <ModSlot kind="repeat" {token} />
     {:else if hasSteps(token)}
       <ModSlot kind="steps" {token} />

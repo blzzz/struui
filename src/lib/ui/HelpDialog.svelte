@@ -38,13 +38,18 @@
       <dd>
         Ohne Wiedergabe spielt der Stein dabei einmal an (Noten mit dem Klang ihrer Spur).
         Auf einem Klangstein: den Namen eintippen, mit Doppelpunkt eine Variante (<code>bd:3</code>); ↑/↓ oder −/+ zählen die Variante.
-        Darüber ein Menü: Mülleimer entfernt. Langes Drücken öffnet nur das Menü.
-        Bei Klammern: Paar auflösen oder die Klammerart wählen.
+        Darüber ein Menü: entfernen, verdoppeln, auswählen (ab zwei Steinen in der Reihe). Langes Drücken öffnet nur das Menü.
+        Nach «Auswählen» den Stein antippen, bis zu dem die Auswahl reicht; darüber erscheinen dann umschliessen
+        (<code>[ ]</code>, <code>&lt; &gt;</code>, <code>{'{ }'}</code>), verdoppeln, entfernen und abbrechen.
+        Bei Klammern: Paar auflösen, samt Inhalt verdoppeln; darunter die Klammerart wählen.
       </dd>
       <dt>Ziehen</dt>
       <dd>Stein an eine andere Stelle schieben, auch in eine andere Spur.</dd>
       <dt>Oben / Unten</dt>
-      <dd>Rot = Zufall. Blau = Stern, Grün = Ausrufezeichen, Orange = Gewicht. Drehen stellt die Zahl ein.</dd>
+      <dd>
+        Rot = Zufall. Blau = Stern, Grün = Ausrufezeichen, Orange = Gewicht. Drehen stellt die Zahl ein, lange drücken lässt
+        eine beliebige Zahl eintippen. Pausen haben nur das Gewicht (<code>~@2</code>, eine längere Pause).
+      </dd>
       <dt>Effekte</dt>
       <dd>
         Unter den Steinen einen Effekt suchen (z. B. <code>lpf</code>, <code>room</code>, <code>delay</code>). Er bekommt eine

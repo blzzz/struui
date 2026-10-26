@@ -5,7 +5,7 @@
 
   /**
    * Drei Punkte am rechten Rand des Spurkopfs: Menü mit der Art der Spur (Klang, Noten, MIDI, Sampler),
-   * der Ansicht (Steine oder Code) und dem Entfernen der Spur.
+   * dem Wechsel zwischen Code und UI, dem Zurücksetzen und dem Entfernen der Spur.
    */
   let { track, index, showCode = $bindable() }: { track: Track; index: number; showCode: boolean } = $props();
 
@@ -43,7 +43,7 @@
     if (!open) return;
     // Per Tastatur gleich im Menü weiter: der gewählte Eintrag bekommt den Fokus
     await tick();
-    root?.querySelector<HTMLElement>('[aria-checked="true"]')?.focus();
+    (root?.querySelector<HTMLElement>('[aria-checked="true"]') ?? root?.querySelector<HTMLElement>('[role^="menuitem"]'))?.focus();
   }
 
   /** Pfeiltasten wandern durch die Einträge. */
@@ -66,7 +66,7 @@
     bind:this={trigger}
     class="dots"
     aria-label={`Menü von Spur ${index + 1}`}
-    title="Art, Ansicht, Entfernen"
+    title="Art, Code/UI, Zurücksetzen, Entfernen"
     aria-haspopup="menu"
     aria-expanded={open}
     onclick={toggle}
@@ -77,7 +77,7 @@
     <!-- svelte-ignore a11y_interactive_supports_focus -->
     <div class="menu" role="menu" aria-label={`Spur ${index + 1}`} onkeydown={onMenuKey}>
       {#if track.code !== null}
-        <!-- Roher Code: Art und Ansicht ergeben sich aus dem Code -->
+        <!-- Roher Code: Art ergibt sich aus dem Code, eine UI gibt es nicht -->
         <p class="about">Eigener Code. Wird er als Spur verstanden, gibt es wieder Steine.</p>
       {:else}
         <p class="label" id={`kind-${track.id}`}>Art</p>
@@ -94,19 +94,23 @@
             </button>
           {/each}
         </div>
-        <p class="label" id={`view-${track.id}`}>Ansicht</p>
-        <div role="group" aria-labelledby={`view-${track.id}`}>
-          <button role="menuitemradio" aria-checked={!showCode} onclick={() => choose(() => (showCode = false))}>
-            <span class="check" aria-hidden="true">{showCode ? '' : '✓'}</span>
-            Steine
-          </button>
-          <button role="menuitemradio" aria-checked={showCode} onclick={() => choose(() => (showCode = true))}>
-            <span class="check" aria-hidden="true">{showCode ? '✓' : ''}</span>
-            Code
-          </button>
-        </div>
+        <hr />
+        <button role="menuitem" onclick={() => choose(() => (showCode = !showCode))}>
+          <span class="check" aria-hidden="true"></span>
+          {showCode ? 'UI zeigen' : 'Code zeigen'}
+        </button>
       {/if}
       <hr />
+      {#if track.code === null}
+        <button
+          role="menuitem"
+          title="Alle Steine und Effekte weg, wie eine neue Spur dieser Art"
+          onclick={() => choose(() => project.resetTrack(track.id))}
+        >
+          <span class="check" aria-hidden="true"></span>
+          Spur zurücksetzen
+        </button>
+      {/if}
       <button role="menuitem" class="remove" onclick={() => choose(() => project.removeTrack(track.id))}>
         <span class="check" aria-hidden="true"></span>
         Spur entfernen

@@ -10,7 +10,7 @@ dieselbe Datenstruktur füllen. Lies zuerst `docs/ARCHITECTURE.md`.
 - `npm run check` – svelte-check (muss 0 Fehler haben)
 - `npm test` – Unit-Tests der Domäne und der Text-Umwandlung (node:test, kein Zusatzpaket; braucht Node ≥ 22.18 oder `--experimental-strip-types`)
 - `npm run test:strudel` – prüft mit echtem Strudel (ohne Browser), dass Code läuft und Ereignisse den richtigen Steinen zugeordnet werden
-- `npm run gen:effects` – Effektliste aus `@strudel/core` neu erzeugen (nach jedem Strudel-Update; der Test meldet, wenn nötig)
+- `npm run gen:effects` – Effekt- und Befehlsliste aus `@strudel/core`, `@strudel/tonal` und Tonal.js neu erzeugen (nach jedem Strudel-Update; der Test meldet, wenn nötig)
 - `npm run gen:sounds` – Klangliste aus Strudels Quellen neu erzeugen (braucht Netz; nach Strudel-Updates, der Test meldet geänderte Quellen)
 - `npm run build` – Produktions-Build
 
@@ -25,7 +25,8 @@ dieselbe Datenstruktur füllen. Lies zuerst `docs/ARCHITECTURE.md`.
 - `src/lib/audio/` – `StrudelEngine` ist die einzige Klang-Engine (keine eigenen Synths, keine eigene Auswertung).
   Sie kennt den Svelte-Zustand nicht, nur `EngineHost` (`engine.ts`).
 - `src/lib/state/` – Svelte-5-Zustand (`*.svelte.ts`, Runes). `project` (Spuren, Tempo, abgeleiteter Code),
-  `session` (flüchtiger UI-Zustand), `playback` (Engine-Steuerung), `sample-bank` (eigene Aufnahmen).
+  `session` (flüchtiger UI-Zustand), `playback` (Engine-Steuerung), `sample-bank` (eigene Aufnahmen),
+  `patterns` (gespeicherte Patterns im localStorage, nur Code-Text).
 - `src/lib/interaction/` – Zeiger-Gesten als Svelte-Attachments (`{@attach ...}`).
 - `src/lib/ui/` – Komponenten. Texte für Nutzer stehen auf Deutsch.
 
@@ -35,7 +36,7 @@ TypeScript strict. Importe mit `.ts`-Endung. Domänenänderungen immer mit Test.
 ## Wichtig
 
 - Klangquellen und Klangnamen nie von Hand abschreiben: sie kommen aus `@strudel/repl/prebake.mjs` (Namen über `npm run gen:sounds`). Beim Aktualisieren `@strudel/repl` anheben und
-  `@strudel/core`, `@strudel/webaudio`, `@strudel/transpiler`, `@strudel/mini` auf genau die Versionen setzen, die es verlangt.
+  `@strudel/core`, `@strudel/webaudio`, `@strudel/transpiler`, `@strudel/mini`, `@strudel/tonal` auf genau die Versionen setzen, die es verlangt.
   Nicht `@strudel/web` verwenden (bündelt eine zweite Strudel-Kopie, siehe `docs/ARCHITECTURE.md`).
 - **Architekturentscheidungen sind offen und gehören dem Projektinhaber** (Liste in `docs/ARCHITECTURE.md`, Abschnitt 4).
   Nicht selbst entscheiden: Optionen skizzieren und nachfragen.

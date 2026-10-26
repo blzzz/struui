@@ -1,9 +1,11 @@
 <script lang="ts">
   import { TEMPO_STEP, TEMPO_UNITS, cpsToUnit, unitToCps } from '../domain/tempo.ts';
   import type { TempoUnit } from '../domain/tempo.ts';
+  import { patterns } from '../state/patterns.svelte.ts';
   import { playback } from '../state/playback.svelte.ts';
   import { project } from '../state/project.svelte.ts';
   import { session } from '../state/session.svelte.ts';
+  import MainMenu from './MainMenu.svelte';
 
   /** Erlaubter Bereich in Zyklen pro Sekunde (12 bis 480 BPM). */
   const CPS_MIN = 0.05;
@@ -38,7 +40,7 @@
   const scenePlaying = $derived(session.playing && session.playMode === 'scene');
 </script>
 
-<!-- Feste Leiste oben: Abspielen, Tempo, Lautstärke, Ansicht, Hilfe -->
+<!-- Feste Leiste oben: Abspielen, Name des Patterns, Tempo, Lautstärke, Ansicht, Menü -->
 <header class="bar">
   <button
     class="play"
@@ -62,6 +64,21 @@
       {/if}
     </svg>
   </button>
+  <!-- Name des aktuellen Patterns, hier umbenennen -->
+  <input
+    class="name"
+    type="text"
+    value={patterns.current?.name ?? ''}
+    aria-label="Name des Patterns"
+    title="Name des Patterns, tippen zum Umbenennen"
+    spellcheck="false"
+    autocomplete="off"
+    onchange={(e) => {
+      patterns.rename(e.currentTarget.value);
+      e.currentTarget.value = patterns.current?.name ?? '';
+    }}
+    onkeydown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+  />
   {#if session.cycle !== null}
     <span class="cycle" aria-label="Aktueller Zyklus">{Math.floor(session.cycle) + 1}</span>
   {/if}
@@ -118,7 +135,7 @@
     <button aria-pressed={session.view === 'code'} onclick={() => (session.view = 'code')}>Code</button>
   </div>
 
-  <button class="help" aria-label="Erklärung" title="Erklärung" onclick={() => (session.help = true)}>?</button>
+  <MainMenu />
 </header>
 
 <style>
@@ -246,13 +263,25 @@
     border-radius: 0 8px 8px 0;
     border-left: none;
   }
-  .help {
-    flex: none;
-    width: 36px;
-    height: 36px;
-    padding: 0;
-    border-radius: 50%;
+  /* Wie Text, erst beim Bearbeiten als Feld zu erkennen */
+  .name {
+    flex: 0 1 16ch;
+    min-width: 6ch;
+    font: inherit;
+    font-size: 15px;
     font-weight: 600;
+    color: var(--ink);
+    background: transparent;
+    border: 1.5px solid transparent;
+    border-radius: 8px;
+    padding: 5px 6px;
+    margin: 0;
+    text-overflow: ellipsis;
+  }
+  .name:hover,
+  .name:focus {
+    border-color: var(--line);
+    background: var(--bg);
   }
   @media (max-width: 520px) {
     .bar {

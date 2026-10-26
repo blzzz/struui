@@ -5,12 +5,21 @@
    * Zurückhaltend wie die Schalter links vom Editor (TrackView): nur das Symbol, aus blass, an (Originalgrösse) weiss.
    * Die Höhe setzt die Reihe, in der der Knopf steht.
    */
-  let { original, onclick }: { original: boolean; onclick: () => void } = $props();
+  let { original, onclick }: { original: boolean; onclick: () => void } =
+    $props();
 
-  const label = $derived(original ? 'Auf eine Zeile verkleinern' : 'Originalgrösse');
+  const label = $derived(
+    original ? "Auf eine Zeile verkleinern" : "Originalgrösse",
+  );
 </script>
 
-<button class="fit" aria-pressed={original} aria-label={label} title={label} {onclick}>
+<button
+  class="fit"
+  aria-pressed={original}
+  aria-label={label}
+  title={label}
+  {onclick}
+>
   <svg viewBox="0 0 16 16" aria-hidden="true">
     <circle cx="6.5" cy="6.5" r="4.5" />
     <path d="M10 10l4.5 4.5M4.5 6.5h4" />
@@ -35,13 +44,13 @@
   .fit:hover {
     opacity: 1;
   }
-  .fit[aria-pressed='true'] {
+  .fit[aria-pressed="true"] {
     background: transparent;
     color: var(--ink);
     opacity: 1;
   }
   @media (prefers-color-scheme: dark) {
-    .fit[aria-pressed='true'] {
+    .fit[aria-pressed="true"] {
       color: #fff;
     }
   }

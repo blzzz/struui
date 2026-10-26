@@ -1,10 +1,12 @@
 <script lang="ts">
+  import { flushSync } from 'svelte';
   import { knob } from '../interaction/knob.ts';
   import { angleFor, nearestIndex } from '../domain/scales.ts';
 
   /**
    * Drehknopf eines Operators (`?`, `*`, `!`, `@`, `%`): in der Mitte das Zeichen, am Ring die Raststufen, die aktuelle
-   * mit ihrer Zahl. Tippen schaltet, Drehen wählt die Stufe. Grösse aus `--s`.
+   * mit ihrer Zahl. Tippen schaltet, Drehen wählt die Stufe. Langes Drücken öffnet ein Feld für eine beliebige Zahl
+   * (`onEdit`, gilt beim Bestätigen; ungültig rot umrandet), beim ausgeschalteten Knopf leer. Grösse aus `--s`.
    */
   let {
     values,
@@ -16,6 +18,8 @@
     text,
     onTap,
     onStage,
+    onEdit,
+    valid,
   }: {
     values: readonly number[];
     /** null = aus (gestrichelter Platzhalter). */
@@ -30,7 +34,41 @@
     text: (v: number) => string;
     onTap(): void;
     onStage(index: number): void;
+    /** Eingetippter Wert: true, wenn er gültig war und übernommen wurde. */
+    onEdit?(text: string): boolean;
+    /** Prüft die Eingabe beim Tippen (für die rote Umrandung). */
+    valid?(text: string): boolean;
   } = $props();
+
+  let editing = $state(false);
+  let draft = $state('');
+  let input = $state<HTMLInputElement>();
+  /** Escape: Feld schliessen, ohne zu übernehmen. */
+  let cancel = false;
+
+  function startEdit() {
+    if (!onEdit) return;
+    draft = current === null ? '' : String(current);
+    cancel = false;
+    editing = true;
+    flushSync();
+    input?.focus();
+    input?.select();
+  }
+
+  function finishEdit() {
+    if (!editing) return;
+    editing = false;
+    if (!cancel) onEdit?.(draft);
+  }
+
+  function onKey(e: KeyboardEvent) {
+    if (e.key === 'Enter') input?.blur();
+    else if (e.key === 'Escape') {
+      cancel = true;
+      input?.blur();
+    }
+  }
 
   const active = $derived(current !== null);
   const stage = $derived(current === null ? -1 : nearestIndex(values, current));
@@ -53,8 +91,34 @@
   role="button"
   tabindex="0"
   aria-label={active ? `${label} ${symbol}${current}` : `${label} aus`}
-  {@attach knob(() => ({ active: () => active, stageCount: () => values.length, onTap, onStage }))}
+  {@attach knob(() => ({
+    active: () => active,
+    stageCount: () => values.length,
+    onTap,
+    onStage,
+    onLongPress: onEdit ? startEdit : undefined,
+    // Noch in der Geste fokussieren, sonst öffnet iOS keine Tastatur
+    onLongRelease: () => {
+      input?.focus();
+      input?.select();
+    },
+  }))}
 >
+  {#if editing}
+    <input
+      bind:this={input}
+      type="text"
+      inputmode="decimal"
+      bind:value={draft}
+      size={Math.max(draft.length, 2) + 1}
+      aria-label={label}
+      aria-invalid={valid && draft.trim() !== '' ? !valid(draft) : false}
+      spellcheck="false"
+      autocomplete="off"
+      onkeydown={onKey}
+      onblur={finishEdit}
+    />
+  {/if}
   <svg viewBox="-18 -18 36 36" class={active ? tone : 'off'} aria-hidden="true">
     {#if active}
       {#each values as _, i (i)}
@@ -94,6 +158,32 @@
   .slot:global([data-turning]) {
     transform: scale(1.6);
     z-index: 10;
+  }
+  /* Feld mittig über dem Knopf, in einer verkleinerten Reihe in normaler Grösse (wie das Feld eines Steins) */
+  input {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 13;
+    zoom: calc(1 / var(--fit, 1));
+    width: auto;
+    min-width: 40px;
+    height: 32px;
+    padding: 0 6px;
+    border: none;
+    border-radius: 8px;
+    outline: 3px solid var(--blue);
+    background: var(--panel);
+    color: var(--ink);
+    text-align: center;
+    user-select: text;
+    -webkit-user-select: text;
+    /* 16px verhindert das automatische Zoomen auf iOS */
+    font: 700 16px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  input[aria-invalid='true'] {
+    outline-color: var(--red);
   }
   svg {
     display: block;

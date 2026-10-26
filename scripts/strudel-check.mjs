@@ -2,13 +2,30 @@
 // gemeldeten Zeichenpositionen auf die richtigen Steine zeigen. Kein Audio, keine Samples.
 // Aufruf: npm run test:strudel
 import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
 import { createServer } from 'vite';
+
+/**
+ * Tonal.js (von `@strudel/tonal`) verweist mit `main` auf CommonJS-Dateien, die zum Teil fehlen (`@tonaljs/abc-notation`).
+ * Der Browser nimmt `module`; hier dasselbe: jedes `@tonaljs/…` als `dist/index.mjs`.
+ */
+const tonalEsm = {
+  name: 'tonaljs-esm',
+  enforce: 'pre',
+  async resolveId(id, importer) {
+    if (!id.startsWith('@tonaljs/')) return null;
+    const r = await this.resolve(id, importer, { skipSelf: true });
+    const mjs = r?.id.replace(/index\.c?js$/, 'index.mjs');
+    return mjs && existsSync(mjs) ? mjs : r;
+  },
+};
 
 const server = await createServer({
   configFile: false,
+  plugins: [tonalEsm],
   logLevel: 'error',
   server: { middlewareMode: true },
-  ssr: { noExternal: [/^@strudel\//, /^@kabelsalat\//] },
+  ssr: { noExternal: [/^@strudel\//, /^@kabelsalat\//, /^@tonaljs\//] },
   appType: 'custom',
 });
 
@@ -20,8 +37,11 @@ try {
   const codegen = await server.ssrLoadModule('/src/lib/domain/codegen.ts');
   const fromCode = await server.ssrLoadModule('/src/lib/syntax/from-code.ts');
   const fromProgram = await server.ssrLoadModule('/src/lib/syntax/from-program.ts');
+  const effects = await server.ssrLoadModule('/src/lib/domain/effects.ts');
+  // Nur die Tonleitern (transpose, scale), nicht voicings.mjs: das braucht chord-voicings, nur als CommonJS verpackt
+  const tonal = await server.ssrLoadModule('@strudel/tonal/tonal.mjs');
 
-  await core.evalScope(core, mini);
+  await core.evalScope(core, mini, tonal);
   mini.miniAllStrings?.();
   // Funktionen, die sonst die Strudel-Oberfläche liefert
   globalThis.setcps = () => {};
@@ -190,6 +210,27 @@ try {
     console.log('ok: slider(wert, min, max, step) läuft in Strudel und kommt als Regler zurück');
   }
 
+  // Zufallsreihe: .lpf(rand.range(…).segment(…).ribbon(…)) läuft, bleibt im Bereich, wiederholt sich nach `cycles`
+  // Zyklen (ribbon) und kommt als Zufallsreihe zurück. Mit round() ganze Zahlen.
+  {
+    patterns.length = 0;
+    const rand = { min: 200, max: 2000, segments: 4, offset: 7, cycles: 2, whole: true };
+    const fx = [{ ...types.effect('lpf', [snd('800')]), rand }];
+    const program = codegen.toStrudelProgram([{ tokens: [snd('hh*8')], effects: fx }], { cps: 0.5 });
+    assert.match(program.code, /\.lpf\(rand\.range\(200, 2000\)\.round\(\)\.segment\(4\)\.ribbon\(7, 2\)\)\n\)$/, 'Zufallsreihe im Code');
+    await run(program.code);
+    const cutoffs = (from, to) => patterns[0].queryArc(from, to).sort((a, b) => a.whole.begin - b.whole.begin).map((h) => h.value.cutoff);
+    const first = cutoffs(0, 2);
+    assert.equal(first.length, 16);
+    for (const c of first) assert.ok(Number.isInteger(c) && c >= 200 && c <= 2000, `Wert ${c} ausserhalb oder nicht ganz`);
+    assert.ok(new Set(first).size > 1, 'Zufall fehlt');
+    assert.deepEqual(cutoffs(2, 4), first, 'ribbon wiederholt die Reihe');
+    const back = fromCode.codeToTrack(program.code.split('\n').at(-2).trim());
+    assert.ok(back.ok);
+    assert.deepEqual(back.effects[0].rand, rand);
+    console.log('ok: Zufallsreihe (rand.range … ribbon) läuft in Strudel, wiederholt sich und kommt zurück');
+  }
+
   // Rechenarten: note("c3 e3".add("<0 12>")) transponiert wirklich (als Methode nach note() täte es das nicht),
   // und die Wertsteine von add leuchten im richtigen Zyklus.
   {
@@ -236,6 +277,63 @@ try {
       }
     }
     console.log('ok: Sample-Funktionen (fit, chop, scrub) laufen in Strudel, Klang- und Wertsteine leuchten');
+  }
+
+  // Musterbefehle: jeder aus der Effektliste (Gruppen pattern, random, tonal) läuft mit seinem Startwert, Tonhöhen in einer
+  // Notenspur, ohne Fehler im Log (Strudel wirft manche nicht, sondern meldet sie dort). scale kennt jede Tonleiter der Auswahl.
+  {
+    const ops = effects.EFFECTS.filter((e) => ['pattern', 'random', 'tonal'].includes(e.group));
+    assert.ok(ops.length > 30, 'zu wenige Musterbefehle');
+    const play = async (track) => {
+      patterns.length = 0;
+      const program = codegen.toStrudelProgram([track], { cps: 0.5 });
+      const logged = [];
+      const log = console.log;
+      console.log = (...args) => logged.push(args.join(' '));
+      try {
+        await run(program.code);
+        return { haps: patterns[0].queryArc(0, 4), errors: logged.filter((m) => /error/i.test(m)), code: program.code };
+      } finally {
+        console.log = log;
+      }
+    };
+    const noteTrack = (fx) => ({ type: 'note', tokens: [snd('c'), snd('e'), snd('g')], voice: { tokens: [snd('piano')] }, effects: fx });
+    for (const info of ops) {
+      const start = effects.defaultValue(info) ?? '1';
+      const fx = [info.noValue ? types.effect(info.name) : types.effect(info.name, [snd(start)])];
+      // scaleTranspose verschiebt innerhalb einer Tonleiter: ohne scale davor meldet Strudel einen Fehler
+      if (info.name === 'scaleTranspose') fx.unshift(types.effect('scale', [snd('C:major')]));
+      const track = info.group === 'tonal' ? noteTrack(fx) : { tokens: [snd('bd'), snd('sd'), snd('hh')], effects: fx };
+      const { haps, errors, code } = await play(track);
+      assert.deepEqual(errors, [], `${info.name}: ${code}`);
+      assert.ok(haps.length > 0, `${info.name} spielt nichts: ${code}`);
+    }
+    const [, scaleTypes] = effects.effectInfo('scale').parts;
+    for (const type of scaleTypes) {
+      const { haps, errors, code } = await play(noteTrack([types.effect('scale', [snd(`F#:${type}`)])]));
+      assert.deepEqual(errors, [], code);
+      assert.ok(haps.length > 0 && haps.every((h) => /^[A-G][#b]*\d$/.test(h.value.note)), `${type}: ${code}`);
+    }
+    // transpose mit Intervall und Halbtönen, im Wechsel je Zyklus (queryArc liefert nicht zeitlich sortiert)
+    const { haps } = await play(noteTrack([types.effect('transpose', [open('<'), snd('3M'), snd('-2'), close('<')])]));
+    assert.deepEqual(haps.filter((h) => h.hasOnset()).sort((a, b) => a.whole.begin.valueOf() - b.whole.begin.valueOf()).map((h) => h.value.note), ['E', 'G#', 'B', 'Bb', 'D', 'F', 'E', 'G#', 'B', 'Bb', 'D', 'F']);
+    console.log(`ok: ${ops.length} Musterbefehle und ${scaleTypes.length} Tonleitern laufen in Strudel`);
+  }
+
+  // struct: die Struktur bestimmt die Ereignisse, und der x-Stein, der ein Ereignis auslöst, leuchtet
+  {
+    patterns.length = 0;
+    const hits = [snd('x'), snd('x')];
+    const structure = [hits[0], snd('~'), hits[1], snd('~')];
+    const program = codegen.toStrudelProgram([{ tokens: [snd('bd')], effects: [types.effect('struct', structure)] }], { cps: 0.5 });
+    await run(program.code);
+    const haps = patterns[0].queryArc(0, 1);
+    assert.deepEqual(haps.map((h) => h.whole.begin.valueOf()), [0, 0.5], 'Ereignisse auf den x-Steinen');
+    haps.forEach((hap, i) => {
+      const ids = (hap.context.locations ?? []).flatMap((loc) => program.ranges.filter((r) => loc.start >= r.start && loc.start < r.end).map((r) => r.tokenId));
+      assert.ok(ids.includes(hits[i].id), `x-Stein ${i} leuchtet nicht`);
+    });
+    console.log('ok: struct setzt die Ereignisse, die x-Steine leuchten');
   }
 
   // Sampler-Spur: s("<brk amen>").slice(4, "0 <1 3>") spielt die Abschnitte (begin/end), scrub die Positionen,

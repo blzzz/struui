@@ -33,7 +33,7 @@ async function decode(raw: ArrayBuffer): Promise<AudioBuffer> {
   }
 }
 
-/** Eigene Aufnahmen und geladene Dateien. Nur im Speicher, beim Neuladen sind sie weg. */
+/** Eigene Aufnahmen und geladene Dateien. Gespeichert nur, soweit eine Spur sie braucht (im Code des Patterns). */
 class SampleBank {
   /** Name zu WAV-Data-URL (mono, 16 kHz). Reaktiv, weil der Code davon abhängt. */
   readonly dataUrls = new SvelteMap<string, string>();
@@ -41,6 +41,13 @@ class SampleBank {
 
   get names(): string[] {
     return [...this.dataUrls.keys()];
+  }
+
+  /** Alle eigenen Klänge ersetzen (anderes Pattern geladen). Neue Namen zählen nach den geladenen weiter. */
+  replace(dataUrls: ReadonlyMap<string, string>): void {
+    this.dataUrls.clear();
+    for (const [name, url] of dataUrls) this.dataUrls.set(name, url);
+    this.counter = Math.max(0, ...[...dataUrls.keys()].map((n) => Number(/\d+$/.exec(n)?.[0] ?? 0)));
   }
 
   /** Dekodiert, kürzt, normalisiert und legt den Klang ab. Gibt den vergebenen Namen zurück. */

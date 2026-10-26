@@ -7,13 +7,16 @@
   import Lane from "./Lane.svelte";
   import TrackCode from "./TrackCode.svelte";
   import TrackMenu from "./TrackMenu.svelte";
+  import { splitDrag } from "../interaction/split-drag.ts";
   import { VOLUME_MAX } from "../domain/types.ts";
   import { SLICES_MAX, clampSlices } from "../domain/sampler.ts";
   import type { Track } from "../domain/types.ts";
   import type { Snippet } from "svelte";
+  import type { Attachment } from "svelte/attachments";
 
   /** `grip`: Griff vor dem Namen, an dem die Arbeitsfläche die Spur verschiebt. */
-  let { track, index, grip }: { track: Track; index: number; grip?: Snippet } = $props();
+  let { track, index, grip }: { track: Track; index: number; grip?: Snippet } =
+    $props();
 
   /** Code statt Steine: die ganze Zeile der Spur samt Name und Effekten lässt sich bearbeiten. */
   let showCode = $state(false);
@@ -25,6 +28,12 @@
     if (isRaw) showCode = true;
   });
 
+  const solo = $derived(session.solo.has(track.id));
+  /** Eine andere Spur ist Solo: diese schweigt, ohne stumm geschaltet zu sein. */
+  const silenced = $derived(
+    !solo && project.tracks.some((t) => session.solo.has(t.id)),
+  );
+
   const parsed = $derived(project.parsedOf(track.id));
   const messages = $derived([
     ...new Set(parsed.errors.map((e) => PARSE_MESSAGES[e.code])),
@@ -33,6 +42,57 @@
   const showRandom = $derived(session.random.has(track.id));
   /** Drehknöpfe (Wiederholung, Modulo) unter den Steinen sichtbar. Sonst nur farbige Balken am Stein. */
   const showKnobs = $derived(!session.noKnobs.has(track.id));
+  /** Effekte rechts neben der Notation (senkrechter Strich) statt darunter. */
+  const inlineFx = $derived(session.inlineFx.has(track.id));
+  /** Gezogene Aufteilung (Anteil der Notation), null = Effekte nach Inhalt. */
+  const ratio = $derived(
+    inlineFx ? (session.fxSplit.get(track.id) ?? null) : null,
+  );
+  let split = $state<HTMLElement>();
+
+  /** Pfeiltasten auf dem Knopf verschieben den senkrechten Strich in Schritten. */
+  function onFlowKey(e: KeyboardEvent) {
+    const dir = e.key === "ArrowLeft" ? -1 : e.key === "ArrowRight" ? 1 : 0;
+    if (!inlineFx || dir === 0) return;
+    e.preventDefault();
+    const now = ratio ?? (split ? currentRatio(split) : 0.5);
+    session.setFxSplit(
+      track.id,
+      Math.min(Math.max(now + dir * 0.05, 0.15), 0.85),
+    );
+  }
+  /** Anteil der Notation, wie er gerade dasteht (für den ersten Tastenschritt ohne gezogene Aufteilung). */
+  function currentRatio(el: HTMLElement): number {
+    const notation = el.querySelector<HTMLElement>(":scope > .notation");
+    const fx = el.querySelector<HTMLElement>(":scope > .fx");
+    const total = (notation?.offsetWidth ?? 0) + (fx?.offsetWidth ?? 0);
+    return total > 0 ? (notation?.offsetWidth ?? 0) / total : 0.5;
+  }
+
+  /**
+   * Der Trennstrich reicht bis an den Rand der Spur-Box (`.cell` der Arbeitsfläche, nächster positionierter Vorfahre):
+   * waagrecht nach links und rechts, senkrecht nach unten. Die Box kann höher sein als ihr Inhalt.
+   */
+  const reachOutline: Attachment<HTMLElement> = (el) => {
+    const box = el.offsetParent as HTMLElement | null;
+    if (!box) return;
+    const place = () => {
+      el.style.setProperty("--reach-left", `${el.offsetLeft}px`);
+      el.style.setProperty(
+        "--reach-right",
+        `${box.clientWidth - el.offsetLeft - el.offsetWidth}px`,
+      );
+      el.style.setProperty(
+        "--reach-bottom",
+        `${box.clientHeight - el.offsetTop - el.offsetHeight}px`,
+      );
+    };
+    place();
+    const ro = new ResizeObserver(place);
+    ro.observe(el);
+    ro.observe(box);
+    return () => ro.disconnect();
+  };
   const isMidi = $derived(track.type === "midi");
   const isNote = $derived(track.type === "note");
   const isSampler = $derived(track.type === "sampler");
@@ -76,7 +136,7 @@
 
 <section
   class="track"
-  class:muted={track.muted}
+  class:muted={track.muted || silenced}
   class:norandom={!showRandom}
   class:noknobs={!showKnobs}
   data-lane={track.id}
@@ -123,6 +183,16 @@
           title={track.muted ? "Stumm (Code: .hush())" : "Stumm schalten"}
           onclick={() => project.toggleMute(track.id)}>M</button
         >
+        <button
+          class="mute solo"
+          class:active={solo}
+          aria-pressed={solo}
+          aria-label="Solo"
+          title={solo
+            ? "Solo (andere Spuren im Code mit .hush())"
+            : "Solo: nur diese Spur hören"}
+          onclick={() => session.toggleSolo(track.id)}>S</button
+        >
         {#if isRaw}
           <!-- Roher Code: Orbit und Lautstärke stehen, wenn überhaupt, im Code selbst -->
         {:else if isMidi}
@@ -139,8 +209,7 @@
             class:set={track.orbit !== 1}
             aria-label={`Orbit ${track.orbit}, tippen für den nächsten`}
             title={`Orbit ${track.orbit} (Code: .orbit), Spuren im selben Orbit teilen Hall und Delay. Tippen: nächster`}
-            onclick={() => project.cycleOrbit(track.id)}
-            ><small>orb</small>{track.orbit}</button
+            onclick={() => project.cycleOrbit(track.id)}>{track.orbit}</button
           >
           <input
             class="volume"
@@ -176,7 +245,15 @@
             {/each}
           </select>
         {/if}
-        <!-- Art der Spur, Ansicht (Steine/Code) und Entfernen -->
+        {#if showCode && !isRaw}
+          <!-- Zurück zu Steinen und Reglern; derselbe Wechsel steht auch im Menü -->
+          <button
+            class="to-ui"
+            title="UI zeigen: Steine und Regler statt Code"
+            onclick={() => (showCode = false)}>UI</button
+          >
+        {/if}
+        <!-- Art der Spur, Wechsel Code/UI und Entfernen -->
         <TrackMenu {track} {index} bind:showCode />
       </div>
     </div>
@@ -185,126 +262,198 @@
     {#if showCode}
       <TrackCode {track} />
     {:else}
-      <!-- Links vom Notationseditor zwei Schalter für die ganze Spur, zusammen so hoch wie ein Stein und auf seiner Höhe:
+      <!-- Notation (Sample, Steine, Rechenarten, Klang) und Effekte, getrennt durch einen Strich mit Schalter in der Mitte:
+           waagrecht (Effekte darunter) oder senkrecht (Effekte rechts daneben) -->
+      <div
+        class="split"
+        class:inline={inlineFx}
+        class:ratio={ratio !== null}
+        style:--ratio={ratio}
+        bind:this={split}
+      >
+        <div class="notation">
+          <!-- Links vom Notationseditor zwei Schalter für die ganze Spur, zusammen so hoch wie ein Stein und auf seiner Höhe:
            Würfel = Zufallsknöpfe über den Steinen (aus: roter Punkt am Stein, nicht änderbar),
            Drehknopf = Knöpfe für Wiederholung und Modulo darunter (aus: farbiger Balken am Stein, nicht änderbar). -->
-      {#if isSampler}
-        <!-- Sampler-Spur: zuerst das Sample (s("brk"), Klangsteine aus der Palette), dann wie die Wertsteine es spielen -->
-        <div class="voice sample">
-          <div class="box" class:off={track.sample.tokens.length === 0} class:bad={sampleMessages.length > 0}>
-            <span class="box-name" title="Sample, im Code s(…)">s</span>
-            <Lane laneId={track.sample.id} tokens={track.sample.tokens} />
+          {#if isSampler}
+            <!-- Sampler-Spur: zuerst das Sample (s("brk"), Klangsteine aus der Palette), dann wie die Wertsteine es spielen -->
+            <div class="voice sample">
+              <div
+                class="box"
+                class:off={track.sample.tokens.length === 0}
+                class:bad={sampleMessages.length > 0}
+              >
+                <span class="box-name" title="Sample, im Code s(…)">s</span>
+                <Lane laneId={track.sample.id} tokens={track.sample.tokens} />
+              </div>
+              {#if sampleMessages.length > 0}
+                <p class="error">
+                  {sampleMessages.join(" ")} Diese Spur bleibt stumm.
+                </p>
+              {:else if track.sample.tokens.length === 0}
+                <p class="hint">
+                  Ohne Sample bleibt diese Spur stumm. Zieh einen Klang aus der
+                  Palette hierher.
+                </p>
+              {/if}
+            </div>
+            <div
+              class="sampler"
+              role="group"
+              aria-label="Wie die Steine das Sample spielen"
+            >
+              <div class="seg">
+                <button
+                  aria-pressed={track.samplerMode === "slice"}
+                  title="Das Sample in gleich lange Abschnitte teilen, die Steine sind Abschnittsnummern (.slice)"
+                  onclick={() => project.setSamplerMode(track.id, "slice")}
+                  >slice</button
+                >
+                <button
+                  aria-pressed={track.samplerMode === "scrub"}
+                  title="Die Steine sind Positionen im Sample, 0 = Anfang, 1 = Ende (.scrub)"
+                  onclick={() => project.setSamplerMode(track.id, "scrub")}
+                  >scrub</button
+                >
+              </div>
+              {#if track.samplerMode === "slice"}
+                <label
+                  class="slices"
+                  title={`Zahl der Abschnitte, 1 bis ${SLICES_MAX}`}
+                >
+                  <input
+                    type="number"
+                    inputmode="numeric"
+                    min="1"
+                    max={SLICES_MAX}
+                    step="1"
+                    value={track.slices}
+                    aria-label="Zahl der Abschnitte"
+                    oninput={(e) => {
+                      const n = Number(e.currentTarget.value);
+                      if (e.currentTarget.value !== "" && n === clampSlices(n))
+                        project.setSlices(track.id, n);
+                    }}
+                    onblur={(e) =>
+                      (e.currentTarget.value = String(track.slices))}
+                  />
+                  <span>Abschnitte, Steine 0–{track.slices - 1}</span>
+                </label>
+              {:else}
+                <span class="voice-desc">Positionen: 0 = Anfang, 1 = Ende</span>
+              {/if}
+            </div>
+          {/if}
+          <div class="editor">
+            <!-- Erst mit mindestens einem Stein, vorher gibt es nichts umzuschalten -->
+            {#if track.tokens.length > 0}
+              <div class="toggles">
+                <button
+                  class="toggle dice"
+                  aria-pressed={showRandom}
+                  aria-label="Zufall bearbeiten"
+                  title={showRandom
+                    ? "Zufallsknöpfe verbergen"
+                    : "Zufallsknöpfe zeigen (?)"}
+                  onclick={() => session.toggleRandom(track.id)}
+                >
+                  <svg viewBox="0 0 16 16" aria-hidden="true">
+                    <rect x="2" y="2" width="12" height="12" rx="2.5" />
+                    <circle cx="5.3" cy="5.3" r="1.1" />
+                    <circle cx="8" cy="8" r="1.1" />
+                    <circle cx="10.7" cy="10.7" r="1.1" />
+                  </svg>
+                </button>
+                <button
+                  class="toggle knobs"
+                  aria-pressed={showKnobs}
+                  aria-label="Wiederholung bearbeiten"
+                  title={showKnobs
+                    ? "Drehknöpfe verbergen"
+                    : "Drehknöpfe zeigen (* ! @ %)"}
+                  onclick={() => session.toggleKnobs(track.id)}
+                >
+                  <svg viewBox="0 0 16 16" aria-hidden="true">
+                    <circle class="ring" cx="8" cy="8" r="4.5" />
+                    <path d="M8 8l2.2-2.2" />
+                    <circle class="tick" cx="8" cy="1.6" r="0.9" />
+                    <circle class="tick" cx="13.5" cy="10.8" r="0.9" />
+                    <circle class="tick" cx="2.5" cy="10.8" r="0.9" />
+                  </svg>
+                </button>
+              </div>
+            {/if}
+            <Lane laneId={track.id} tokens={track.tokens} value={isSampler} />
           </div>
-          {#if sampleMessages.length > 0}
-            <p class="error">{sampleMessages.join(" ")} Diese Spur bleibt stumm.</p>
-          {:else if track.sample.tokens.length === 0}
-            <p class="hint">Ohne Sample bleibt diese Spur stumm. Zieh einen Klang aus der Palette hierher.</p>
+          {#if isNote}
+            <!-- Rechenarten auf den Noten (add, div …), im Code an der Mini-Notation: note("f d".add("<0 3>")) -->
+            <EffectList {track} kind="noteOps" />
+            <!-- Klang der Noten (.s), eine feste Reihe vor den Effekten. Meist ein Stein, mehrere wechseln (<sine sawtooth>). -->
+            <div class="voice">
+              <div
+                class="box"
+                class:off={track.voice.tokens.length === 0}
+                class:bad={voiceMessages.length > 0}
+              >
+                <span class="box-name" title="Klang der Noten, im Code .s(…)"
+                  >s</span
+                >
+                <Lane laneId={track.voice.id} tokens={track.voice.tokens} />
+              </div>
+              {#if voiceMessages.length > 0}
+                <p class="error">
+                  {voiceMessages.join(" ")} Die Noten klingen dann als triangle.
+                </p>
+              {:else if track.voice.tokens.length === 0}
+                <p class="hint">
+                  Ohne Klang spielt Strudel die Noten als triangle.
+                </p>
+              {/if}
+            </div>
           {/if}
         </div>
-        <div class="sampler" role="group" aria-label="Wie die Steine das Sample spielen">
-          <div class="seg">
-            <button
-              aria-pressed={track.samplerMode === "slice"}
-              title="Das Sample in gleich lange Abschnitte teilen, die Steine sind Abschnittsnummern (.slice)"
-              onclick={() => project.setSamplerMode(track.id, "slice")}>slice</button
-            >
-            <button
-              aria-pressed={track.samplerMode === "scrub"}
-              title="Die Steine sind Positionen im Sample, 0 = Anfang, 1 = Ende (.scrub)"
-              onclick={() => project.setSamplerMode(track.id, "scrub")}>scrub</button
-            >
-          </div>
-          {#if track.samplerMode === "slice"}
-            <label class="slices" title={`Zahl der Abschnitte, 1 bis ${SLICES_MAX}`}>
-              <input
-                type="number"
-                inputmode="numeric"
-                min="1"
-                max={SLICES_MAX}
-                step="1"
-                value={track.slices}
-                aria-label="Zahl der Abschnitte"
-                oninput={(e) => {
-                  const n = Number(e.currentTarget.value);
-                  if (e.currentTarget.value !== "" && n === clampSlices(n)) project.setSlices(track.id, n);
-                }}
-                onblur={(e) => (e.currentTarget.value = String(track.slices))}
-              />
-              <span>Abschnitte, Steine 0–{track.slices - 1}</span>
-            </label>
-          {:else}
-            <span class="voice-desc">Positionen: 0 = Anfang, 1 = Ende</span>
-          {/if}
+        <!-- Senkrecht: Ziehen teilt den Platz neu auf, Doppelklick auf den Strich richtet die Effekte wieder nach Inhalt -->
+        <div
+          class="divider"
+          role="presentation"
+          {@attach reachOutline}
+          {@attach splitDrag(() => ({
+            active: () => inlineFx,
+            container: () => split ?? null,
+            onRatio: (r) => session.setFxSplit(track.id, r),
+          }))}
+          ondblclick={(e) => {
+            if (inlineFx && e.target === e.currentTarget)
+              session.setFxSplit(track.id, null);
+          }}
+        >
+          <button
+            class="flow"
+            aria-pressed={inlineFx}
+            aria-label="Effekte neben der Notation"
+            title={inlineFx
+              ? "Effekte unter die Notation stellen (Ziehen: Platz aufteilen)"
+              : "Effekte neben die Notation stellen"}
+            onclick={() => session.toggleInlineFx(track.id)}
+            onkeydown={onFlowKey}
+          >
+            <!-- Fluss von der Notation zu den Effekten: zeigt nach unten bzw. nach rechts -->
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <circle cx="8" cy="3" r="1.6" />
+              <path d="M8 4.6v8.4M5 10l3 3 3-3" />
+            </svg>
+          </button>
         </div>
-      {/if}
-      <div class="editor">
-        <!-- Erst mit mindestens einem Stein, vorher gibt es nichts umzuschalten -->
-        {#if track.tokens.length > 0}
-          <div class="toggles">
-            <button
-              class="toggle dice"
-              aria-pressed={showRandom}
-              aria-label="Zufall bearbeiten"
-              title={showRandom
-                ? "Zufallsknöpfe verbergen"
-                : "Zufallsknöpfe zeigen (?)"}
-              onclick={() => session.toggleRandom(track.id)}
-            >
-              <svg viewBox="0 0 16 16" aria-hidden="true">
-                <rect x="2" y="2" width="12" height="12" rx="2.5" />
-                <circle cx="5.3" cy="5.3" r="1.1" />
-                <circle cx="8" cy="8" r="1.1" />
-                <circle cx="10.7" cy="10.7" r="1.1" />
-              </svg>
-            </button>
-            <button
-              class="toggle knobs"
-              aria-pressed={showKnobs}
-              aria-label="Wiederholung bearbeiten"
-              title={showKnobs
-                ? "Drehknöpfe verbergen"
-                : "Drehknöpfe zeigen (* ! @ %)"}
-              onclick={() => session.toggleKnobs(track.id)}
-            >
-              <svg viewBox="0 0 16 16" aria-hidden="true">
-                <circle class="ring" cx="8" cy="8" r="4.5" />
-                <path d="M8 8l2.2-2.2" />
-                <circle class="tick" cx="8" cy="1.6" r="0.9" />
-                <circle class="tick" cx="13.5" cy="10.8" r="0.9" />
-                <circle class="tick" cx="2.5" cy="10.8" r="0.9" />
-              </svg>
-            </button>
-          </div>
-        {/if}
-        <Lane laneId={track.id} tokens={track.tokens} value={isSampler} />
-      </div>
-      {#if isNote}
-        <!-- Rechenarten auf den Noten (add, div …), im Code an der Mini-Notation: note("f d".add("<0 3>")) -->
-        <EffectList {track} kind="noteOps" />
-        <!-- Klang der Noten (.s), eine feste Reihe vor den Effekten. Meist ein Stein, mehrere wechseln (<sine sawtooth>). -->
-        <div class="voice">
-          <div class="box" class:off={track.voice.tokens.length === 0} class:bad={voiceMessages.length > 0}>
-            <span class="box-name" title="Klang der Noten, im Code .s(…)">s</span>
-            <Lane laneId={track.voice.id} tokens={track.voice.tokens} />
-          </div>
-          {#if voiceMessages.length > 0}
-            <p class="error">
-              {voiceMessages.join(" ")} Die Noten klingen dann als triangle.
-            </p>
-          {:else if track.voice.tokens.length === 0}
+        <div class="fx">
+          <EffectList {track} />
+          {#if withoutNote}
             <p class="hint">
-              Ohne Klang spielt Strudel die Noten als triangle.
+              Ohne <code>.note()</code> schickt diese Spur keine Noten.
+              <button class="small" onclick={addNote}>note hinzufügen</button>
             </p>
           {/if}
         </div>
-      {/if}
-      <EffectList {track} />
-      {#if withoutNote}
-        <p class="hint">
-          Ohne <code>.note()</code> schickt diese Spur keine Noten.
-          <button class="small" onclick={addNote}>note hinzufügen</button>
-        </p>
-      {/if}
+      </div>
     {/if}
   </div>
   {#if messages.length > 0}
@@ -330,6 +479,12 @@
     align-items: center;
     gap: 2px;
     min-width: 0;
+  }
+  .to-ui {
+    height: 28px;
+    padding: 0 10px;
+    font-size: 13px;
+    font-weight: 600;
   }
   .actions {
     display: flex;
@@ -416,6 +571,107 @@
     border-color: var(--line);
     color: var(--mute);
   }
+  /* Notation, Trennstrich, Effekte: untereinander (block) oder nebeneinander (inline) */
+  .split {
+    display: flex;
+    flex-direction: column;
+  }
+  .split.inline {
+    flex-direction: row;
+    align-items: stretch;
+  }
+  .notation {
+    min-width: 0;
+  }
+  .split.inline .notation {
+    flex: 1 1 0;
+  }
+  .split.inline .fx {
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: 50%;
+  }
+  /* Gezogene Aufteilung: beide Seiten im Verhältnis, unabhängig vom Inhalt */
+  .split.inline.ratio .notation {
+    flex: var(--ratio) 1 0;
+  }
+  .split.inline.ratio .fx {
+    flex: calc(1 - var(--ratio)) 1 0;
+    max-width: none;
+  }
+  /* Den Abstand zur Notation gibt hier der Trennstrich */
+  .fx > :global(.effects) {
+    margin-top: 0;
+  }
+  /* Trennstrich mit rundem Schalter in der Mitte */
+  .divider {
+    position: relative;
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 28px;
+    margin: 6px 0;
+  }
+  .divider::before {
+    content: "";
+    position: absolute;
+    left: calc(-1 * var(--reach-left, 0px));
+    right: calc(-1 * var(--reach-right, 0px));
+    top: 50%;
+    border-top: 1.5px solid var(--line);
+  }
+  .split.inline .divider {
+    width: 28px;
+    height: auto;
+    margin: 0 8px;
+    cursor: col-resize;
+    /* Am Strich zieht der Finger, die Arbeitsfläche verschiebt sich hier nicht */
+    touch-action: none;
+  }
+  .split.inline .divider:global([data-dragging])::before {
+    border-left-color: var(--blue);
+  }
+  .split.inline .divider::before {
+    left: 50%;
+    right: auto;
+    top: 0;
+    bottom: calc(-1 * var(--reach-bottom, 0px));
+    border-top: none;
+    border-left: 1.5px solid var(--line);
+  }
+  .flow {
+    position: relative;
+    width: 16px;
+    height: 16px;
+    padding: 0;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    background: var(--mute);
+    border-color: var(--mute);
+    color: var(--panel);
+  }
+  .flow:hover {
+    color: var(--ink);
+  }
+  .flow svg {
+    width: 12px;
+    height: 12px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.6;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    transition: transform 150ms;
+  }
+  .flow circle {
+    fill: currentColor;
+    stroke: none;
+  }
+  .split.inline .flow svg {
+    transform: rotate(-90deg);
+  }
   /* Schalter links, Steine rechts daneben */
   .editor {
     display: flex;
@@ -493,6 +749,11 @@
     background: var(--red);
     border-color: var(--red);
     color: #fff;
+  }
+  .solo.active {
+    background: var(--on);
+    border-color: var(--on);
+    color: #000;
   }
   /* Waagrechter Regler: links leise, rechts laut */
   .volume {

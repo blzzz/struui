@@ -1,5 +1,5 @@
 import { QUICK_SOUNDS } from './sounds.ts';
-import { PAUSE, closeToken, hasModifiers, joinsPrevious, openToken, soundToken } from './types.ts';
+import { PAUSE, closeToken, hasModifiers, joinsPrevious, newId, openToken, soundToken } from './types.ts';
 import type { GroupType, SoundToken, Token } from './types.ts';
 
 /** Reine Bearbeitungs-Funktionen auf einer Steinliste. Sie verändern das übergebene Array. */
@@ -84,6 +84,43 @@ export function wrapRange(tokens: Token[], from: number, to: number, group: Grou
 
 export function removeAt(tokens: Token[], index: number): void {
   takeAt(tokens, index);
+}
+
+/**
+ * Kopie mit neuer ID, sonst gleich (auch Zufall, Wiederholung und Platz im Stapel).
+ * Über JSON statt `structuredClone`: die Steine können Svelte-Proxys sein, die `structuredClone` nicht kopiert.
+ */
+function copyToken(t: Token): Token {
+  return { ...(JSON.parse(JSON.stringify(t)) as Token), id: newId() };
+}
+
+/**
+ * Stein an `index` verdoppeln: die Kopie steht gleich dahinter. Bei einer Klammer das ganze Paar samt Inhalt,
+ * in einem Stapel kommt die Kopie in denselben Stapel (`[bd, hh, hh]`). Gibt den Index der (ersten) Kopie zurück.
+ */
+export function duplicateAt(tokens: Token[], index: number): number {
+  const t = tokens[index];
+  if (t?.kind === 'open' || t?.kind === 'close') return duplicateRange(tokens, index, index);
+  tokens.splice(index + 1, 0, copyToken(t));
+  return index + 1;
+}
+
+/** Steine von `from` bis `to` (siehe `wrapSpan`) verdoppeln: die Kopie folgt direkt danach. Gibt den Index ihres Anfangs zurück. */
+export function duplicateRange(tokens: Token[], from: number, to: number): number {
+  const [lo, hi] = wrapSpan(tokens, from, to);
+  const copies = tokens.slice(lo, hi + 1).map(copyToken);
+  // Die Kopie beginnt einen eigenen Stapel, statt am letzten Stein des Originals zu hängen
+  const first = copies[0];
+  if (first.kind === 'sound') first.joined = false;
+  tokens.splice(hi + 1, 0, ...copies);
+  return hi + 1;
+}
+
+/** Steine von `from` bis `to` (siehe `wrapSpan`) entfernen. Klammerpaare und Stapel gehen nur ganz weg. */
+export function removeRange(tokens: Token[], from: number, to: number): void {
+  const [lo, hi] = wrapSpan(tokens, from, to);
+  tokens.splice(lo, hi - lo + 1);
+  tidyStacks(tokens);
 }
 
 /** Ersetzt einen Stein. Zufall und Wiederholung bleiben erhalten, wenn beide Steine welche tragen, ebenso der Platz im Stapel. */

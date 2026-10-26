@@ -1,5 +1,5 @@
-import { NOTE_OPS, effectInfo, isSliderRange, noteOpInfo } from '../domain/effects.ts';
-import type { SliderRange } from '../domain/effects.ts';
+import { NOTE_OPS, effectInfo, isRandSeries, isSliderRange, noteOpInfo } from '../domain/effects.ts';
+import type { RandSeries, SliderRange } from '../domain/effects.ts';
 import { SLICES_MAX } from '../domain/sampler.ts';
 import type { SamplerMode } from '../domain/sampler.ts';
 import { CHANNEL_MAX, ORBIT_MAX, soundToken, trackName } from '../domain/types.ts';
@@ -46,11 +46,15 @@ export interface CodeLine {
   effects: ValueRow[];
 }
 
-/** Ein Effekt oder eine Rechenart: Name, Wertsteine und, aus `slider(wert, min, max, step)`, der Bereich des Reglers. */
+/**
+ * Ein Effekt oder eine Rechenart: Name, Wertsteine und, aus `slider(wert, min, max, step)`, der Bereich des Reglers.
+ * Aus `rand.range(…).segment(…).ribbon(…)` die Zufallsreihe, die Wertsteine sind dann leer.
+ */
 export interface ValueRow {
   name: string;
   tokens: Token[];
   slider: SliderRange | null;
+  rand: RandSeries | null;
 }
 
 export type CodeResult = ({ ok: true } & CodeLine) | { ok: false; offset: number; message: string };
@@ -102,15 +106,62 @@ export function codeToTrack(code: string, prefer?: TrackType): CodeResult {
     return m[0];
   };
 
+  /** `.name(` mit beliebigem Leerraum, ohne die Klammer zu lesen. */
+  const call = (names: string[]): boolean => {
+    space();
+    const m = new RegExp(`^\\.\\s*(${names.join('|')})\\s*\\(`).exec(code.slice(pos));
+    if (m) pos += m[0].length;
+    return m !== null;
+  };
+  /** Zahl, dann `,` oder (beim letzten) `)`. */
+  const arg = (what: string, last = false): number => {
+    const n = Number(number(what));
+    expect(last ? ')' : ',');
+    return n;
+  };
+
   /**
-   * Wert eines Aufrufs nach der öffnenden Klammer: eine Zahl als ein Stein, Mini-Notation, oder Strudels Regler
-   * `slider(wert, min, max, step)` (fehlen min und max, gilt wie bei Strudel 0 und 1, ohne step ein Hundertstel). Liest bis nach `)`.
+   * Zufallsreihe nach `rand`: `.range(min, max)`, wahlweise `.round()`, dann `.segment(n)` (auch `seg`) und
+   * `.ribbon(offset, zyklen)` (auch `rib`), in dieser Reihenfolge, so wie `randToCode` sie schreibt.
+   */
+  const randSeries = (at: number): RandSeries => {
+    const shape = 'Eine Zufallsreihe ist rand.range(min, max).segment(n).ribbon(offset, zyklen).';
+    if (!call(['range'])) throw new CodeError(shape, at);
+    const min = arg('Das Minimum');
+    const max = arg('Das Maximum', true);
+    let whole = false;
+    if (call(['round'])) {
+      expect(')', '«)», round() nimmt keinen Wert');
+      whole = true;
+    }
+    if (!call(['segment', 'seg'])) throw new CodeError(shape, pos);
+    const segments = arg('Die Zahl der Segmente', true);
+    if (!call(['ribbon', 'rib'])) throw new CodeError(shape, pos);
+    const offset = arg('Der Offset');
+    const cycles = arg('Die Zahl der Zyklen', true);
+    const r = { min, max, segments, offset, cycles, whole };
+    if (!isRandSeries(r)) {
+      throw new CodeError('In der Zufallsreihe liegt das Minimum unter dem Maximum, die Segmente sind ganz ab 1, die Zyklen über 0.', at);
+    }
+    return r;
+  };
+
+  /**
+   * Wert eines Aufrufs nach der öffnenden Klammer: eine Zahl als ein Stein, Mini-Notation, Strudels Regler
+   * `slider(wert, min, max, step)` (fehlen min und max, gilt wie bei Strudel 0 und 1, ohne step ein Hundertstel)
+   * oder eine Zufallsreihe (`randSeries`). Liest bis nach `)`.
    */
   const value = (name: string): ValueRow => {
     space();
     let tokens: Token[];
     let slider: SliderRange | null = null;
-    if (NUMBER.test(code.slice(pos))) {
+    let rand: RandSeries | null = null;
+    if (/^rand\b/.test(code.slice(pos))) {
+      const at = pos;
+      pos += 'rand'.length;
+      rand = randSeries(at);
+      tokens = [];
+    } else if (NUMBER.test(code.slice(pos))) {
       tokens = [soundToken(number('Der Wert'))];
     } else if (/^slider\s*\(/.test(code.slice(pos))) {
       const at = pos;
@@ -131,7 +182,7 @@ export function codeToTrack(code: string, prefer?: TrackType): CodeResult {
       tokens = mini();
     }
     expect(')');
-    return { name, tokens, slider };
+    return { name, tokens, slider, rand };
   };
 
   try {
@@ -187,6 +238,7 @@ export function codeToTrack(code: string, prefer?: TrackType): CodeResult {
       }
       const row = value(mode);
       if (row.slider) throw new CodeError(`Bei .${mode}() geht kein Regler (slider).`, at);
+      if (row.rand) throw new CodeError(`Bei .${mode}() geht keine Zufallsreihe (rand).`, at);
       sampler = { mode, slices, tokens: row.tokens, at };
     }
 
@@ -237,7 +289,7 @@ export function codeToTrack(code: string, prefer?: TrackType): CodeResult {
       space();
       if (effectInfo(fx)?.noValue) {
         expect(')', `«)», ${fx}() nimmt keinen Wert`);
-        effects.push({ name: fx, tokens: [], slider: null });
+        effects.push({ name: fx, tokens: [], slider: null, rand: null });
         continue;
       }
       if (fx === 'orbit') {

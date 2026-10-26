@@ -6,20 +6,27 @@ import {
   NOTE_OPS,
   defaultValue,
   effectInfo,
+  fromRange,
   fromSlider,
+  isRandSeries,
   isSliderRange,
+  sliderStep,
+  suggestRandSeries,
   suggestSliderRange,
+  wholeValues,
   isValueAtom,
   noteOpInfo,
   searchEffects,
   searchNoteOps,
   singleValue,
+  splitParts,
   stepValue,
+  toRange,
   toSlider,
   valueInfo,
   valueScale,
 } from './effects.ts';
-import { effectToCode, toStrudelCode, toStrudelProgram, trackToCode } from './codegen.ts';
+import { effectToCode, randToCode, toStrudelCode, toStrudelProgram, trackToCode } from './codegen.ts';
 import { quickSwitch } from './edit.ts';
 import { closeToken, effect, nextInCycle, openToken, soundToken, trackName } from './types.ts';
 import type { TrackType } from './types.ts';
@@ -198,6 +205,86 @@ test('codegen: Sample-Funktionen wie Effekte, fit() ohne Wert', () => {
   assert.equal(trackToCode(t).text, 's("brk").fit().chop(4).scrub("<0 .5>")');
 });
 
+test('effects: Musterbefehle mit höchstens einem Wert aus Strudels Quelltext, mit Gruppe', () => {
+  for (const n of ['fast', 'slow', 'ply', 'early', 'iter', 'struct', 'mask', 'rev', 'palindrome']) assert.equal(effectInfo(n)?.group, 'pattern', n);
+  for (const n of ['degradeBy', 'degrade', 'shuffle', 'scramble']) assert.equal(effectInfo(n)?.group, 'random', n);
+  for (const n of ['transpose', 'scale', 'scaleTranspose']) assert.equal(effectInfo(n)?.group, 'tonal', n);
+  assert.equal(effectInfo('rev')?.noValue, true);
+  assert.equal(effectInfo('fast')?.noValue, undefined);
+  assert.equal(effectInfo('trans')?.name, 'transpose', 'Synonym');
+  assert.ok(!effectInfo('fast')?.synonyms.includes('density'), 'density ist ein eigener Steuerparameter');
+  assert.equal(effectInfo('density')?.group, 'audio');
+  // Funktionen als Wert und mehrere Werte passen nicht in eine Wertreihe; Rechnen mit Zahlen ist keine Spurfunktion
+  for (const n of ['jux', 'every', 'firstOf', 'sometimes', 'off', 'when', 'euclid', 'range', 'echo', 'pick', 'round']) {
+    assert.equal(effectInfo(n), undefined, n);
+  }
+});
+
+test('effects: Strukturen immer als Mini-Notation, beginnend mit x', () => {
+  for (const n of ['struct', 'mask', 'reset', 'restart']) {
+    const info = effectInfo(n);
+    assert.equal(info?.miniOnly, true, n);
+    assert.equal(info && defaultValue(info), 'x', n);
+  }
+  assert.equal(effectInfo('fast')?.miniOnly, undefined);
+});
+
+test('effects: Musterbefehle in jeder Spur, Tonhöhe nur bei Noten und MIDI', () => {
+  const offered = (type: TrackType, name: string) => searchEffects('', type, 1000).some((e) => e.name === name);
+  for (const type of ['sound', 'sampler', 'note', 'midi'] as const) {
+    assert.ok(offered(type, 'fast') && offered(type, 'degradeBy') && offered(type, 'struct'), type);
+  }
+  for (const n of ['transpose', 'scale']) {
+    assert.ok(offered('note', n) && offered('midi', n), n);
+    assert.ok(!offered('sound', n) && !offered('sampler', n), n);
+  }
+});
+
+test('effects: scale aus Grundton und Tonleiter von Tonal.js', () => {
+  const info = effectInfo('scale');
+  const [roots, types] = info?.parts ?? [];
+  assert.equal(info && defaultValue(info), 'C:major');
+  assert.ok(roots.includes('C') && roots.includes('F#') && roots.includes('Bb'));
+  for (const t of ['major', 'minor', 'dorian', 'major:pentatonic', 'in-sen', 'lydian:#5p:pentatonic']) assert.ok(types.includes(t), t);
+  assert.ok(!types.some((t) => t.includes("'")), 'Apostroph liest die Mini-Notation nicht');
+  for (const t of types) assert.ok(isValueAtom(`C:${t}`, true), t);
+  // Pfeiltasten wechseln den Grundton, die Tonleiter bleibt
+  assert.equal(stepValue('C:minor', info?.values ?? [], 1), 'C#:minor');
+});
+
+test('effects: Werte aus Teilen trennen', () => {
+  assert.deepEqual(splitParts('C:minor', 2), ['C', 'minor']);
+  assert.deepEqual(splitParts('F#:major:pentatonic', 2), ['F#', 'major:pentatonic']);
+  assert.deepEqual(splitParts('C', 2), ['C', '']);
+  assert.deepEqual(splitParts('', 2), ['', '']);
+});
+
+test('effects: Intervalle als Wert (transpose)', () => {
+  for (const v of ['3M', '-2M', '5P', '-12']) assert.ok(isValueAtom(v), v);
+  assert.ok(!isValueAtom('3M:2'));
+  assert.ok(!isValueAtom('C:minor'), 'nur in Listen');
+});
+
+test('codegen: Musterbefehle wie Effekte, ohne Wert mit ()', () => {
+  const t = {
+    tokens: [soundToken('bd')],
+    effects: [
+      effect('fast', [soundToken('2')]),
+      effect('struct', [soundToken('x'), soundToken('~'), soundToken('x')]),
+      effect('rev'),
+      effect('degradeBy', [soundToken('.5')]),
+    ],
+  };
+  assert.equal(trackToCode(t).text, 's("bd").fast(2).struct("x ~ x").rev().degradeBy(0.5)');
+  const n = {
+    type: 'note' as const,
+    tokens: [soundToken('c'), soundToken('e')],
+    voice: { tokens: [soundToken('piano')] },
+    effects: [effect('scale', [soundToken('C:minor')]), effect('transpose', [soundToken('3M')])],
+  };
+  assert.equal(trackToCode(n).text, 'note("c e").s("piano").scale("C:minor").transpose("3M")');
+});
+
 test('codegen: Rechenarten stehen an der Mini-Notation der Noten, nur bei Notenspuren', () => {
   const zero = soundToken('0');
   const t = {
@@ -319,4 +406,58 @@ test('effects: Vorschlag für den Regler aus den Beispielwerten, mit rundem Schr
   assert.ok(!isSliderRange({ min: 1, max: 1, step: 1 }));
   assert.ok(!isSliderRange({ min: 0, max: 1, step: 0 }));
   assert.ok(!isSliderRange({ min: 0, max: NaN, step: 1 }));
+});
+
+test('toRange/fromRange: linear im eingestellten Bereich, auf step gerundet', () => {
+  const r = { min: 100, max: 8000, step: 10 };
+  assert.equal(toRange(100, r), 0);
+  assert.equal(toRange(8000, r), 1);
+  assert.equal(toRange(9000, r), 1);
+  assert.equal(fromRange(0.5, r), 4050);
+  assert.equal(fromRange(1.2, r), 8000);
+  assert.equal(fromRange(0.333, { min: 0, max: 1, step: 0.01 }), 0.33);
+  assert.equal(fromRange(0.5, { min: 0, max: 1, step: 0.25 }), 0.5);
+  assert.equal(fromRange(1, { min: 0, max: 1, step: 0.3 }), 0.9);
+});
+
+test('sliderStep: runde Zahl um ein Hundertstel des Bereichs', () => {
+  assert.equal(sliderStep(100, 8000), 10);
+  assert.equal(sliderStep(0, 1), 0.01);
+  assert.equal(sliderStep(-12, 12), 0.1);
+  assert.equal(sliderStep(5, 5), 1);
+  assert.equal(sliderStep(5, 1), 1);
+});
+
+test('Zufallsreihe: Code statt der Wertsteine, ganze Zahlen mit round()', () => {
+  const rand = { min: 200, max: 2000, segments: 4, offset: 12, cycles: 2, whole: false };
+  assert.equal(randToCode(rand), 'rand.range(200, 2000).segment(4).ribbon(12, 2)');
+  assert.equal(randToCode({ ...rand, whole: true }), 'rand.range(200, 2000).round().segment(4).ribbon(12, 2)');
+  const fx = { ...effect('lpf', [soundToken('800')]), rand };
+  assert.equal(effectToCode(fx)?.text, '.lpf(rand.range(200, 2000).segment(4).ribbon(12, 2))');
+  assert.equal(effectToCode({ ...effect('lpf'), rand })?.text, '.lpf(rand.range(200, 2000).segment(4).ribbon(12, 2))', 'auch ohne Steine');
+  assert.equal(effectToCode({ ...fx, rand: null })?.text, '.lpf(800)');
+});
+
+test('Zufallsreihe: gültig, ganze Zahlen aus den Beispielwerten, Vorschlag', () => {
+  const ok = { min: 0, max: 1, segments: 4, offset: 0, cycles: 1, whole: false };
+  assert.ok(isRandSeries(ok));
+  assert.ok(isRandSeries({ ...ok, offset: -3.5, cycles: 0.5 }));
+  assert.ok(!isRandSeries({ ...ok, min: 1 }), 'min unter max');
+  assert.ok(!isRandSeries({ ...ok, segments: 0 }), 'Segmente ab 1');
+  assert.ok(!isRandSeries({ ...ok, segments: 2.5 }), 'Segmente ganz');
+  assert.ok(!isRandSeries({ ...ok, cycles: 0 }), 'Zyklen über 0');
+  assert.ok(!isRandSeries({ ...ok, offset: NaN }));
+
+  assert.equal(wholeValues(effectInfo('coarse'), 1, 32), true);
+  assert.equal(wholeValues(effectInfo('coarse'), 0.5, 32), false, 'min nicht ganz');
+  assert.equal(wholeValues(effectInfo('room'), 0, 1), false, 'Beispielwerte mit Komma');
+  assert.equal(wholeValues(undefined, 0, 1), false, 'ohne Beispielwerte');
+
+  assert.deepEqual(suggestRandSeries(effectInfo('lpf'), 800), { min: 100, max: 4000, segments: 4, offset: 0, cycles: 1, whole: true });
+  assert.deepEqual(
+    suggestRandSeries(effectInfo('room'), null, { min: 0, max: 2, step: 0.01 }),
+    { min: 0, max: 2, segments: 4, offset: 0, cycles: 1, whole: false },
+    'eingestellter Bereich zuerst',
+  );
+  for (const e of EFFECTS) assert.ok(isRandSeries(suggestRandSeries(e, null)), e.name);
 });

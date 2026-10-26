@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parse } from './parse.ts';
 import { trackToMini, toStrudelCode, toStrudelProgram } from './codegen.ts';
-import { adoptIds, insertAt, moveToken, removeAt, replaceAt, stackAt, wrapAt, wrapRange, wrapSpan, insertPair, quickSwitch, setGroup, unwrapAt } from './edit.ts';
+import { adoptIds, duplicateAt, duplicateRange, insertAt, moveToken, removeAt, removeRange, replaceAt, stackAt, wrapAt, wrapRange, wrapSpan, insertPair, quickSwitch, setGroup, unwrapAt } from './edit.ts';
 import { closeToken, defaultTrackName, openToken, rawToken, soundToken, trackName, uniqueName } from './types.ts';
 import type { Token } from './types.ts';
 
@@ -300,4 +300,50 @@ test('codegen: Varianten eigener Aufnahmen laden die Aufnahme', () => {
   const { code } = toStrudelProgram([{ tokens: [soundToken('rec1:2'), soundToken('bd:3')] }], { cps: 0.5, samples });
   assert.match(code, /samples\(\{\n {2}rec1: 'data:audio\/wav;base64,AA'\n\}\)/);
   assert.match(code, /s\("rec1:2 bd:3"\)/);
+});
+
+test('edit: Stein verdoppeln, Kopie mit neuer ID gleich dahinter', () => {
+  const tokens: Token[] = [soundToken('bd', { repeat: { op: '*', value: 2 } }), soundToken('sd')];
+  assert.equal(duplicateAt(tokens, 0), 1);
+  assert.equal(trackToMini(tokens), 'bd*2 bd*2 sd');
+  assert.notEqual(tokens[1].id, tokens[0].id);
+  // Die Kopie ist unabhängig
+  if (tokens[1].kind === 'sound') tokens[1].sound = 'cp';
+  assert.equal(trackToMini(tokens), 'bd*2 cp*2 sd');
+});
+
+test('edit: Klammer verdoppeln nimmt das ganze Paar, Stapelstein bleibt im Stapel', () => {
+  const tokens: Token[] = [openToken('<'), soundToken('a'), soundToken('b'), closeToken('<'), soundToken('c')];
+  assert.equal(duplicateAt(tokens, 3), 4);
+  assert.equal(trackToMini(tokens), '<a b> <a b> c');
+  const stack: Token[] = [soundToken('bd'), joined('hh')];
+  duplicateAt(stack, 1);
+  assert.equal(trackToMini(stack), '[bd, hh, hh]');
+});
+
+test('edit: Bereich verdoppeln, ein Stapel beginnt neu', () => {
+  const tokens: Token[] = [soundToken('a'), soundToken('bd'), joined('hh'), soundToken('c')];
+  // Von a bis hh: der Stapel kommt ganz mit, die Kopie hängt nicht am Original
+  assert.equal(duplicateRange(tokens, 0, 2), 3);
+  assert.equal(trackToMini(tokens), 'a [bd, hh] a [bd, hh] c');
+  const ids = new Set(tokens.map((t) => t.id));
+  assert.equal(ids.size, tokens.length);
+});
+
+test('edit: Bereich entfernen nimmt angeschnittene Paare und Stapel ganz', () => {
+  // a [b c] d
+  const tokens: Token[] = [soundToken('a'), openToken('['), soundToken('b'), soundToken('c'), closeToken('['), soundToken('d')];
+  removeRange(tokens, 0, 2);
+  assert.equal(trackToMini(tokens), 'd');
+  const stack: Token[] = [soundToken('x'), soundToken('bd'), joined('hh'), soundToken('y')];
+  removeRange(stack, 2, 2);
+  assert.equal(trackToMini(stack), 'x y');
+});
+
+test('edit: Verdoppeln geht auch mit Proxys (Svelte-Zustand)', () => {
+  // `structuredClone` wirft bei Proxys; im Programm sind die Steine Svelte-Proxys
+  const tokens: Token[] = [new Proxy(soundToken('bd'), {}), new Proxy(openToken('['), {}), new Proxy(soundToken('sd'), {}), new Proxy(closeToken('['), {})];
+  duplicateAt(tokens, 0);
+  duplicateRange(tokens, 2, 4);
+  assert.equal(trackToMini(tokens), 'bd bd [sd] [sd]');
 });

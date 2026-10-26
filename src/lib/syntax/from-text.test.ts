@@ -102,3 +102,13 @@ test('text: leerer Text ist eine leere Spur, Fehler melden die Stelle', () => {
   assert.equal(r.ok, false);
   if (!r.ok) assert.ok(r.offset >= 3);
 });
+
+test('text: Pause mit Gewicht wird ein Pausenstein, bedeutet danach dasselbe', () => {
+  for (const text of ['bd ~@2 sd', '[bd, ~@3]', '~@1.5 hh']) {
+    assert.equal(meaning(roundTrip(text)), meaning(text), text);
+  }
+  const r = textToTokens('bd ~@2');
+  assert.ok(r.ok);
+  const pause = r.tokens[1];
+  assert.ok(pause.kind === 'sound' && pause.sound === '~' && pause.repeat?.op === '@' && pause.repeat.value === 2);
+});

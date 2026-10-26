@@ -1,5 +1,4 @@
 import type { StatusMessage } from '../audio/engine.ts';
-import type { GroupType } from '../domain/types.ts';
 
 export interface SheetTarget {
   /** Steinreihe: Spur oder Effekt (siehe `project.lane`). */
@@ -20,14 +19,16 @@ export interface DropHint {
 }
 
 /**
- * Umschliessen im Gang: im Steinmenü gewählt, jetzt wird der Stein angetippt, bis zu dem das Klammerpaar reicht.
- * `hoverId`: Stein unter der Maus, für die Vorschau des Bereichs.
+ * Auswahl im Gang: im Steinmenü mit «Auswählen» begonnen, bei `fromId`. Antippen eines anderen Steins der Reihe setzt
+ * das Ende (`toId`). Erst danach (`chosen`) bietet die Leiste über dem Bereich Umschliessen, Entfernen und Verdoppeln
+ * (`Lane.svelte`), vorher fordert sie zum Wählen auf.
  */
-export interface WrapPick {
+export interface Selection {
   laneId: string;
-  tokenId: string;
-  group: GroupType;
-  hoverId: string | null;
+  fromId: string;
+  toId: string;
+  /** Das Ende wurde angetippt (auch der Startstein selbst zählt). */
+  chosen: boolean;
 }
 
 /** Hauptansicht: Steine oder der ganze Code. */
@@ -43,6 +44,8 @@ class Session {
   view = $state<View>('ui');
   /** Erklärungsdialog offen. */
   help = $state(false);
+  /** Liste der gespeicherten Patterns (Laden, Löschen) offen. */
+  patterns = $state(false);
   /**
    * Spuren, die über den Steinen die Zufallsknöpfe (`?`) zeigen. Sonst ist Zufall nur ein roter Punkt am Stein
    * und lässt sich nicht ändern. Standard: aus.
@@ -59,30 +62,40 @@ class Session {
    */
   unfit = $state<ReadonlySet<string>>(new Set());
   /**
-   * Effektlisten (Spur und Art, siehe `EffectList`), deren Boxen auf eine Zeile verkleinert sind.
-   * Anders als bei den Steinreihen ist der Standard die Originalgrösse (Menge leer).
+   * Spuren, deren Effekte rechts neben der Notation stehen (senkrechter Trennstrich, «inline»).
+   * Standard: darunter (waagrechter Strich, «block», Menge leer).
    */
-  fitEffects = $state<ReadonlySet<string>>(new Set());
+  inlineFx = $state<ReadonlySet<string>>(new Set());
+  /**
+   * Gezogene Aufteilung bei Effekten rechts daneben: Anteil der Notation am Platz (0–1).
+   * Ohne Eintrag richten sich die Effekte nach ihrem Inhalt, höchstens die halbe Breite.
+   */
+  fxSplit = $state<ReadonlyMap<string, number>>(new Map());
   /**
    * Effekte, deren Box die Wertsteine (Mini-Notation) statt des Reglers zeigt. Ist der Wert mehr als ein einzelner Stein,
    * zeigt die Box die Wertsteine ohnehin. Standard: Regler (Menge leer).
    */
   mini = $state<ReadonlySet<string>>(new Set());
+  /**
+   * Spuren auf Solo. Ist eine davon in der Szene, schweigen alle anderen (im Code `.hush()`, `Track.muted` bleibt).
+   * Flüchtig: wird der Code von Hand bearbeitet, während Solo an ist, werden die `.hush()` zur echten Stummschaltung.
+   */
+  solo = $state<ReadonlySet<string>>(new Set());
   lit = $state<ReadonlySet<string>>(new Set());
   /** Position in Zyklen, solange abgespielt wird. */
   cycle = $state<number | null>(null);
   status = $state<StatusMessage | null>(null);
   sheet = $state<SheetTarget | null>(null);
-  /** Kleines Menü über einem angetippten Stein (Entfernen, Ersetzen). */
+  /** Kleines Menü über einem angetippten Stein (Entfernen, Verdoppeln, Auswählen). */
   menu = $state<{ laneId: string; tokenId: string } | null>(null);
   dropHint = $state<DropHint | null>(null);
-  wrap = $state<WrapPick | null>(null);
+  selection = $state<Selection | null>(null);
   /** Eben über das + angehängter Noten- oder Wertstein: öffnet sich beim Erscheinen gleich zum Tippen. */
   editNew = $state<string | null>(null);
 
-  startWrap(laneId: string, tokenId: string, group: GroupType): void {
+  startSelection(laneId: string, tokenId: string): void {
     this.menu = null;
-    this.wrap = { laneId, tokenId, group, hoverId: null };
+    this.selection = { laneId, fromId: tokenId, toId: tokenId, chosen: false };
   }
   openMenu(laneId: string, tokenId: string): void {
     const same = this.menu?.laneId === laneId && this.menu.tokenId === tokenId;
@@ -100,6 +113,12 @@ class Session {
     const next = new Set(this.random);
     if (!next.delete(trackId)) next.add(trackId);
     this.random = next;
+  }
+  /** Solo einer Spur ein- oder ausschalten. Mehrere Spuren können gleichzeitig Solo sein. */
+  toggleSolo(trackId: string): void {
+    const next = new Set(this.solo);
+    if (!next.delete(trackId)) next.add(trackId);
+    this.solo = next;
   }
   /** Drehknöpfe unter den Steinen einer Spur zeigen oder verbergen. */
   toggleKnobs(trackId: string): void {
@@ -119,11 +138,18 @@ class Session {
     if (!next.delete(effectId)) next.add(effectId);
     this.mini = next;
   }
-  /** Effektliste zwischen Originalgrösse und «auf eine Zeile verkleinert» umschalten. */
-  toggleFitEffects(listId: string): void {
-    const next = new Set(this.fitEffects);
-    if (!next.delete(listId)) next.add(listId);
-    this.fitEffects = next;
+  /** Effekte einer Spur zwischen «unter der Notation» und «rechts daneben» umschalten. */
+  toggleInlineFx(trackId: string): void {
+    const next = new Set(this.inlineFx);
+    if (!next.delete(trackId)) next.add(trackId);
+    this.inlineFx = next;
+  }
+  /** Aufteilung zwischen Notation und Effekten setzen, `null` = wieder nach Inhalt. */
+  setFxSplit(trackId: string, ratio: number | null): void {
+    const next = new Map(this.fxSplit);
+    if (ratio === null) next.delete(trackId);
+    else next.set(trackId, ratio);
+    this.fxSplit = next;
   }
 }
 

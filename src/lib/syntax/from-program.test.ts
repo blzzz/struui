@@ -156,3 +156,9 @@ test('program: Label und Stapel zusammen, $: stack(…) gibt seine Einträge her
   // Der letzte Ausdruck bleibt nicht hinter dem Stapel stehen, sonst spielte Strudel nur ihn
   assert.equal(r.frame.after, '');
 });
+
+test('program: Aufnahmen kommen mit Namen zurück, gekürzte nicht', () => {
+  const full = programToTracks(`samples({\n  rec1: 'data:audio/wav;base64,UklG',\n  'rec 2': 'data:audio/wav;base64,… (3 kB)'\n})\n\nstack(s("rec1"))`);
+  assert.ok(full.ok);
+  assert.deepEqual([...full.recordings], [['rec1', 'data:audio/wav;base64,UklG']]);
+});

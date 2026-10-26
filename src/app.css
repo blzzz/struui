@@ -9,6 +9,7 @@
   --bg: #171b18;
   --panel: #212622;
   --palette: #343d36;
+  --box: #343d3688;
   --dock: #343d36;
   --line: #4a524b;
   --ink: #e6ebe5;
@@ -34,7 +35,7 @@
   --code-bg: #1b201d;
   --code-ink: #d9e6d6;
 
-  --s: 44px;
+  --s: 56px;
   /* Gruppenfarben: viel Transparenz, damit der Grund im hellen Modus dunkler und im dunklen heller wird */
 }
 
