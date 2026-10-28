@@ -293,9 +293,9 @@
     align-items: flex-start;
     gap: 4px;
   }
-  /* Wertsteine: halb so hoch wie breit */
+  /* Wertsteine: so hoch wie die Zahlenfelder der Effekt-Box (`--field-h`) */
   .lane.values {
-    --sh: calc(var(--s) / 1.5);
+    --sh: var(--field-h);
   }
   .row {
     flex: 1;
@@ -329,6 +329,10 @@
     border-radius: 8px;
     font-size: 22px;
     line-height: 1;
+  }
+  /* Bei Wertsteinen (Notation in der Effekt-Box) quadratisch, so hoch wie die Steine */
+  .lane.values .plus {
+    width: var(--sh);
   }
   /* Feld am Ende (leere Klangreihe, + der Noten- und Wertreihen): so hoch wie eine Spalte (Würfel und Drehknöpfe nur,
      wenn die Spur sie zeigt). So springt eine leere Reihe beim ersten Stein nicht. */

@@ -53,12 +53,32 @@ export interface Effect {
    * für den Rückweg zu Wertebereich oder Notation.
    */
   rand?: RandSeries | null;
+  /** Modulation statt Wert (`ModSeries`): gesetzt, steht sie im Code statt der Wertsteine, wie die Zufallsreihe. */
+  mod?: ModSeries | null;
+}
+
+/** Wellenformen für die Modulation: Strudels kontinuierliche Signale von 0 bis 1. */
+export const WAVES = ['sine', 'cosine', 'tri', 'saw', 'isaw', 'square', 'perlin'] as const;
+export type Wave = (typeof WAVES)[number];
+
+/**
+ * Modulation: `sine.range(min, max).segment(segments).slow(slow)`. Eine Welle zwischen min und max, `segments` Stufen
+ * pro Zyklus, eine Periode dauert `slow` Zyklen (1 steht nicht im Code). `whole`: dazu `.round()` (`wholeValues`).
+ */
+export interface ModSeries {
+  wave: Wave;
+  min: number;
+  max: number;
+  segments: number;
+  slow: number;
+  whole: boolean;
 }
 
 /**
- * Wiederholbarer Zufall: `rand.range(min, max).segment(segments).ribbon(offset, cycles)`. Zufallswerte zwischen min und max,
- * `segments` feste Stufen pro Zyklus, `ribbon` schneidet ab `offset` ein Stück von `cycles` Zyklen heraus und wiederholt es.
- * Ein anderer offset ist eine andere Reihe. `whole`: dazu `.round()`, ganze Zahlen (`wholeValues`).
+ * Zufall: `rand.range(min, max).segment(segments).ribbon(offset, cycles)`. Zufallswerte zwischen min und max,
+ * `segments` feste Stufen pro Zyklus. Mit `ribbon` wiederholbar: ab `offset` ein Stück von `cycles` Zyklen, immer wieder;
+ * ein anderer offset ist eine andere Reihe. Ohne `ribbon` (false) steht `.ribbon()` nicht im Code, offset und cycles
+ * bleiben gespeichert. `whole`: dazu `.round()`, ganze Zahlen (`wholeValues`).
  */
 export interface RandSeries {
   min: number;
@@ -66,6 +86,7 @@ export interface RandSeries {
   segments: number;
   offset: number;
   cycles: number;
+  ribbon: boolean;
   whole: boolean;
 }
 
@@ -351,5 +372,27 @@ export function suggestRandSeries(
   range?: SliderRange | null,
 ): RandSeries {
   const { min, max } = range ?? suggestSliderRange(info, current);
-  return { min, max, segments: 4, offset: 0, cycles: 1, whole: wholeValues(info, min, max) };
+  return { min, max, segments: 4, offset: 0, cycles: 1, ribbon: true, whole: wholeValues(info, min, max) };
+}
+
+/** Brauchbar als Modulation: bekannte Welle, endliche Zahlen, min unter max, Segmente ganz ab 1, Dauer über 0. */
+export function isModSeries(m: ModSeries): boolean {
+  return (
+    (WAVES as readonly string[]).includes(m.wave) &&
+    [m.min, m.max, m.slow].every(Number.isFinite) &&
+    m.min < m.max &&
+    Number.isInteger(m.segments) &&
+    m.segments >= 1 &&
+    m.slow > 0
+  );
+}
+
+/** Vorschlag für eine neue Modulation: Sinus im eingestellten Bereich (oder dem Vorschlag dafür), 16 Stufen, 4 Zyklen. */
+export function suggestModSeries(
+  info: EffectInfo | undefined,
+  current: number | null,
+  range?: SliderRange | null,
+): ModSeries {
+  const { min, max } = range ?? suggestSliderRange(info, current);
+  return { wave: 'sine', min, max, segments: 16, slow: 4, whole: wholeValues(info, min, max) };
 }

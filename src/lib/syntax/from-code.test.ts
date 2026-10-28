@@ -137,17 +137,44 @@ test('code: rand.range(…).segment(…).ribbon(…) wird zur Zufallsreihe und z
   for (const [input, expected] of cases) assert.equal(roundTrip(input), expected, input);
   const r = codeToTrack('/* a */ s("bd").lpf(rand.range(200, 2000).segment(4).ribbon(12, 2)).room(.5)');
   assert.ok(r.ok);
-  assert.deepEqual(r.effects[0].rand, { min: 200, max: 2000, segments: 4, offset: 12, cycles: 2, whole: false });
+  assert.deepEqual(r.effects[0].rand, { min: 200, max: 2000, segments: 4, offset: 12, cycles: 2, ribbon: true, whole: false });
   assert.deepEqual(r.effects[0].tokens, []);
   assert.equal(r.effects[1].rand, null);
+  assert.equal(roundTrip('/* a */ s("bd").lpf(rand.range(200, 2000).seg(4))'), '/* a */ s("bd").lpf(rand.range(200, 2000).segment(4))');
+  const free = codeToTrack('/* a */ s("bd").lpf(rand.range(200, 2000).segment(4))');
+  assert.ok(free.ok);
+  assert.deepEqual(free.effects[0].rand, { min: 200, max: 2000, segments: 4, offset: 0, cycles: 1, ribbon: false, whole: false });
 
   for (const bad of [
     '/* a */ s("bd").lpf(rand)',
     '/* a */ s("bd").lpf(rand.range(200, 2000))',
     '/* a */ s("bd").lpf(rand.range(200, 2000).ribbon(0, 1))',
-    '/* a */ s("bd").lpf(rand.range(200, 2000).segment(4))',
     '/* a */ s("bd").lpf(rand.range(2000, 200).segment(4).ribbon(0, 1))',
     '/* a */ s("bd").lpf(rand.range(200, 2000).segment(0).ribbon(0, 1))',
     '/* a */ s("bd").lpf(rand.range(200, 2000).segment(4).ribbon(0, 1).fast(2))',
+  ]) assert.ok(!codeToTrack(bad).ok, bad);
+});
+
+test('code: sine.range(…).segment(…).slow(…) wird zur Modulation und zurück', () => {
+  const cases: [string, string][] = [
+    ['/* a */ s("bd").lpf(sine.range(200, 2000).segment(16).slow(4))', '/* a */ s("bd").lpf(sine.range(200, 2000).segment(16).slow(4))'],
+    ['/* a */ s("bd").lpf(saw.range(200, 2000).seg(8))', '/* a */ s("bd").lpf(saw.range(200, 2000).segment(8))'],
+    ['/* a */ s("bd").lpf(tri .range( 1, 16 ).round().segment(4).slow(1))', '/* a */ s("bd").lpf(tri.range(1, 16).round().segment(4))'],
+    ['/* n */ note("c".add(perlin.range(0, 7).round().segment(4).slow(.5))).s("sine")', '/* n */ note("c".add(perlin.range(0, 7).round().segment(4).slow(0.5))).s("sine")'],
+  ];
+  for (const [input, expected] of cases) assert.equal(roundTrip(input), expected, input);
+  const r = codeToTrack('/* a */ s("bd").lpf(isaw.range(200, 2000).segment(16).slow(2)).room(.5)');
+  assert.ok(r.ok);
+  assert.deepEqual(r.effects[0].mod, { wave: 'isaw', min: 200, max: 2000, segments: 16, slow: 2, whole: false });
+  assert.deepEqual(r.effects[0].tokens, []);
+  assert.equal(r.effects[1].mod, null);
+
+  for (const bad of [
+    '/* a */ s("bd").lpf(sine)',
+    '/* a */ s("bd").lpf(sine.range(200, 2000))',
+    '/* a */ s("bd").lpf(sine.range(2000, 200).segment(4))',
+    '/* a */ s("bd").lpf(sine.range(200, 2000).segment(4).slow(0))',
+    '/* a */ s("bd").lpf(sine.range(200, 2000).segment(4).fast(2))',
+    '/* a */ s("bd").lpf(sine2.range(200, 2000).segment(4))',
   ]) assert.ok(!codeToTrack(bad).ok, bad);
 });

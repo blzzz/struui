@@ -16,10 +16,11 @@
   import type { Track } from "../domain/types.ts";
 
   /**
-   * Effekte einer Spur: eine kleine Box pro Effekt (Titel mittig, darunter Drehknopf oder die Wertsteine, dann Modus, Stift und ×, siehe `EffectBox`),
+   * Effekte einer Spur: eine kleine Box pro Effekt (Titel mittig, darunter Drehknopf oder die Wertsteine, dann der Modus, siehe `EffectBox`),
    * von links nach rechts umbrechend, darunter ein Suchfeld zum Hinzufügen. Ziehen am Titel verschiebt eine Box
    * (die Reihenfolge ist die im Code). Wertsteine verhalten sich wie Klangsteine (Tippen, Ziehen, Klammern, Zufall, Wiederholung).
    * `kind = 'noteOps'`: dieselbe Liste für die Rechenarten einer Notenspur (`add`, `div` …), direkt nach den Noten.
+   * Antippen markiert eine Box (blauer Rand), Delete oder Backspace entfernt sie.
    * Die Boxen brechen um, sie werden nie verkleinert (anders als die Klangreihen).
    */
   let { track, kind = "effects" }: { track: Track; kind?: RowKind } = $props();
@@ -57,6 +58,37 @@
   }
 
   let boxes = $state<HTMLElement>();
+
+  /** Markierte Box dieser Liste, sonst null. */
+  const selected = $derived(
+    track[kind].find((fx) => fx.id === session.selectedEffect)?.id ?? null,
+  );
+
+  // Markierte Box: Delete oder Backspace entfernt sie (nicht beim Tippen in Feldern), Escape oder Antippen ausserhalb
+  // jeder Effekt-Box hebt die Markierung auf.
+  $effect(() => {
+    const id = selected;
+    if (!id) return;
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t?.closest?.("input, textarea, select, [contenteditable]")) return;
+      if (e.key === "Escape") session.selectedEffect = null;
+      if (e.key !== "Delete" && e.key !== "Backspace") return;
+      e.preventDefault();
+      session.selectedEffect = null;
+      project.removeEffect(track.id, id, kind);
+    };
+    const onDown = (e: PointerEvent) => {
+      if (!(e.target as Element).closest?.("[data-effect-id]"))
+        session.selectedEffect = null;
+    };
+    document.addEventListener("keydown", onKey);
+    document.addEventListener("pointerdown", onDown);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("pointerdown", onDown);
+    };
+  });
 
   /** Einfügeposition beim Ziehen einer Box (vor dem Entfernen), null = kein Ziehen. */
   let hint = $state<number | null>(null);
@@ -108,48 +140,51 @@
       {#each track[kind] as fx, i (fx.id)}
         {@const info = valueInfo(fx.name)}
         {@const errors = messages(fx.id)}
+        <!-- Antippen oder Fokus markiert die Box; mit der Tastatur über den Titel (Griff) erreichbar -->
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
         <div
           class="box"
-          class:off={fx.tokens.length === 0 && !fx.rand && !info?.noValue}
+          class:off={fx.tokens.length === 0 && !fx.rand && !fx.mod && !info?.noValue}
           class:bad={errors.length > 0}
-          class:wide={!fx.rand &&
+          class:selected={selected === fx.id}
+          class:wide={!fx.rand && !fx.mod &&
             (session.mini.has(fx.id) ||
               (fx.tokens.length > 0 && singleValue(fx.tokens) === null))}
           class:before={hint === i}
           class:after={hint === i + 1 && i === track[kind].length - 1}
           data-effect-id={fx.id}
           animate:flip={{ duration: 150 }}
+          onpointerdown={() => (session.selectedEffect = fx.id)}
+          onfocusin={() => (session.selectedEffect = fx.id)}
         >
-          <div class="head">
-            <!-- Griff: Ziehen verschiebt die Box, mit der Tastatur Pfeil links/rechts -->
-            <span
-              class="name"
-              role="button"
-              tabindex="0"
-              title={info
-                ? `${info.description}${info.hint ? ` (${info.hint})` : ""}`
-                : undefined}
-              aria-label={`${fx.name} verschieben (Pfeil links/rechts)`}
-              onkeydown={(e) => onHandleKey(e, fx.id, i)}
-              {@attach reorder(() => ({
-                item: () =>
-                  boxes?.querySelector<HTMLElement>(
-                    `[data-effect-id="${fx.id}"]`,
-                  ) ?? null,
-                items: () => [
-                  ...(boxes?.querySelectorAll<HTMLElement>(":scope > .box") ??
-                    []),
-                ],
-                onHint: (index) => (hint = index),
-                onDrop: (index) =>
-                  project.moveEffect(track.id, fx.id, index, kind),
-              }))}>{fx.name}</span
-            >
-          </div>
-          <EffectBox
-            {fx}
-            onRemove={() => project.removeEffect(track.id, fx.id, kind)}
-          />
+          <EffectBox {fx}>
+            <div class="head">
+              <!-- Griff: Ziehen verschiebt die Box, mit der Tastatur Pfeil links/rechts -->
+              <span
+                class="name"
+                role="button"
+                tabindex="0"
+                title={info
+                  ? `${info.description}${info.hint ? ` (${info.hint})` : ""}`
+                  : undefined}
+                aria-label={`${fx.name} verschieben (Pfeil links/rechts)`}
+                onkeydown={(e) => onHandleKey(e, fx.id, i)}
+                {@attach reorder(() => ({
+                  item: () =>
+                    boxes?.querySelector<HTMLElement>(
+                      `[data-effect-id="${fx.id}"]`,
+                    ) ?? null,
+                  items: () => [
+                    ...(boxes?.querySelectorAll<HTMLElement>(":scope > .box") ??
+                      []),
+                  ],
+                  onHint: (index) => (hint = index),
+                  onDrop: (index) =>
+                    project.moveEffect(track.id, fx.id, index, kind),
+                }))}>{fx.name}</span
+              >
+            </div>
+          </EffectBox>
           {#if errors.length > 0}
             <p class="error">{errors.join(" ")} Dieser Effekt ist aus.</p>
           {/if}
@@ -230,7 +265,7 @@
     align-items: flex-start;
     gap: 8px;
   }
-  /* Eine Box: oben mittig der Titel (Griff zum Verschieben), darunter Drehknopf, Auswahl oder Wertsteine, dann Modus, Stift und ×. Mit Wertsteinen wird sie breiter. */
+  /* Eine Box: oben mittig der Titel (Griff zum Verschieben), darunter Drehknopf, Auswahl oder Wertsteine, dann der Modus; die rechte Kante blendet Zusatzfelder ein. Mit Wertsteinen wird sie breiter. */
   .box {
     position: relative;
     display: flex;
@@ -241,12 +276,17 @@
     border-radius: 8px;
     background: var(--box);
   }
-  /* Mit Zusatzfeldern neben dem Knopf (Stift in der Box) wird sie breiter */
+  /* Mit Zusatzfeldern neben dem Knopf (rechte Kante der Box) oder Wertsteinen wird sie breiter, nie schmaler als mit Knopf */
   .box.wide,
   .box:has(:global(.fields)) {
     width: auto;
-    min-width: 64px;
+    min-width: 96px;
     max-width: 100%;
+  }
+  /* Markiert: Delete entfernt die Box */
+  .box.selected {
+    outline: 2px solid var(--blue);
+    outline-offset: 1px;
   }
   .box.bad {
     border-color: var(--red);
@@ -284,7 +324,9 @@
     font-weight: 600;
     padding: 0 2px;
   }
+  /* Titel immer in Schriftfarbe, nicht in der Farbe des Modus */
   .box .name {
+    color: var(--ink);
     text-align: center;
     flex: 1;
     min-width: 0;
@@ -300,9 +342,6 @@
   }
   .box:global([data-dragging]) .name {
     cursor: grabbing;
-  }
-  .box.off .name {
-    color: var(--mute);
   }
   .error {
     max-width: 200px;

@@ -151,8 +151,9 @@ dafür ohne Ladeanzeige geladen. Synths, Soundfonts (`gm_…`) und eigene Aufnah
   Spur oben links gewählt; danach wählt auch Antippen oder Bearbeiten einer Spur sie (`focusin`, `pointerdown`).
   Eine Spur ist **immer so hoch wie ihr Inhalt** und scrollt nie in sich. Wächst die gewählte über den unteren Rand hinaus
   (nicht beim Scrollen), gleitet die Kamera, bis ihr oberer Rand oben steht.
-  **Touch:** Wischen verschiebt die Kamera frei in x und y wie das Mausrad (`touchPan`, gleiche Begrenzung und gleicher
-  Magnet), beim Loslassen rastet sie ein (150 ms). Elemente mit eigener Geste (`touch-action: none`: Steine, Drehknöpfe,
+  **Touch:** Wischen verschiebt die Kamera frei in x und y wie das Mausrad (`dragPan`, gleiche Begrenzung und gleicher
+  Magnet), beim Loslassen rastet sie ein (150 ms). Mit Maus oder Stift ebenso, aber nur auf freier Fläche (auf einer Spur
+  markiert Ziehen Text). Elemente mit eigener Geste (`touch-action: none`: Steine, Drehknöpfe,
   Griffe) und Eingabefelder behalten ihre Geste. Die Fläche hat dafür `touch-action: none` (kein Pinch-Zoom der Seite darüber). Dort schneidet der Rand Menüs ab,
   die über die Spur hinausragen (z. B. das Steinmenü über der obersten Reihe). Lage und Grösse in ganzen Punkten,
   ein Rechteck reicht `PAD` (0,35 Abstand) über seine äussersten Punkte hinaus. Der Abstand der Punkte richtet sich nach der
@@ -242,14 +243,15 @@ dafür ohne Ladeanzeige geladen. Synths, Soundfonts (`gm_…`) und eigene Aufnah
   (Beschreibung als Tooltip, Ziehen daran verschiebt die Box, Tastatur Pfeil links/rechts, `interaction/reorder.ts`,
   `project.moveEffect`; die Reihenfolge ist die im Code), darunter für eine einzelne Zahl ein grosser stufenloser Drehknopf
   (`ui/EffectKnob.svelte`, Zahl in der Mitte, Beispielwerte als Marken am Ring, Drehen im Bogen über `interaction/knob.ts` mit
-  `onTurn`, langes Drücken öffnet ein Feld zum Eintippen, Komma geht auch). Ein Regler pro Box, also pro Effekt ein
+  `onTurn`, ein Klick ohne Drehen öffnet ein Feld zum Eintippen, Komma geht auch). Ein Regler pro Box, also pro Effekt ein
   Wert: Strudels Unterparameter (`lpf("800:10")` = cutoff:resonance) sind bewusst nicht dabei (entschieden). Der Bereich kommt aus
   Strudels Beispielwerten (`valueScale`): sie liegen gleichmässig auf dem Knopf, dazwischen linear, nahe daran rastet er ein; mit
   einem Beispiel 0 bis zum Doppelten, ohne Beispiel 0–1. Eingetippt gehen auch Werte ausserhalb. Effekte mit Namen statt
-  Zahlen (`vowel`) bekommen eine Auswahl. Die Box zeigt oben mittig den Namen, darunter den Knopf, darunter eine Reihe: der Modus
-  («Wert», «Zufall», «Notation», ein Klick öffnet die Auswahl), ein Stift (Zusatzfelder des Modus rechts vom Knopf) und × (entfernen). «Notation» zeigt stattdessen die Wertsteine (`session.mini`, flüchtig);
+  Zahlen (`vowel`) bekommen eine Auswahl. Die Box zeigt oben mittig den Namen, darunter den Knopf, darunter der Modus
+  («Wert», «Zufall», «Welle», «Notation», ein Klick öffnet die Auswahl). Die rechte Kante der Box (12px) blendet die Zusatzfelder
+  des Modus ein und aus: rechts über die ganze Höhe der Box, Titel, Knopf und Modus bleiben links beisammen. Antippen markiert eine Box (`session.selectedEffect`), Delete oder Backspace entfernt sie. «Notation» zeigt stattdessen die Wertsteine (`session.mini`, flüchtig);
   ist der Wert mehr als ein einzelner Stein ohne Zufall und Wiederholung (`singleValue`), bleibt nur sie, damit nichts verloren geht.
-  **Strudels `slider()`:** im Modus «Wert» stehen bei Zahlen min und max hinter dem Stift (blass mit dem Vorschlag, bis eingetippt) (`Effect.slider`, Vorschlag aus den Beispielwerten,
+  **Strudels `slider()`:** im Modus «Wert» stehen bei Zahlen min und max hinter der rechten Kante (blass mit dem Vorschlag, bis eingetippt) (`Effect.slider`, Vorschlag aus den Beispielwerten,
   `suggestSliderRange`, der Schritt folgt aus `sliderStep`). Erst dann steht der Wert als `.lpf(slider(800, 100, 8000, 10))` im Code (entschieden: nur nach Bearbeiten),
   und der Knopf der Box ist linear wie der Regler von Strudel (`toRange`/`fromRange`). ↺ neben den Feldern schreibt wieder die Zahl. Bei Mini-Notation bleibt der
   Bereich gespeichert, steht aber nicht im Code. Der Rückweg aus Code liest `slider(wert[, min, max, step])` (fehlend wie bei Strudel
@@ -259,9 +261,17 @@ dafür ohne Ladeanzeige geladen. Synths, Soundfonts (`gm_…`) und eigene Aufnah
   **Zufallsreihe** (entschieden): Modus «Zufall», nur bei Zahlen. `Effect.rand` (`RandSeries`: min, max, Segmente,
   Offset, Zyklen) steht statt der Wertsteine im Code: `.lpf(rand.range(200, 2000).segment(4).ribbon(0, 1))`, wiederholbarer
   Zufall; die Steine bleiben für den Rückweg erhalten. Ganze Zahlen (`.round()`) automatisch, wenn min, max und alle Beispielwerte
-  ganz sind (`wholeValues`). Der Knopf der Box dreht den Offset (0–100, eingetippt jeder), die übrigen Angaben stehen hinter dem Stift.
-  Der Rückweg aus Code liest genau diese Kette (`round` wahlweise, auch `seg`/`rib`); anderes mit `rand` wird roher Code.
-  Ungeprüft im Browser, vor allem Drehknopf, langes Drücken und Ziehen am Titel auf iOS.
+  ganz sind (`wholeValues`). Der Knopf der Box dreht den Offset (0–100, eingetippt jeder), die übrigen Angaben stehen hinter der rechten Kante.
+  Schalter «ribbon»: aus, steht nur `rand.range(…).segment(…)` im Code (freier Zufall, Offset und Zyklen bleiben gespeichert, der
+  Knopf zeigt «frei», Drehen schaltet ribbon wieder ein). Der Rückweg aus Code liest genau diese Kette (`round` und `ribbon`
+  wahlweise, auch `seg`/`rib`); anderes mit `rand` wird roher Code. Die Zusatzfelder jedes Modus haben höchstens zwei Zeilen.
+  **Modulation**: Modus «Welle», nur bei Zahlen. `Effect.mod` (`ModSeries`: Welle aus `WAVES` = sine, cosine, tri, saw,
+  isaw, square, perlin; min, max, Segmente, Dauer) steht wie die Zufallsreihe statt der Wertsteine im Code:
+  `.lpf(sine.range(200, 2000).segment(16).slow(4))`, `.slow(1)` entfällt, `.round()` nach derselben Regel. Der Knopf stellt die
+  Dauer einer Periode in Zyklen ein (rastet bei 0.25 … 32 ein, eingetippt jede über 0), Welle, min, max und Segmente stehen hinter
+  der rechten Kante. Der Rückweg liest genau diese Kette (`seg` auch, `slow` wahlweise). Die Wellennamen sind als Szenennamen gesperrt.
+  Die Zahlenfelder der Zusatzfelder lassen sich hoch und runter ziehen (`interaction/drag-number.ts`), Tippen setzt den Cursor.
+  Ungeprüft im Browser, vor allem Drehknopf, Klick zum Eintippen, Ziehen an Feldern und am Titel auf iOS.
   Offen: Effekte als physische Steine für die Kamera, Effekte auf einzelnen Steinen statt der ganzen Spur.
 - **Kanalzug pro Spur** (`ui/TrackView.svelte`): rechts vom Namen waagrecht `M` (stumm), `S` (Solo), Orbit bzw. MIDI-Kanal und der Lautstärkeregler (höchstens 120 px breit). Am rechten Rand des Spurkopfs drei Punkte (`ui/TrackMenu.svelte`): Menü mit Art der Spur (Klang, Noten, MIDI), «Code zeigen» bzw. «UI zeigen» und «Spur entfernen»; in der Code-Ansicht steht zusätzlich ein Knopf «UI» im Spurkopf. In der Code-Ansicht fallen
   Regler und `M` weg, Lautstärke und Stummschaltung stehen dann im Text. Die Lautstärke (`Track.volume`, 0–1.5) ist Strudels `postgain`

@@ -214,7 +214,7 @@ try {
   // Zyklen (ribbon) und kommt als Zufallsreihe zurück. Mit round() ganze Zahlen.
   {
     patterns.length = 0;
-    const rand = { min: 200, max: 2000, segments: 4, offset: 7, cycles: 2, whole: true };
+    const rand = { min: 200, max: 2000, segments: 4, offset: 7, cycles: 2, ribbon: true, whole: true };
     const fx = [{ ...types.effect('lpf', [snd('800')]), rand }];
     const program = codegen.toStrudelProgram([{ tokens: [snd('hh*8')], effects: fx }], { cps: 0.5 });
     assert.match(program.code, /\.lpf\(rand\.range\(200, 2000\)\.round\(\)\.segment\(4\)\.ribbon\(7, 2\)\)\n\)$/, 'Zufallsreihe im Code');
@@ -229,6 +229,28 @@ try {
     assert.ok(back.ok);
     assert.deepEqual(back.effects[0].rand, rand);
     console.log('ok: Zufallsreihe (rand.range … ribbon) läuft in Strudel, wiederholt sich und kommt zurück');
+  }
+
+  // Modulation: jede Welle läuft und bleibt im Bereich; ein Sinus über 2 Zyklen (slow) steigt und fällt, mit segment
+  // stufig, und kommt als Modulation zurück.
+  {
+    for (const wave of effects.WAVES) {
+      patterns.length = 0;
+      const mod = { wave, min: 200, max: 2000, segments: 8, slow: 2, whole: false };
+      const program = codegen.toStrudelProgram([{ tokens: [snd('hh*8')], effects: [{ ...types.effect('lpf'), mod }] }], { cps: 0.5 });
+      await run(program.code);
+      const haps = patterns[0].queryArc(0, 2).sort((a, b) => a.whole.begin - b.whole.begin);
+      assert.equal(haps.length, 16, wave);
+      for (const h of haps) assert.ok(h.value.cutoff >= 200 && h.value.cutoff <= 2000, `${wave}: ${h.value.cutoff} ausserhalb`);
+      const back = fromCode.codeToTrack(program.code.split('\n').at(-2).trim());
+      assert.ok(back.ok, wave);
+      assert.deepEqual(back.effects[0].mod, mod, wave);
+      if (wave === 'sine') {
+        const c = haps.map((h) => h.value.cutoff);
+        assert.ok(c[4] > c[0] && c[12] < c[8], `Sinus steigt und fällt: ${c}`);
+      }
+    }
+    console.log(`ok: Modulation mit ${effects.WAVES.length} Wellen läuft in Strudel, bleibt im Bereich und kommt zurück`);
   }
 
   // Rechenarten: note("c3 e3".add("<0 12>")) transponiert wirklich (als Methode nach note() täte es das nicht),

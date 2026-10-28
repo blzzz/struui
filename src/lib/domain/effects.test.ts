@@ -8,9 +8,11 @@ import {
   effectInfo,
   fromRange,
   fromSlider,
+  isModSeries,
   isRandSeries,
   isSliderRange,
   sliderStep,
+  suggestModSeries,
   suggestRandSeries,
   suggestSliderRange,
   wholeValues,
@@ -26,7 +28,7 @@ import {
   valueInfo,
   valueScale,
 } from './effects.ts';
-import { effectToCode, randToCode, toStrudelCode, toStrudelProgram, trackToCode } from './codegen.ts';
+import { effectToCode, modToCode, randToCode, toStrudelCode, toStrudelProgram, trackToCode } from './codegen.ts';
 import { quickSwitch } from './edit.ts';
 import { closeToken, effect, nextInCycle, openToken, soundToken, trackName } from './types.ts';
 import type { TrackType } from './types.ts';
@@ -429,9 +431,10 @@ test('sliderStep: runde Zahl um ein Hundertstel des Bereichs', () => {
 });
 
 test('Zufallsreihe: Code statt der Wertsteine, ganze Zahlen mit round()', () => {
-  const rand = { min: 200, max: 2000, segments: 4, offset: 12, cycles: 2, whole: false };
+  const rand = { min: 200, max: 2000, segments: 4, offset: 12, cycles: 2, ribbon: true, whole: false };
   assert.equal(randToCode(rand), 'rand.range(200, 2000).segment(4).ribbon(12, 2)');
   assert.equal(randToCode({ ...rand, whole: true }), 'rand.range(200, 2000).round().segment(4).ribbon(12, 2)');
+  assert.equal(randToCode({ ...rand, ribbon: false }), 'rand.range(200, 2000).segment(4)', 'ohne ribbon');
   const fx = { ...effect('lpf', [soundToken('800')]), rand };
   assert.equal(effectToCode(fx)?.text, '.lpf(rand.range(200, 2000).segment(4).ribbon(12, 2))');
   assert.equal(effectToCode({ ...effect('lpf'), rand })?.text, '.lpf(rand.range(200, 2000).segment(4).ribbon(12, 2))', 'auch ohne Steine');
@@ -439,7 +442,7 @@ test('Zufallsreihe: Code statt der Wertsteine, ganze Zahlen mit round()', () => 
 });
 
 test('Zufallsreihe: gültig, ganze Zahlen aus den Beispielwerten, Vorschlag', () => {
-  const ok = { min: 0, max: 1, segments: 4, offset: 0, cycles: 1, whole: false };
+  const ok = { min: 0, max: 1, segments: 4, offset: 0, cycles: 1, ribbon: true, whole: false };
   assert.ok(isRandSeries(ok));
   assert.ok(isRandSeries({ ...ok, offset: -3.5, cycles: 0.5 }));
   assert.ok(!isRandSeries({ ...ok, min: 1 }), 'min unter max');
@@ -453,11 +456,27 @@ test('Zufallsreihe: gültig, ganze Zahlen aus den Beispielwerten, Vorschlag', ()
   assert.equal(wholeValues(effectInfo('room'), 0, 1), false, 'Beispielwerte mit Komma');
   assert.equal(wholeValues(undefined, 0, 1), false, 'ohne Beispielwerte');
 
-  assert.deepEqual(suggestRandSeries(effectInfo('lpf'), 800), { min: 100, max: 4000, segments: 4, offset: 0, cycles: 1, whole: true });
+  assert.deepEqual(suggestRandSeries(effectInfo('lpf'), 800), { min: 100, max: 4000, segments: 4, offset: 0, cycles: 1, ribbon: true, whole: true });
   assert.deepEqual(
     suggestRandSeries(effectInfo('room'), null, { min: 0, max: 2, step: 0.01 }),
-    { min: 0, max: 2, segments: 4, offset: 0, cycles: 1, whole: false },
+    { min: 0, max: 2, segments: 4, offset: 0, cycles: 1, ribbon: true, whole: false },
     'eingestellter Bereich zuerst',
   );
   for (const e of EFFECTS) assert.ok(isRandSeries(suggestRandSeries(e, null)), e.name);
+});
+
+test('Modulation: Welle statt der Wertsteine, slow(1) entfällt, ganze Zahlen mit round()', () => {
+  const mod = { wave: 'sine' as const, min: 200, max: 2000, segments: 16, slow: 4, whole: false };
+  assert.equal(modToCode(mod), 'sine.range(200, 2000).segment(16).slow(4)');
+  assert.equal(modToCode({ ...mod, wave: 'square', slow: 1, whole: true }), 'square.range(200, 2000).round().segment(16)');
+  assert.equal(effectToCode({ ...effect('lpf', [soundToken('800')]), mod })?.text, '.lpf(sine.range(200, 2000).segment(16).slow(4))');
+  assert.equal(effectToCode({ ...effect('lpf'), mod })?.text, '.lpf(sine.range(200, 2000).segment(16).slow(4))', 'auch ohne Steine');
+
+  assert.ok(isModSeries(mod));
+  assert.ok(!isModSeries({ ...mod, wave: 'noise' as never }), 'unbekannte Welle');
+  assert.ok(!isModSeries({ ...mod, min: 3000 }), 'min unter max');
+  assert.ok(!isModSeries({ ...mod, segments: 0 }), 'Segmente ab 1');
+  assert.ok(!isModSeries({ ...mod, slow: 0 }), 'Dauer über 0');
+  assert.deepEqual(suggestModSeries(effectInfo('room'), null), { wave: 'sine', min: 0, max: 1, segments: 16, slow: 4, whole: false });
+  for (const e of EFFECTS) assert.ok(isModSeries(suggestModSeries(e, null)), e.name);
 });

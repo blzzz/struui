@@ -64,7 +64,7 @@
       </dd>
       <dt>Fläche</dt>
       <dd>
-        Jede Spur ist ein Rechteck auf einem Punkteraster. Mausrad, Trackpad oder Wischen verschieben die Fläche;
+        Jede Spur ist ein Rechteck auf einem Punkteraster. Mausrad, Trackpad, Wischen oder Ziehen auf freier Fläche verschieben sie;
         sie rastet an den Punkten ein.
         Am Griff vor dem Namen ziehen verschiebt die Spur; liegt am Ziel schon eine, rückt sie nach unten. Die Ecke unten rechts
         ändert die Breite (mindestens fünf Punkte), die Höhe folgt dem Inhalt. Die Lage ändert nichts am Code.

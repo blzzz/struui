@@ -76,6 +76,8 @@ class Session {
    * zeigt die Box die Wertsteine ohnehin. Standard: Regler (Menge leer).
    */
   mini = $state<ReadonlySet<string>>(new Set());
+  /** Markierte Effekt-Box (Antippen der Box), Delete entfernt sie. */
+  selectedEffect = $state<string | null>(null);
   /**
    * Spuren auf Solo. Ist eine davon in der Szene, schweigen alle anderen (im Code `.hush()`, `Track.muted` bleibt).
    * Flüchtig: wird der Code von Hand bearbeitet, während Solo an ist, werden die `.hush()` zur echten Stummschaltung.

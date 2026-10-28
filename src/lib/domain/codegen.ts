@@ -1,7 +1,7 @@
 import { PAUSE, hasModifiers, hasSteps, joinsPrevious, label } from './types.ts';
 import type { Modifiers, Token, TrackType } from './types.ts';
 import { effectInfo } from './effects.ts';
-import type { Effect, RandSeries, SliderRange } from './effects.ts';
+import type { Effect, ModSeries, RandSeries, SliderRange } from './effects.ts';
 import { clampSlices } from './sampler.ts';
 import type { SamplerMode } from './sampler.ts';
 import { splitVariant } from './sounds.ts';
@@ -100,14 +100,14 @@ export interface CodeTrack {
   /** Spurname, als Kommentar vor der Spur (`/* drums *\/`). Fehlt er, steht kein Kommentar da. */
   name?: string;
   /** Effekte ohne Wertsteine werden übersprungen, ausser solche ohne Wert (`.fit()`). */
-  effects?: readonly Pick<Effect, 'name' | 'tokens' | 'slider' | 'rand'>[];
+  effects?: readonly Pick<Effect, 'name' | 'tokens' | 'slider' | 'rand' | 'mod'>[];
   muted?: boolean;
   /** Lautstärke nach allen Effekten. Fehlt sie oder ist sie 1, steht nichts im Code. Nur bei Klangspuren. */
   volume?: number;
   /** Fehlt sie, ist es eine Klangspur. */
   type?: TrackType;
   /** Notenspur: Rechenarten an der Mini-Notation (`note("c e".add(3))`). Ohne Wertsteine übersprungen. */
-  noteOps?: readonly { name: string; tokens: readonly Token[]; slider?: SliderRange | null; rand?: RandSeries | null }[];
+  noteOps?: readonly { name: string; tokens: readonly Token[]; slider?: SliderRange | null; rand?: RandSeries | null; mod?: ModSeries | null }[];
   /** Notenspur: Klang der Noten (`.s("sine")`). Ohne Steine steht kein `.s()` im Code. */
   voice?: { readonly tokens: readonly Token[] } | null;
   /** Sampler-Spur: das Sample (`s("brk")`). Ohne Steine (oder null) steht die Spur nicht im Code. */
@@ -143,16 +143,18 @@ const NUMBER = /^-?(\d+\.?\d*|\.\d+)$/;
  * Ein Effekt als Code, oder null ohne Wertsteine. Effekte ohne Wert (`fit`) stehen immer da: `.fit()`. Ein einzelner Zahlenstein ohne Modifier geht als Zahl hinein (`.lpf(800)`),
  * mit eingestelltem Regler als Strudels `slider()` (`.lpf(slider(800, 100, 8000, 10))`, auf strudel.cc ein Regler im Code),
  * alles andere als Mini-Notation (`.lpf("<200 800>")`). Dann meldet Strudel auch hier Positionen und die Wertsteine leuchten.
- * Mit Zufallsreihe steht sie statt der Steine da (`randToCode`), auch ohne Steine.
+ * Mit Zufallsreihe oder Modulation steht sie statt der Steine da (`randToCode`, `modToCode`), auch ohne Steine.
  */
 export function effectToCode(e: {
   name: string;
   tokens: readonly Token[];
   slider?: SliderRange | null;
   rand?: RandSeries | null;
+  mod?: ModSeries | null;
 }): { text: string; ranges: TokenRange[] } | null {
   if (effectInfo(e.name)?.noValue) return { text: `.${e.name}()`, ranges: [] };
   if (e.rand) return { text: `.${e.name}(${randToCode(e.rand)})`, ranges: [] };
+  if (e.mod) return { text: `.${e.name}(${modToCode(e.mod)})`, ranges: [] };
   const [only] = e.tokens;
   if (!only) return null;
   if (e.tokens.length === 1 && only.kind === 'sound' && NUMBER.test(only.sound) && only.random === null && only.repeat === null) {
@@ -165,9 +167,19 @@ export function effectToCode(e: {
   return { text: `${head}${text}")`, ranges: shift(ranges, head.length) };
 }
 
-/** Eine Zufallsreihe als Strudel-Code: `rand.range(200, 2000).segment(4).ribbon(0, 1)`, ganze Zahlen mit `.round()` davor. */
+/**
+ * Eine Zufallsreihe als Strudel-Code: `rand.range(200, 2000).segment(4).ribbon(0, 1)`, ganze Zahlen mit `.round()` davor,
+ * ohne ribbon nur bis `.segment(4)`.
+ */
 export function randToCode(r: RandSeries): string {
-  return `rand.range(${r.min}, ${r.max})${r.whole ? '.round()' : ''}.segment(${r.segments}).ribbon(${r.offset}, ${r.cycles})`;
+  const ribbon = r.ribbon ? `.ribbon(${r.offset}, ${r.cycles})` : '';
+  return `rand.range(${r.min}, ${r.max})${r.whole ? '.round()' : ''}.segment(${r.segments})${ribbon}`;
+}
+
+/** Eine Modulation als Strudel-Code: `sine.range(200, 2000).segment(16).slow(4)`, `.slow(1)` entfällt, ganze Zahlen mit `.round()`. */
+export function modToCode(m: ModSeries): string {
+  const slow = m.slow === 1 ? '' : `.slow(${m.slow})`;
+  return `${m.wave}.range(${m.min}, ${m.max})${m.whole ? '.round()' : ''}.segment(${m.segments})${slow}`;
 }
 
 const shift = (ranges: readonly TokenRange[], by: number): TokenRange[] =>

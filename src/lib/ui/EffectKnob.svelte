@@ -6,8 +6,8 @@
   /**
    * Grosser stufenloser Drehknopf für den Wert eines Effekts (eine einzelne Zahl, keine Mini-Notation). In der Mitte die Zahl,
    * am Ring der Bogen bis zur Stellung und kleine Marken (Strudels Beispielwerte). Ziehen im Bogen um die Mitte dreht,
-   * langes Drücken öffnet ein Feld für eine beliebige Zahl (gilt beim Bestätigen, ungültig rot umrandet).
-   * Mit der Tastatur: Pfeile drehen in Hundertsteln, Enter öffnet das Feld. Grösse aus `--s`.
+   * ein Klick (ohne Drehen) öffnet ein Feld für eine beliebige Zahl (gilt beim Bestätigen, ungültig rot umrandet).
+   * Mit der Tastatur: Pfeile drehen in Hundertsteln, Enter oder Leertaste öffnet das Feld. Grösse aus `--s`, Farbe von Bogen und Strich aus `--knob-ink` (sonst blau).
    */
   let {
     value,
@@ -76,7 +76,7 @@
     if (dir !== 0) {
       e.preventDefault();
       onTurn(Math.min(1, Math.max(0, position + dir * 0.01)));
-    } else if (e.key === "Enter") startEdit();
+    }
   }
 
   const active = $derived(value !== null);
@@ -119,16 +119,11 @@
   {@attach knob(() => ({
     active: () => true,
     stageCount: () => 0,
-    onTap: () => {},
+    // Ein Klick ohne Drehen öffnet das Feld, noch in der Geste (sonst öffnet iOS keine Tastatur); Enter ebenso
+    onTap: startEdit,
     onStage: () => {},
     onTurn,
     position: () => position,
-    onLongPress: startEdit,
-    // Noch in der Geste fokussieren, sonst öffnet iOS keine Tastatur
-    onLongRelease: () => {
-      input?.focus();
-      input?.select();
-    },
   }))}
 >
   {#if editing}
@@ -240,7 +235,7 @@
     stroke-dasharray: 2.5 2;
   }
   .fill {
-    stroke: var(--blue);
+    stroke: var(--knob-ink, var(--blue));
   }
   .body {
     fill: var(--val);
@@ -253,7 +248,7 @@
     stroke-dasharray: 2.5 2;
   }
   .notch {
-    stroke: var(--blue);
+    stroke: var(--knob-ink, var(--blue));
     stroke-width: 1.8;
     stroke-linecap: round;
   }

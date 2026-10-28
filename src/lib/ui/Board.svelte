@@ -256,11 +256,15 @@
   /** Ab so vielen Pixeln wird aus dem Berühren ein Wischen. */
   const PAN_THRESHOLD = 8;
 
+  /** Die Kamera wird gerade gezogen (Maus): Hand als Zeiger. */
+  let dragging = $state(false);
+
   /**
    * Touch: Wischen verschiebt die Kamera frei in x und y, wie das Mausrad, und rastet beim Loslassen ein.
    * Elemente mit eigener Geste (`touch-action: none`: Steine, Drehknöpfe, Griffe) und Eingabefelder behalten ihre Geste.
+   * Maus und Stift: Ziehen auf freier Fläche (nicht auf einer Spur, wo es Text markiert) verschiebt die Kamera ebenso.
    */
-  const touchPan: Attachment<HTMLElement> = (el) => {
+  const dragPan: Attachment<HTMLElement> = (el) => {
     let id: number | null = null;
     let sx = 0;
     let sy = 0;
@@ -286,6 +290,7 @@
       const dx = e.clientX - sx;
       const dy = e.clientY - sy;
       if (!panning && Math.hypot(dx, dy) < PAN_THRESHOLD) return;
+      if (!panning && e.pointerType !== "touch") dragging = true;
       panning = true;
       panTo(from.x - dx, from.y - dy);
     };
@@ -294,10 +299,14 @@
       stop();
       if (panning) snap();
       panning = false;
+      dragging = false;
     };
     const onDown = (e: PointerEvent) => {
-      if (e.pointerType !== "touch" || id !== null || board.overview) return;
-      if (ownGesture(e.target as Element)) return;
+      if (id !== null || board.overview || placing) return;
+      const t = e.target as Element;
+      if (e.pointerType === "touch") {
+        if (ownGesture(t)) return;
+      } else if (e.button !== 0 || t.closest(".cell, button, .addmenu, .placer")) return;
       id = e.pointerId;
       sx = e.clientX;
       sy = e.clientY;
@@ -609,6 +618,7 @@
   class="board"
   class:overview={board.overview}
   class:glide
+  class:dragging
   bind:clientWidth={vw}
   bind:clientHeight={vh}
   bind:this={boardEl}
@@ -618,7 +628,7 @@
   {onscroll}
   {@attach wheel}
   {@attach dblclickAdd}
-  {@attach touchPan}
+  {@attach dragPan}
 >
   <div
     class="layer"
@@ -786,7 +796,7 @@
     --dot-r: 1.6px;
     overflow: hidden;
     position: relative;
-    /* Wischen verschiebt die Kamera selbst (`touchPan`), der Browser soll die Geste nicht übernehmen */
+    /* Wischen verschiebt die Kamera selbst (`dragPan`), der Browser soll die Geste nicht übernehmen */
     touch-action: none;
     background-image: radial-gradient(
       circle,
@@ -795,6 +805,9 @@
       transparent calc(var(--dot-r) + 0.6px)
     );
     background-size: var(--gap) var(--gap);
+  }
+  .board.dragging {
+    cursor: grabbing;
   }
   .board.overview {
     --dot: color-mix(in srgb, var(--mute) 35%, transparent);

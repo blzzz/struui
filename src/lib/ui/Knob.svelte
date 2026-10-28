@@ -5,7 +5,8 @@
 
   /**
    * Drehknopf eines Operators (`?`, `*`, `!`, `@`, `%`): in der Mitte das Zeichen, am Ring die Raststufen, die aktuelle
-   * mit ihrer Zahl. Tippen schaltet, Drehen wählt die Stufe. Langes Drücken öffnet ein Feld für eine beliebige Zahl
+   * mit ihrer Zahl. Tippen schaltet, Drehen wählt die Stufe. Tippen auf die Zahl der aktiven Stufe oder langes Drücken
+   * öffnet ein Feld für eine beliebige Zahl
    * (`onEdit`, gilt beim Bestätigen; ungültig rot umrandet), beim ausgeschalteten Knopf leer. Grösse aus `--s`.
    */
   let {
@@ -70,6 +71,9 @@
     }
   }
 
+  /** Das Drücken begann auf der Zahl der aktiven Stufe: Tippen öffnet dann das Feld, statt zu schalten. */
+  let onNumber = false;
+
   const active = $derived(current !== null);
   const stage = $derived(current === null ? -1 : nearestIndex(values, current));
   const num = $derived(current === null ? '' : text(current));
@@ -91,10 +95,15 @@
   role="button"
   tabindex="0"
   aria-label={active ? `${label} ${symbol}${current}` : `${label} aus`}
+  onpointerdowncapture={(e) => (onNumber = !!(e.target as Element).closest?.('.pill, .num'))}
   {@attach knob(() => ({
     active: () => active,
     stageCount: () => values.length,
-    onTap,
+    onTap: () => {
+      if (onNumber && active && onEdit) startEdit();
+      else onTap();
+      onNumber = false;
+    },
     onStage,
     onLongPress: onEdit ? startEdit : undefined,
     // Noch in der Geste fokussieren, sonst öffnet iOS keine Tastatur

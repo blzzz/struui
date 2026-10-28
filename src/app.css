@@ -28,6 +28,11 @@
   --val: #d9d5c6;
   --val-edge: #9d9884;
   --val-ink: #1d201c;
+  /* Modus eines Effekts (Auswahl unten in der Box und Titel): Wert weiss, Zufall warm, Welle kühl, Notation wie die Steine */
+  --mode-value: var(--ink);
+  --mode-rand: #e8954a;
+  --mode-mod: #5fbfcf;
+  --mode-mini: var(--wood);
   --code-bg: #0f1311;
   --br1: #7a87a3;
   --br2: #a67aa3;
@@ -36,6 +41,8 @@
   --code-ink: #d9e6d6;
 
   --s: 56px;
+  /* Höhe der Wertsteine und der Zahlenfelder in den Zusatzfeldern einer Effekt-Box: beide gleich hoch */
+  --field-h: 30px;
   /* Gruppenfarben: viel Transparenz, damit der Grund im hellen Modus dunkler und im dunklen heller wird */
 }
 
@@ -71,6 +78,16 @@ body {
     "Segoe UI",
     sans-serif;
   line-height: 1.4;
+  /* Markieren nur in Eingabefeldern: sonst greift beim Ziehen, Drehen und langen Drücken keine Textauswahl dazwischen */
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+input,
+textarea,
+[contenteditable] {
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 button {

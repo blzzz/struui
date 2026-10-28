@@ -3,7 +3,7 @@ import type { Frame } from '../domain/codegen.ts';
 import { arrangeTracks, matchTracks } from '../domain/program.ts';
 import { adoptIds, duplicateAt, duplicateRange, insertAt, insertPair, moveToken, removeAt, removeRange, replaceAt, setGroup, stackAt, unwrapAt, wrapAt, wrapRange } from '../domain/edit.ts';
 import { defaultValue, effectInfo, noteOpInfo, singleValue, valueInfo } from '../domain/effects.ts';
-import type { Effect, EffectInfo, RandSeries, SliderRange } from '../domain/effects.ts';
+import type { Effect, EffectInfo, ModSeries, RandSeries, SliderRange } from '../domain/effects.ts';
 import { DEFAULT_SAMPLE, clampSlices, convertValue, samplerInfo, startValues, takesSpeed } from '../domain/sampler.ts';
 import type { SamplerMode } from '../domain/sampler.ts';
 import { DEFAULT_VOICE } from '../domain/notes.ts';
@@ -46,13 +46,13 @@ export type RowKind = 'effects' | 'noteOps';
 function adoptRows(old: readonly Effect[], next: readonly ValueRow[]): Effect[] {
   return next.map((n, i) => {
     const o = old[i];
-    if (o?.name !== n.name) return { ...effect(n.name, n.tokens), slider: n.slider, rand: n.rand };
-    // Mit Zufallsreihe stehen keine Steine im Code: die bisherigen bleiben, samt Bereich
-    if (n.rand) return { ...o, rand: n.rand };
+    if (o?.name !== n.name) return { ...effect(n.name, n.tokens), slider: n.slider, rand: n.rand, mod: n.mod };
+    // Mit Zufallsreihe oder Modulation stehen keine Steine im Code: die bisherigen bleiben, samt Bereich
+    if (n.rand || n.mod) return { ...o, rand: n.rand, mod: n.mod };
     adoptIds(o.tokens, n.tokens);
     // Ohne slider() im Code bleibt ein eingestellter Bereich, solange der Wert Mini-Notation ist (dort steht er nie im Code)
     const keep = n.slider ?? (singleValue(n.tokens) === null ? (o.slider ?? null) : null);
-    return { id: o.id, name: n.name, tokens: n.tokens, slider: keep, rand: null };
+    return { id: o.id, name: n.name, tokens: n.tokens, slider: keep, rand: null, mod: null };
   });
 }
 
@@ -521,6 +521,12 @@ class Project {
   setEffectRand(effectId: string, series: RandSeries | null): void {
     const e = this.lane(effectId)?.effect;
     if (e) e.rand = series;
+  }
+
+  /** Modulation setzen (steht dann statt der Wertsteine im Code) oder entfernen (null, wieder die Steine). */
+  setEffectMod(effectId: string, series: ModSeries | null): void {
+    const e = this.lane(effectId)?.effect;
+    if (e) e.mod = series;
   }
 
   /** Klang oder Wert anhängen (tokenId null), davor einfügen oder den Stein ersetzen. */

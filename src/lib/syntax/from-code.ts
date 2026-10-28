@@ -1,5 +1,5 @@
-import { NOTE_OPS, effectInfo, isRandSeries, isSliderRange, noteOpInfo } from '../domain/effects.ts';
-import type { RandSeries, SliderRange } from '../domain/effects.ts';
+import { NOTE_OPS, WAVES, effectInfo, isModSeries, isRandSeries, isSliderRange, noteOpInfo } from '../domain/effects.ts';
+import type { ModSeries, RandSeries, SliderRange, Wave } from '../domain/effects.ts';
 import { SLICES_MAX } from '../domain/sampler.ts';
 import type { SamplerMode } from '../domain/sampler.ts';
 import { CHANNEL_MAX, ORBIT_MAX, soundToken, trackName } from '../domain/types.ts';
@@ -48,13 +48,15 @@ export interface CodeLine {
 
 /**
  * Ein Effekt oder eine Rechenart: Name, Wertsteine und, aus `slider(wert, min, max, step)`, der Bereich des Reglers.
- * Aus `rand.range(…).segment(…).ribbon(…)` die Zufallsreihe, die Wertsteine sind dann leer.
+ * Aus `rand.range(…).segment(…).ribbon(…)` die Zufallsreihe, aus `sine.range(…).segment(…).slow(…)` die Modulation;
+ * die Wertsteine sind dann leer.
  */
 export interface ValueRow {
   name: string;
   tokens: Token[];
   slider: SliderRange | null;
   rand: RandSeries | null;
+  mod: ModSeries | null;
 }
 
 export type CodeResult = ({ ok: true } & CodeLine) | { ok: false; offset: number; message: string };
@@ -122,10 +124,11 @@ export function codeToTrack(code: string, prefer?: TrackType): CodeResult {
 
   /**
    * Zufallsreihe nach `rand`: `.range(min, max)`, wahlweise `.round()`, dann `.segment(n)` (auch `seg`) und
-   * `.ribbon(offset, zyklen)` (auch `rib`), in dieser Reihenfolge, so wie `randToCode` sie schreibt.
+   * wahlweise `.ribbon(offset, zyklen)` (auch `rib`), in dieser Reihenfolge, so wie `randToCode` sie schreibt.
+   * Ohne ribbon gelten Offset 0 und ein Zyklus (gespeichert, nicht im Code).
    */
   const randSeries = (at: number): RandSeries => {
-    const shape = 'Eine Zufallsreihe ist rand.range(min, max).segment(n).ribbon(offset, zyklen).';
+    const shape = 'Eine Zufallsreihe ist rand.range(min, max).segment(n), wahlweise mit .ribbon(offset, zyklen).';
     if (!call(['range'])) throw new CodeError(shape, at);
     const min = arg('Das Minimum');
     const max = arg('Das Maximum', true);
@@ -136,10 +139,10 @@ export function codeToTrack(code: string, prefer?: TrackType): CodeResult {
     }
     if (!call(['segment', 'seg'])) throw new CodeError(shape, pos);
     const segments = arg('Die Zahl der Segmente', true);
-    if (!call(['ribbon', 'rib'])) throw new CodeError(shape, pos);
-    const offset = arg('Der Offset');
-    const cycles = arg('Die Zahl der Zyklen', true);
-    const r = { min, max, segments, offset, cycles, whole };
+    const ribbon = call(['ribbon', 'rib']);
+    const offset = ribbon ? arg('Der Offset') : 0;
+    const cycles = ribbon ? arg('Die Zahl der Zyklen', true) : 1;
+    const r = { min, max, segments, offset, cycles, ribbon, whole };
     if (!isRandSeries(r)) {
       throw new CodeError('In der Zufallsreihe liegt das Minimum unter dem Maximum, die Segmente sind ganz ab 1, die Zyklen über 0.', at);
     }
@@ -147,16 +150,48 @@ export function codeToTrack(code: string, prefer?: TrackType): CodeResult {
   };
 
   /**
+   * Modulation nach der Welle (`sine`): `.range(min, max)`, wahlweise `.round()`, dann `.segment(n)` (auch `seg`) und
+   * wahlweise `.slow(zyklen)`, in dieser Reihenfolge, so wie `modToCode` sie schreibt.
+   */
+  const modSeries = (wave: Wave, at: number): ModSeries => {
+    const shape = `Eine Modulation ist ${wave}.range(min, max).segment(n), wahlweise mit .slow(zyklen).`;
+    if (!call(['range'])) throw new CodeError(shape, at);
+    const min = arg('Das Minimum');
+    const max = arg('Das Maximum', true);
+    let whole = false;
+    if (call(['round'])) {
+      expect(')', '«)», round() nimmt keinen Wert');
+      whole = true;
+    }
+    if (!call(['segment', 'seg'])) throw new CodeError(shape, pos);
+    const segments = arg('Die Zahl der Segmente', true);
+    const slow = call(['slow']) ? arg('Die Dauer in Zyklen', true) : 1;
+    const m = { wave, min, max, segments, slow, whole };
+    if (!isModSeries(m)) {
+      throw new CodeError('In der Modulation liegt das Minimum unter dem Maximum, die Segmente sind ganz ab 1, die Dauer über 0.', at);
+    }
+    return m;
+  };
+  const WAVE = new RegExp(`^(${WAVES.join('|')})\\b`);
+
+  /**
    * Wert eines Aufrufs nach der öffnenden Klammer: eine Zahl als ein Stein, Mini-Notation, Strudels Regler
    * `slider(wert, min, max, step)` (fehlen min und max, gilt wie bei Strudel 0 und 1, ohne step ein Hundertstel)
-   * oder eine Zufallsreihe (`randSeries`). Liest bis nach `)`.
+   * eine Zufallsreihe (`randSeries`) oder eine Modulation (`modSeries`). Liest bis nach `)`.
    */
   const value = (name: string): ValueRow => {
     space();
     let tokens: Token[];
     let slider: SliderRange | null = null;
     let rand: RandSeries | null = null;
-    if (/^rand\b/.test(code.slice(pos))) {
+    let mod: ModSeries | null = null;
+    const wave = WAVE.exec(code.slice(pos));
+    if (wave) {
+      const at = pos;
+      pos += wave[0].length;
+      mod = modSeries(wave[1] as Wave, at);
+      tokens = [];
+    } else if (/^rand\b/.test(code.slice(pos))) {
       const at = pos;
       pos += 'rand'.length;
       rand = randSeries(at);
@@ -182,7 +217,7 @@ export function codeToTrack(code: string, prefer?: TrackType): CodeResult {
       tokens = mini();
     }
     expect(')');
-    return { name, tokens, slider, rand };
+    return { name, tokens, slider, rand, mod };
   };
 
   try {
@@ -239,6 +274,7 @@ export function codeToTrack(code: string, prefer?: TrackType): CodeResult {
       const row = value(mode);
       if (row.slider) throw new CodeError(`Bei .${mode}() geht kein Regler (slider).`, at);
       if (row.rand) throw new CodeError(`Bei .${mode}() geht keine Zufallsreihe (rand).`, at);
+      if (row.mod) throw new CodeError(`Bei .${mode}() geht keine Modulation.`, at);
       sampler = { mode, slices, tokens: row.tokens, at };
     }
 
@@ -289,7 +325,7 @@ export function codeToTrack(code: string, prefer?: TrackType): CodeResult {
       space();
       if (effectInfo(fx)?.noValue) {
         expect(')', `«)», ${fx}() nimmt keinen Wert`);
-        effects.push({ name: fx, tokens: [], slider: null, rand: null });
+        effects.push({ name: fx, tokens: [], slider: null, rand: null, mod: null });
         continue;
       }
       if (fx === 'orbit') {
