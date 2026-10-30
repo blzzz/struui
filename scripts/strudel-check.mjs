@@ -253,6 +253,35 @@ try {
     console.log(`ok: Modulation mit ${effects.WAVES.length} Wellen läuft in Strudel, bleibt im Bereich und kommt zurück`);
   }
 
+  // LFO: jede Welle läuft und bleibt zwischen Mitte ± Tiefe; ein Sinus um 800 steigt und fällt über 2 Zyklen, die Phase
+  // verschiebt ihn um eine Viertelperiode, und er kommt als LFO zurück.
+  {
+    for (const wave of effects.LFO_WAVES) {
+      patterns.length = 0;
+      const lfo = { wave, center: 800, depth: 400, segments: 8, slow: 2, phase: 0, whole: false };
+      const program = codegen.toStrudelProgram([{ tokens: [snd('hh*8')], effects: [{ ...types.effect('lpf'), lfo }] }], { cps: 0.5 });
+      await run(program.code);
+      const haps = patterns[0].queryArc(0, 2).sort((a, b) => a.whole.begin - b.whole.begin);
+      assert.equal(haps.length, 16, wave);
+      for (const h of haps) assert.ok(h.value.cutoff >= 400 && h.value.cutoff <= 1200, `${wave}: ${h.value.cutoff} ausserhalb`);
+      const back = fromCode.codeToTrack(program.code.split('\n').at(-2).trim());
+      assert.ok(back.ok, wave);
+      assert.deepEqual(back.effects[0].lfo, lfo, wave);
+      if (wave === 'sine') {
+        const c = haps.map((h) => h.value.cutoff);
+        assert.ok(c[4] > c[0] && c[12] < c[8], `Sinus steigt und fällt: ${c}`);
+        assert.ok(Math.abs(c[0] - 800) < 1, `Sinus beginnt in der Mitte: ${c[0]}`);
+        patterns.length = 0;
+        const shifted = codegen.toStrudelProgram([{ tokens: [snd('hh*8')], effects: [{ ...types.effect('lpf'), lfo: { ...lfo, phase: 0.25 } }] }], { cps: 0.5 });
+        assert.match(shifted.code, /\.early\(0\.25\)/);
+        await run(shifted.code);
+        const s = patterns[0].queryArc(0, 2).sort((a, b) => a.whole.begin - b.whole.begin).map((h) => h.value.cutoff);
+        assert.ok(Math.abs(s[0] - 1200) < 1, `Viertelperiode früher beginnt der Sinus oben: ${s[0]}`);
+      }
+    }
+    console.log(`ok: LFO mit ${effects.LFO_WAVES.length} Wellen läuft in Strudel, bleibt um die Mitte und kommt zurück`);
+  }
+
   // Rechenarten: note("c3 e3".add("<0 12>")) transponiert wirklich (als Methode nach note() täte es das nicht),
   // und die Wertsteine von add leuchten im richtigen Zyklus.
   {

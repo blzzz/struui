@@ -144,10 +144,10 @@
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <div
           class="box"
-          class:off={fx.tokens.length === 0 && !fx.rand && !fx.mod && !info?.noValue}
+          class:off={fx.tokens.length === 0 && !fx.rand && !fx.mod && !fx.lfo && !info?.noValue}
           class:bad={errors.length > 0}
           class:selected={selected === fx.id}
-          class:wide={!fx.rand && !fx.mod &&
+          class:wide={!fx.rand && !fx.mod && !fx.lfo &&
             (session.mini.has(fx.id) ||
               (fx.tokens.length > 0 && singleValue(fx.tokens) === null))}
           class:before={hint === i}

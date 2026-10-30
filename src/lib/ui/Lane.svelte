@@ -113,10 +113,9 @@
       return;
     }
     void tokens.map((t) => t.id);
-    const applied = zoom;
+    // Hängt nicht vom angewandten Zoom ab (gemessen wird ohne), sonst baute jede Änderung die Messung neu auf
     return watchFit(
       row,
-      applied,
       (r) => {
         overflows = r.overflows;
         if (Math.abs(r.fit - fit) > 0.005) fit = r.fit;

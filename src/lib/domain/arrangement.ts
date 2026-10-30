@@ -5,7 +5,7 @@
  */
 
 import { newId } from './types.ts';
-import { WAVES } from './effects.ts';
+import { LFO_WAVES, WAVES } from './effects.ts';
 
 export interface Section {
   id: string;
@@ -80,4 +80,5 @@ const RESERVED = new Set([
   ...'break case catch class const continue debugger default delete do else export extends false finally for function if import in instanceof let new null return super switch this throw true try typeof var void while with yield await enum implements interface package private protected public static arguments eval undefined NaN Infinity'.split(' '),
   ...'s n note sound stack cat seq fastcat slowcat arrange silence samples setcps setcpm slider rand pure sequence register hush'.split(' '),
   ...WAVES,
+  ...LFO_WAVES.map((w) => `${w}2`),
 ]);

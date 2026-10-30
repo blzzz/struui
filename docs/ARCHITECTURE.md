@@ -248,7 +248,7 @@ dafür ohne Ladeanzeige geladen. Synths, Soundfonts (`gm_…`) und eigene Aufnah
   Strudels Beispielwerten (`valueScale`): sie liegen gleichmässig auf dem Knopf, dazwischen linear, nahe daran rastet er ein; mit
   einem Beispiel 0 bis zum Doppelten, ohne Beispiel 0–1. Eingetippt gehen auch Werte ausserhalb. Effekte mit Namen statt
   Zahlen (`vowel`) bekommen eine Auswahl. Die Box zeigt oben mittig den Namen, darunter den Knopf, darunter der Modus
-  («Wert», «Zufall», «Welle», «Notation», ein Klick öffnet die Auswahl). Die rechte Kante der Box (12px) blendet die Zusatzfelder
+  («Wert», «Zufall», «Welle», «LFO», «Notation», ein Klick öffnet die Auswahl). Die rechte Kante der Box (12px) blendet die Zusatzfelder
   des Modus ein und aus: rechts über die ganze Höhe der Box, Titel, Knopf und Modus bleiben links beisammen. Antippen markiert eine Box (`session.selectedEffect`), Delete oder Backspace entfernt sie. «Notation» zeigt stattdessen die Wertsteine (`session.mini`, flüchtig);
   ist der Wert mehr als ein einzelner Stein ohne Zufall und Wiederholung (`singleValue`), bleibt nur sie, damit nichts verloren geht.
   **Strudels `slider()`:** im Modus «Wert» stehen bei Zahlen min und max hinter der rechten Kante (blass mit dem Vorschlag, bis eingetippt) (`Effect.slider`, Vorschlag aus den Beispielwerten,
@@ -270,6 +270,13 @@ dafür ohne Ladeanzeige geladen. Synths, Soundfonts (`gm_…`) und eigene Aufnah
   `.lpf(sine.range(200, 2000).segment(16).slow(4))`, `.slow(1)` entfällt, `.round()` nach derselben Regel. Der Knopf stellt die
   Dauer einer Periode in Zyklen ein (rastet bei 0.25 … 32 ein, eingetippt jede über 0), Welle, min, max und Segmente stehen hinter
   der rechten Kante. Der Rückweg liest genau diese Kette (`seg` auch, `slow` wahlweise). Die Wellennamen sind als Szenennamen gesperrt.
+  **LFO**: Modus «LFO», nur bei Zahlen. `Effect.lfo` (`LfoSeries`: Welle aus `LFO_WAVES` = sine, cosine, tri, saw, isaw,
+  square, also ohne perlin; Mitte, Tiefe, Segmente, Dauer, Phase) schwingt um einen Wert statt zwischen min und max und steht
+  wie die Modulation statt der Wertsteine im Code: `.lpf(sine2.early(0.25).mul(400).add(800).segment(16).slow(4))` (Strudels Wellen
+  von -1 bis 1, also 400 bis 1200). `.early(0)` und `.slow(1)` entfallen, `.round()` nach derselben Regel (für Mitte ± Tiefe).
+  Der Knopf dreht die Mitte wie im Modus «Wert»; Welle, Tiefe (±), Dauer in Zyklen, Phase (Teil einer Periode, 0 bis unter 1)
+  und Segmente (pro Periode) stehen hinter der rechten Kante. Zurück zu «Wert» wird die Mitte der Wert. Der Rückweg liest genau
+  diese Kette (`early` und `slow` wahlweise, `seg` auch). `sine2` usw. sind als Szenennamen gesperrt.
   Die Zahlenfelder der Zusatzfelder lassen sich hoch und runter ziehen (`interaction/drag-number.ts`), Tippen setzt den Cursor.
   Ungeprüft im Browser, vor allem Drehknopf, Klick zum Eintippen, Ziehen an Feldern und am Titel auf iOS.
   Offen: Effekte als physische Steine für die Kamera, Effekte auf einzelnen Steinen statt der ganzen Spur.

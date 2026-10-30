@@ -178,3 +178,27 @@ test('code: sine.range(…).segment(…).slow(…) wird zur Modulation und zurü
     '/* a */ s("bd").lpf(sine2.range(200, 2000).segment(4))',
   ]) assert.ok(!codeToTrack(bad).ok, bad);
 });
+
+test('code: sine2.mul(…).add(…).segment(…) wird zum LFO und zurück', () => {
+  const cases: [string, string][] = [
+    ['/* a */ s("bd").lpf(sine2.mul(400).add(800).segment(16).slow(4))', '/* a */ s("bd").lpf(sine2.mul(400).add(800).segment(16).slow(4))'],
+    ['/* a */ s("bd").lpf(saw2 .early(.25).mul( 400 ).add(800).seg(8).slow(1))', '/* a */ s("bd").lpf(saw2.early(0.25).mul(400).add(800).segment(8))'],
+    ['/* n */ note("c".add(square2.mul(3).add(-2).round().segment(4))).s("sine")', '/* n */ note("c".add(square2.mul(3).add(-2).round().segment(4))).s("sine")'],
+  ];
+  for (const [input, expected] of cases) assert.equal(roundTrip(input), expected, input);
+  const r = codeToTrack('/* a */ s("bd").lpf(cosine2.early(0.5).mul(400).add(800).segment(16).slow(2)).room(.5)');
+  assert.ok(r.ok);
+  assert.deepEqual(r.effects[0].lfo, { wave: 'cosine', center: 800, depth: 400, segments: 16, slow: 2, phase: 0.5, whole: false });
+  assert.deepEqual(r.effects[0].tokens, []);
+  assert.equal(r.effects[0].mod, null);
+  assert.equal(r.effects[1].lfo, null);
+
+  for (const bad of [
+    '/* a */ s("bd").lpf(sine2)',
+    '/* a */ s("bd").lpf(sine2.mul(400).segment(4))',
+    '/* a */ s("bd").lpf(sine2.mul(0).add(800).segment(4))',
+    '/* a */ s("bd").lpf(sine2.early(1).mul(400).add(800).segment(4))',
+    '/* a */ s("bd").lpf(sine2.mul(400).add(800).segment(4).fast(2))',
+    '/* a */ s("bd").lpf(perlin2.mul(400).add(800).segment(4))',
+  ]) assert.ok(!codeToTrack(bad).ok, bad);
+});

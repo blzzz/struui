@@ -4,12 +4,15 @@
     fromRange,
     fromSlider,
     WAVES,
+    LFO_WAVES,
+    isLfoSeries,
     isModSeries,
     isRandSeries,
     isSliderRange,
     singleValue,
     sliderStep,
     splitParts,
+    suggestLfoSeries,
     suggestModSeries,
     suggestRandSeries,
     suggestSliderRange,
@@ -21,6 +24,8 @@
   } from "../domain/effects.ts";
   import type {
     Effect,
+    LfoSeries,
+    LfoWave,
     ModSeries,
     RandSeries,
     Wave,
@@ -35,12 +40,13 @@
    * Inhalt einer Effekt-Box unter dem Titel: ein grosser Drehknopf für eine einzelne Zahl (`EffectKnob`, ein Klick
    * zum Eintippen), eine Auswahl für Namen, oder die Wertsteine (Mini-Notation, `<200 800>`, Zufall, Wiederholung).
    * Titel (`children`), Knopf und Modus stehen links beisammen, die Zusatzfelder rechts über die ganze Höhe.
-   * Unter dem Knopf der Modus («Wert», «Zufall», «Welle», «Notation»; ein Klick öffnet die Auswahl). Die rechte Kante der Box
+   * Unter dem Knopf der Modus («Wert», «Zufall», «Welle», «LFO», «Notation»; ein Klick öffnet die Auswahl). Die rechte Kante der Box
    * (18px) blendet die Zusatzfelder des Modus rechts vom Knopf ein und aus. Entfernen: Box markieren, dann Delete (`EffectList`). «Wert»: min und max, erst Eintippen schreibt
    * Strudels `slider()` in den Code (Schritt aus `sliderStep`, der Knopf ist dann linear), ↺ macht daraus wieder die Zahl
    * allein; bis dahin blass mit dem Vorschlag aus den Beispielwerten. «Zufall» (`RandSeries`): min, max, Segmente, ribbon
    * (an/aus) und Zyklen, der Knopf (beschriftet «Offset») blättert durch den Offset (`#12`, ohne ribbon «frei»; Drehen schaltet ribbon ein). «Welle» (`ModSeries`): Welle, min, max und Segmente, der Knopf
-   * (beschriftet «Dauer (Zyklen)») stellt die Dauer einer Periode in Zyklen ein (`↻4`, rastet bei `SLOWS` ein). «Notation»: die Wertsteine (`session.mini`), ohne Zusatzfelder.
+   * (beschriftet «Dauer (Zyklen)») stellt die Dauer einer Periode in Zyklen ein (`↻4`, rastet bei `SLOWS` ein). «LFO» (`LfoSeries`):
+   * Welle, Tiefe (±), Dauer, Phase und Segmente, der Knopf (beschriftet «Mitte») dreht den Wert, um den der LFO schwingt, wie im Modus «Wert». «Notation»: die Wertsteine (`session.mini`), ohne Zusatzfelder.
    * Ist der Wert mehr als ein einzelner Stein, bleibt nur «Notation» (oder «Zufall»), bis nur noch einer übrig ist
    * (nichts geht verloren). Ohne Bereich liefern Strudels Beispielwerte die Skala des Knopfs (`valueScale`, als Marken
    * am Ring); eingetippt gehen auch Werte ausserhalb.
@@ -155,6 +161,42 @@
     return (i < 0 ? SLOWS.length - 1 : i) / (SLOWS.length - 1);
   });
 
+  /** LFO, wenn gewählt (steht dann statt der Steine im Code). */
+  const lfo = $derived(fx.lfo ?? null);
+  /** Was in den Feldern des LFO steht: vor dem Wählen der Vorschlag. */
+  const shownLfo = $derived(lfo ?? suggestLfoSeries(info, value, range));
+  /** Ziehen an der Phase: Viertel einer Periode zählen, darunter geht es nur eingetippt. */
+  const PHASE_DRAG: Drag = { step: 0.05, min: 0, px: 6 };
+
+  function onLfoField(
+    key: "depth" | "segments" | "slow" | "phase",
+    input: string,
+  ) {
+    const text = normalize(input);
+    const next = { ...shownLfo, [key]: Number(text) };
+    next.whole = wholeValues(info, next.center - next.depth, next.center + next.depth);
+    if (!NUMBER.test(text) || !isLfoSeries(next)) {
+      badField = `lfo:${key}`;
+      return;
+    }
+    badField = null;
+    project.setEffectLfo(fx.id, next);
+  }
+
+  function setLfo(change: Partial<LfoSeries>) {
+    if (!lfo) return;
+    const next = { ...lfo, ...change };
+    next.whole = wholeValues(info, next.center - next.depth, next.center + next.depth);
+    project.setEffectLfo(fx.id, next);
+  }
+
+  /** Stellung des Knopfs beim LFO: die Mitte, gemessen wie im Modus «Wert». */
+  const lfoPosition = $derived.by(() => {
+    if (!lfo) return 0;
+    if (range) return toRange(lfo.center, range);
+    return scale.kind === "number" ? toSlider(lfo.center, scale.stops) : 0;
+  });
+
   function onRange(key: "min" | "max", input: string) {
     const text = normalize(input);
     const bounds = { min: shown.min, max: shown.max, [key]: Number(text) };
@@ -170,7 +212,7 @@
     project.setEffectSlider(fx.id, next);
   }
 
-  type Mode = "value" | "rand" | "mod" | "mini";
+  type Mode = "value" | "rand" | "mod" | "lfo" | "mini";
   const MODES: { mode: Mode; label: string; title: string }[] = [
     {
       mode: "value",
@@ -189,13 +231,19 @@
       title: "Modulation: sine.range(min, max).segment(n).slow(zyklen)",
     },
     {
+      mode: "lfo",
+      label: "LFO",
+      title:
+        "LFO um einen Wert: sine2.early(phase).mul(tiefe).add(mitte).segment(n).slow(zyklen)",
+    },
+    {
       mode: "mini",
       label: "Notation",
       title: "Wert als Mini-Notation (Wertsteine)",
     },
   ];
   const mode = $derived<Mode>(
-    rand ? "rand" : mod ? "mod" : mini ? "mini" : "value",
+    rand ? "rand" : mod ? "mod" : lfo ? "lfo" : mini ? "mini" : "value",
   );
   const modeInfo = $derived(MODES.find((m) => m.mode === mode) ?? MODES[0]);
   /** Ein Wert aus Zahlen: Zufallsreihe möglich, und ohne mehrere Steine min und max des Werts. */
@@ -204,10 +252,10 @@
   );
   const rangeFields = $derived(numeric && !forced);
 
-  /** Modus wählbar: Notation immer, Wert nicht bei mehreren Steinen, Zufall und Modulation nur bei Zahlen. */
+  /** Modus wählbar: Notation immer, Wert nicht bei mehreren Steinen, Zufall, Modulation und LFO nur bei Zahlen. */
   function allowed(m: Mode): boolean {
     if (m === "mini") return true;
-    if (m === "rand" || m === "mod") return numeric;
+    if (m === "rand" || m === "mod" || m === "lfo") return numeric;
     return !(forced || info?.miniOnly);
   }
   /** Die wählbaren Modi. */
@@ -217,11 +265,15 @@
     if (m === mode || !allowed(m)) return;
     if (m !== "rand") project.setEffectRand(fx.id, null);
     if (m !== "mod") project.setEffectMod(fx.id, null);
+    if (m !== "lfo") project.setEffectLfo(fx.id, null);
+    // Vom LFO zurück zum Wert: die Mitte wird der Wert
+    if (m === "value" && lfo) project.setEffectValue(fx.id, String(lfo.center));
     if (m === "mini") {
       if (!mini) session.toggleMini(fx.id);
     } else leaveMini();
     if (m === "rand") project.setEffectRand(fx.id, shownRand);
     if (m === "mod") project.setEffectMod(fx.id, shownMod);
+    if (m === "lfo") project.setEffectLfo(fx.id, shownLfo);
   }
 
   /** Auswahl der Modi unter dem Modus-Knopf. */
@@ -255,10 +307,10 @@
 
   /** Zusatzfelder des Modus rechts vom Knopf (rechte Kante der Box). */
   let editing = $state(false);
-  /** Hat der Modus Zusatzfelder: Wert bei Zahlen min und max, Zufall und Modulation ihre Angaben, Notation keine. */
+  /** Hat der Modus Zusatzfelder: Wert bei Zahlen min und max, Zufall, Modulation und LFO ihre Angaben, Notation keine. */
   const hasFields = $derived(
     (mode === "value" && rangeFields) ||
-      ((mode === "rand" || mode === "mod") && numeric),
+      ((mode === "rand" || mode === "mod" || mode === "lfo") && numeric),
   );
   const fieldsOpen = $derived(editing && hasFields);
 
@@ -302,10 +354,10 @@
   <!-- Links Titel, Knopf und Modus beisammen, rechts die Zusatzfelder über die ganze Höhe -->
   <div class="left">
     {@render children?.()}
-    <!-- Bei Zufall und Welle (Knopf mit Beschriftung) Bogen und Strich in der Farbe des Modus -->
+    <!-- Bei Zufall, Welle und LFO (Knopf mit Beschriftung) Bogen und Strich in der Farbe des Modus -->
     <div
       class="value"
-      style:--knob-ink={rand || mod ? "var(--mode-ink)" : undefined}
+      style:--knob-ink={rand || mod || lfo ? "var(--mode-ink)" : undefined}
     >
       {#if info?.noValue}
         <p class="hint none">ohne Wert</p>
@@ -348,8 +400,31 @@
             NUMBER.test(normalize(text)) && Number(normalize(text)) > 0}
         />
         <span class="knob-cap">Zyklen</span>
+      {:else if lfo}
+        {@const l = lfo}
+        <EffectKnob
+          value={String(l.center)}
+          position={lfoPosition}
+          {marks}
+          label={`${fx.name}, LFO ${l.wave} ±${l.depth}, Mitte`}
+          onTurn={(pos) => {
+            if (range) setLfo({ center: fromRange(pos, range) });
+            else if (scale.kind === "number")
+              setLfo({ center: fromSlider(pos, scale.stops) });
+          }}
+          onEdit={(text) => {
+            const t = normalize(text);
+            if (!NUMBER.test(t)) return false;
+            setLfo({ center: Number(t) });
+            return true;
+          }}
+          valid={(text) => NUMBER.test(normalize(text))}
+        />
+        <span class="knob-cap">Mitte</span>
       {:else if mini}
-        <Lane laneId={fx.id} tokens={fx.tokens} value />
+        <div class="lane">
+          <Lane laneId={fx.id} tokens={fx.tokens} value />
+        </div>
       {:else if info?.parts && parts}
         {#each info.parts as choices, i (i)}
           <select
@@ -534,6 +609,64 @@
         )}
       </div>
     </div>
+  {:else if fieldsOpen && mode === "lfo"}
+    <div class="fields" role="group" aria-label={`${fx.name}, LFO`}>
+      <div class="group">
+        <span class="cap">Welle</span>
+        <select
+          class="num wave"
+          aria-label="Welle"
+          value={shownLfo.wave}
+          onchange={(e) => setLfo({ wave: e.currentTarget.value as LfoWave })}
+        >
+          {#each LFO_WAVES as w (w)}
+            <option value={w}>{w}</option>
+          {/each}
+        </select>
+      </div>
+      <div class="group">
+        <span class="cap">Tiefe ±</span>
+        {@render field(
+          "lfo:depth",
+          "Tiefe",
+          String(shownLfo.depth),
+          (t) => onLfoField("depth", t),
+          { step: sliderStep(0, shownLfo.depth * 4), min: 0 },
+        )}
+      </div>
+      <div class="group">
+        <span class="cap">Dauer</span>
+        {@render field(
+          "lfo:slow",
+          "Dauer in Zyklen",
+          String(shownLfo.slow),
+          (t) => onLfoField("slow", t),
+          CYCLE_DRAG,
+        )}
+        <span class="unit">Zyklen</span>
+      </div>
+      <div class="group">
+        <span class="cap">Phase</span>
+        {@render field(
+          "lfo:phase",
+          "Phase (Teil einer Periode, 0 bis unter 1)",
+          String(shownLfo.phase),
+          (t) => onLfoField("phase", t),
+          PHASE_DRAG,
+        )}
+      </div>
+      <div class="group">
+        <span class="cap">Segmente</span>
+        {@render field(
+          "lfo:segments",
+          "Segmente",
+          String(shownLfo.segments),
+          (t) => onLfoField("segments", t),
+          SEGMENT_DRAG,
+          "numeric",
+        )}
+      </div>
+    </div>
   {/if}
 </div>
 {#snippet field(
@@ -604,7 +737,9 @@
       ? "min, max, Segmente und Zyklen (den Offset dreht der Knopf)"
       : mode === "mod"
         ? "Welle, min, max und Segmente (die Dauer dreht der Knopf)"
-        : "min und max (slider() im Code)"}
+        : mode === "lfo"
+          ? "Welle, Tiefe, Dauer, Phase und Segmente (die Mitte dreht der Knopf)"
+          : "min und max (slider() im Code)"}
     onclick={() => (editing = !editing)}
   >
     <svg viewBox="0 0 8 16" aria-hidden="true"
@@ -978,5 +1113,9 @@
   }
   .hint.none {
     margin: 4px 0 2px;
+  }
+
+  .lane {
+    margin-top: 4px;
   }
 </style>

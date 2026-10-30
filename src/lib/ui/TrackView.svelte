@@ -218,6 +218,7 @@
             max={VOLUME_MAX}
             step="0.05"
             value={track.volume}
+            style:--pct={`${(Math.min(track.volume, VOLUME_MAX) / VOLUME_MAX) * 100}%`}
             aria-label={`Lautstärke von Spur ${index + 1}`}
             title={`Lautstärke ${Math.round(track.volume * 100)} %`}
             oninput={(e) =>
@@ -755,14 +756,63 @@
     border-color: var(--on);
     color: #000;
   }
-  /* Waagrechter Regler: links leise, rechts laut */
+  /*
+   * Waagrechter Regler: links leise, rechts laut. Sieht aus wie die Knöpfe daneben (M, S, Orbit): so hoch, gleicher Rand
+   * und Radius, ohne Fläche. Der Pegel füllt ihn leise von links (`--pct`), der Griff ist ein schmaler Strich.
+   */
   .volume {
     width: 120px;
     max-width: 120px;
     min-width: 60px;
     flex: 0 1 120px;
+    height: 28px;
     margin: 0;
-    accent-color: var(--mute);
+    padding: 0;
+    -webkit-appearance: none;
+    appearance: none;
+    border: 1.5px solid var(--line);
+    border-radius: 8px;
+    background: linear-gradient(
+      to right,
+      color-mix(in srgb, var(--mute) 22%, transparent) var(--pct, 0%),
+      transparent var(--pct, 0%)
+    );
+    overflow: hidden;
+    cursor: ew-resize;
+  }
+  .volume:focus-visible {
+    outline: 3px solid var(--blue);
+    outline-offset: 2px;
+  }
+  .volume::-webkit-slider-runnable-track {
+    height: 100%;
+    background: transparent;
+  }
+  .volume::-moz-range-track {
+    height: 100%;
+    background: transparent;
+  }
+  .volume::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 3px;
+    height: 100%;
+    border: none;
+    border-radius: 2px;
+    background: var(--mute);
+  }
+  .volume::-moz-range-thumb {
+    width: 3px;
+    height: 100%;
+    border: none;
+    border-radius: 2px;
+    background: var(--mute);
+  }
+  .volume:hover::-webkit-slider-thumb {
+    background: var(--ink);
+  }
+  .volume:hover::-moz-range-thumb {
+    background: var(--ink);
   }
   /* Orbit bzw. MIDI-Kanal: Nummer mit kleiner Beschriftung, Tippen zählt weiter */
   /* Orbit bzw. MIDI-Kanal: kleine Beschriftung und Zahl auf einer Mittellinie, so hoch wie M */

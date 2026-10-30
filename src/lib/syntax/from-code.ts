@@ -1,5 +1,5 @@
-import { NOTE_OPS, WAVES, effectInfo, isModSeries, isRandSeries, isSliderRange, noteOpInfo } from '../domain/effects.ts';
-import type { ModSeries, RandSeries, SliderRange, Wave } from '../domain/effects.ts';
+import { LFO_WAVES, NOTE_OPS, WAVES, effectInfo, isLfoSeries, isModSeries, isRandSeries, isSliderRange, noteOpInfo } from '../domain/effects.ts';
+import type { LfoSeries, LfoWave, ModSeries, RandSeries, SliderRange, Wave } from '../domain/effects.ts';
 import { SLICES_MAX } from '../domain/sampler.ts';
 import type { SamplerMode } from '../domain/sampler.ts';
 import { CHANNEL_MAX, ORBIT_MAX, soundToken, trackName } from '../domain/types.ts';
@@ -48,8 +48,8 @@ export interface CodeLine {
 
 /**
  * Ein Effekt oder eine Rechenart: Name, Wertsteine und, aus `slider(wert, min, max, step)`, der Bereich des Reglers.
- * Aus `rand.range(…).segment(…).ribbon(…)` die Zufallsreihe, aus `sine.range(…).segment(…).slow(…)` die Modulation;
- * die Wertsteine sind dann leer.
+ * Aus `rand.range(…).segment(…).ribbon(…)` die Zufallsreihe, aus `sine.range(…).segment(…).slow(…)` die Modulation,
+ * aus `sine2.mul(…).add(…).segment(…)` der LFO; die Wertsteine sind dann leer.
  */
 export interface ValueRow {
   name: string;
@@ -57,6 +57,7 @@ export interface ValueRow {
   slider: SliderRange | null;
   rand: RandSeries | null;
   mod: ModSeries | null;
+  lfo: LfoSeries | null;
 }
 
 export type CodeResult = ({ ok: true } & CodeLine) | { ok: false; offset: number; message: string };
@@ -175,9 +176,36 @@ export function codeToTrack(code: string, prefer?: TrackType): CodeResult {
   const WAVE = new RegExp(`^(${WAVES.join('|')})\\b`);
 
   /**
+   * LFO nach der Welle (`sine2`): wahlweise `.early(phase)`, dann `.mul(tiefe)`, `.add(mitte)`, wahlweise `.round()`,
+   * `.segment(n)` (auch `seg`) und wahlweise `.slow(zyklen)`, in dieser Reihenfolge, so wie `lfoToCode` sie schreibt.
+   */
+  const lfoSeries = (wave: LfoWave, at: number): LfoSeries => {
+    const shape = `Ein LFO ist ${wave}2.mul(tiefe).add(mitte).segment(n), wahlweise mit .early(phase) nach ${wave}2 und .slow(zyklen) am Schluss.`;
+    const phase = call(['early']) ? arg('Die Phase', true) : 0;
+    if (!call(['mul'])) throw new CodeError(shape, at);
+    const depth = arg('Die Tiefe', true);
+    if (!call(['add'])) throw new CodeError(shape, pos);
+    const center = arg('Die Mitte', true);
+    let whole = false;
+    if (call(['round'])) {
+      expect(')', '«)», round() nimmt keinen Wert');
+      whole = true;
+    }
+    if (!call(['segment', 'seg'])) throw new CodeError(shape, pos);
+    const segments = arg('Die Zahl der Segmente', true);
+    const slow = call(['slow']) ? arg('Die Dauer in Zyklen', true) : 1;
+    const l = { wave, center, depth, segments, slow, phase, whole };
+    if (!isLfoSeries(l)) {
+      throw new CodeError('Im LFO ist die Tiefe über 0, die Segmente sind ganz ab 1, die Dauer über 0 und die Phase von 0 bis unter 1.', at);
+    }
+    return l;
+  };
+  const LFO_WAVE = new RegExp(`^(${LFO_WAVES.join('|')})2\\b`);
+
+  /**
    * Wert eines Aufrufs nach der öffnenden Klammer: eine Zahl als ein Stein, Mini-Notation, Strudels Regler
    * `slider(wert, min, max, step)` (fehlen min und max, gilt wie bei Strudel 0 und 1, ohne step ein Hundertstel)
-   * eine Zufallsreihe (`randSeries`) oder eine Modulation (`modSeries`). Liest bis nach `)`.
+   * eine Zufallsreihe (`randSeries`), eine Modulation (`modSeries`) oder ein LFO (`lfoSeries`). Liest bis nach `)`.
    */
   const value = (name: string): ValueRow => {
     space();
@@ -185,8 +213,15 @@ export function codeToTrack(code: string, prefer?: TrackType): CodeResult {
     let slider: SliderRange | null = null;
     let rand: RandSeries | null = null;
     let mod: ModSeries | null = null;
+    let lfo: LfoSeries | null = null;
     const wave = WAVE.exec(code.slice(pos));
-    if (wave) {
+    const lfoWave = LFO_WAVE.exec(code.slice(pos));
+    if (lfoWave) {
+      const at = pos;
+      pos += lfoWave[0].length;
+      lfo = lfoSeries(lfoWave[1] as LfoWave, at);
+      tokens = [];
+    } else if (wave) {
       const at = pos;
       pos += wave[0].length;
       mod = modSeries(wave[1] as Wave, at);
@@ -217,7 +252,7 @@ export function codeToTrack(code: string, prefer?: TrackType): CodeResult {
       tokens = mini();
     }
     expect(')');
-    return { name, tokens, slider, rand, mod };
+    return { name, tokens, slider, rand, mod, lfo };
   };
 
   try {
@@ -275,6 +310,7 @@ export function codeToTrack(code: string, prefer?: TrackType): CodeResult {
       if (row.slider) throw new CodeError(`Bei .${mode}() geht kein Regler (slider).`, at);
       if (row.rand) throw new CodeError(`Bei .${mode}() geht keine Zufallsreihe (rand).`, at);
       if (row.mod) throw new CodeError(`Bei .${mode}() geht keine Modulation.`, at);
+      if (row.lfo) throw new CodeError(`Bei .${mode}() geht kein LFO.`, at);
       sampler = { mode, slices, tokens: row.tokens, at };
     }
 
@@ -325,7 +361,7 @@ export function codeToTrack(code: string, prefer?: TrackType): CodeResult {
       space();
       if (effectInfo(fx)?.noValue) {
         expect(')', `«)», ${fx}() nimmt keinen Wert`);
-        effects.push({ name: fx, tokens: [], slider: null, rand: null, mod: null });
+        effects.push({ name: fx, tokens: [], slider: null, rand: null, mod: null, lfo: null });
         continue;
       }
       if (fx === 'orbit') {

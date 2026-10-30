@@ -8,10 +8,12 @@ import {
   effectInfo,
   fromRange,
   fromSlider,
+  isLfoSeries,
   isModSeries,
   isRandSeries,
   isSliderRange,
   sliderStep,
+  suggestLfoSeries,
   suggestModSeries,
   suggestRandSeries,
   suggestSliderRange,
@@ -28,7 +30,7 @@ import {
   valueInfo,
   valueScale,
 } from './effects.ts';
-import { effectToCode, modToCode, randToCode, toStrudelCode, toStrudelProgram, trackToCode } from './codegen.ts';
+import { effectToCode, lfoToCode, modToCode, randToCode, toStrudelCode, toStrudelProgram, trackToCode } from './codegen.ts';
 import { quickSwitch } from './edit.ts';
 import { closeToken, effect, nextInCycle, openToken, soundToken, trackName } from './types.ts';
 import type { TrackType } from './types.ts';
@@ -479,4 +481,29 @@ test('Modulation: Welle statt der Wertsteine, slow(1) entfällt, ganze Zahlen mi
   assert.ok(!isModSeries({ ...mod, slow: 0 }), 'Dauer über 0');
   assert.deepEqual(suggestModSeries(effectInfo('room'), null), { wave: 'sine', min: 0, max: 1, segments: 16, slow: 4, whole: false });
   for (const e of EFFECTS) assert.ok(isModSeries(suggestModSeries(e, null)), e.name);
+});
+
+test('LFO: schwingt um die Mitte, early(0) und slow(1) entfallen, ganze Zahlen mit round()', () => {
+  const lfo = { wave: 'sine' as const, center: 800, depth: 400, segments: 16, slow: 4, phase: 0.25, whole: false };
+  assert.equal(lfoToCode(lfo), 'sine2.early(0.25).mul(400).add(800).segment(16).slow(4)');
+  assert.equal(lfoToCode({ ...lfo, wave: 'tri', phase: 0, slow: 1, whole: true }), 'tri2.mul(400).add(800).round().segment(16)');
+  assert.equal(lfoToCode({ ...lfo, center: -3, phase: 0 }), 'sine2.mul(400).add(-3).segment(16).slow(4)', 'negative Mitte');
+  assert.equal(effectToCode({ ...effect('lpf', [soundToken('800')]), lfo })?.text, '.lpf(sine2.early(0.25).mul(400).add(800).segment(16).slow(4))');
+  assert.equal(effectToCode({ ...effect('lpf'), lfo })?.text, '.lpf(sine2.early(0.25).mul(400).add(800).segment(16).slow(4))', 'auch ohne Steine');
+
+  assert.ok(isLfoSeries(lfo));
+  assert.ok(!isLfoSeries({ ...lfo, wave: 'perlin' as never }), 'perlin hat keine Fassung von -1 bis 1');
+  assert.ok(!isLfoSeries({ ...lfo, depth: 0 }), 'Tiefe über 0');
+  assert.ok(!isLfoSeries({ ...lfo, segments: 1.5 }), 'Segmente ganz');
+  assert.ok(!isLfoSeries({ ...lfo, slow: 0 }), 'Dauer über 0');
+  assert.ok(!isLfoSeries({ ...lfo, phase: 1 }), 'Phase unter 1');
+  assert.ok(!isLfoSeries({ ...lfo, phase: -0.1 }), 'Phase ab 0');
+
+  assert.deepEqual(suggestLfoSeries(effectInfo('room'), 0.5), { wave: 'sine', center: 0.5, depth: 0.25, segments: 16, slow: 4, phase: 0, whole: false });
+  assert.deepEqual(
+    suggestLfoSeries(effectInfo('lpf'), null, { min: 100, max: 8000, step: 10 }),
+    { wave: 'sine', center: 4050, depth: 1980, segments: 16, slow: 4, phase: 0, whole: true },
+    'ohne Wert die Mitte des Bereichs, auf den Schritt gerundet',
+  );
+  for (const e of EFFECTS) assert.ok(isLfoSeries(suggestLfoSeries(e, null)), e.name);
 });

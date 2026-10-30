@@ -55,6 +55,8 @@ export interface Effect {
   rand?: RandSeries | null;
   /** Modulation statt Wert (`ModSeries`): gesetzt, steht sie im Code statt der Wertsteine, wie die Zufallsreihe. */
   mod?: ModSeries | null;
+  /** LFO statt Wert (`LfoSeries`): schwingt um einen Mittelwert, steht im Code statt der Wertsteine, wie die Modulation. */
+  lfo?: LfoSeries | null;
 }
 
 /** Wellenformen für die Modulation: Strudels kontinuierliche Signale von 0 bis 1. */
@@ -71,6 +73,26 @@ export interface ModSeries {
   max: number;
   segments: number;
   slow: number;
+  whole: boolean;
+}
+
+/** Wellenformen für den LFO: die mit einer Strudel-Fassung von -1 bis 1 (`sine2`), also ohne perlin. */
+export const LFO_WAVES = ['sine', 'cosine', 'tri', 'saw', 'isaw', 'square'] as const;
+export type LfoWave = (typeof LFO_WAVES)[number];
+
+/**
+ * LFO: `sine2.early(phase).mul(depth).add(center).segment(segments).slow(slow)`. Eine Welle von -1 bis 1, um `depth`
+ * gestreckt und um `center` verschoben, schwingt also zwischen center - depth und center + depth. `phase` verschiebt sie um
+ * einen Teil einer Periode (0 … <1, 0 steht nicht im Code), eine Periode dauert `slow` Zyklen (1 steht nicht im Code),
+ * `segments` Stufen pro Periode. `whole`: dazu `.round()` nach `add` (`wholeValues`).
+ */
+export interface LfoSeries {
+  wave: LfoWave;
+  center: number;
+  depth: number;
+  segments: number;
+  slow: number;
+  phase: number;
   whole: boolean;
 }
 
@@ -395,4 +417,35 @@ export function suggestModSeries(
 ): ModSeries {
   const { min, max } = range ?? suggestSliderRange(info, current);
   return { wave: 'sine', min, max, segments: 16, slow: 4, whole: wholeValues(info, min, max) };
+}
+
+/** Brauchbar als LFO: bekannte Welle, endliche Zahlen, Tiefe über 0, Segmente ganz ab 1, Dauer über 0, Phase von 0 bis unter 1. */
+export function isLfoSeries(l: LfoSeries): boolean {
+  return (
+    (LFO_WAVES as readonly string[]).includes(l.wave) &&
+    [l.center, l.depth, l.slow, l.phase].every(Number.isFinite) &&
+    l.depth > 0 &&
+    Number.isInteger(l.segments) &&
+    l.segments >= 1 &&
+    l.slow > 0 &&
+    l.phase >= 0 &&
+    l.phase < 1
+  );
+}
+
+/**
+ * Vorschlag für einen neuen LFO: Sinus um den Wert (ohne Wert die Mitte des Bereichs), Tiefe ein Viertel des eingestellten
+ * Bereichs (oder des Vorschlags dafür), beides auf dessen Schritt gerundet, 16 Stufen, 4 Zyklen, Phase 0.
+ */
+export function suggestLfoSeries(
+  info: EffectInfo | undefined,
+  current: number | null,
+  range?: SliderRange | null,
+): LfoSeries {
+  const { min, max } = range ?? suggestSliderRange(info, current);
+  const step = sliderStep(min, max);
+  const snap = (v: number) => Number((Math.round(v / step) * step).toPrecision(12));
+  const center = current ?? snap((min + max) / 2);
+  const depth = Math.max(step, snap((max - min) / 4));
+  return { wave: 'sine', center, depth, segments: 16, slow: 4, phase: 0, whole: wholeValues(info, center - depth, center + depth) };
 }
