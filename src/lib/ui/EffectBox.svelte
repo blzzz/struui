@@ -56,7 +56,12 @@
    * Werte aus Teilen (`scale("C:minor")`) je Teil eine Auswahl.
    */
   /** `children`: der Titel der Box (Griff zum Verschieben, aus `EffectList`), steht über dem Knopf. */
-  let { fx, children }: { fx: Effect; children?: Snippet } = $props();
+  /** `onremove`: entfernt die Box, als Knopf über ihr, solange die Auswahl der Modi offen ist. */
+  let {
+    fx,
+    children,
+    onremove,
+  }: { fx: Effect; children?: Snippet; onremove?: () => void } = $props();
 
   const info = $derived(valueInfo(fx.name));
   const scale = $derived(valueScale(info));
@@ -485,22 +490,42 @@
         </select>
       {/if}
     </div>
-    {#if !info?.noValue}
+    {#if !info?.noValue || onremove}
       <div class="controls">
         <div class="modewrap" bind:this={menuRoot}>
           <button
             bind:this={trigger}
             class="mode"
-            disabled={choices.length < 2}
-            title={modeInfo.title}
-            aria-label={`${fx.name}: Modus ${modeInfo.label}`}
+            disabled={choices.length < 2 && !onremove}
+            title={info?.noValue ? "Entfernen" : modeInfo.title}
+            aria-label={info?.noValue
+              ? `${fx.name}: Menü`
+              : `${fx.name}: Modus ${modeInfo.label}`}
             aria-haspopup="menu"
             aria-expanded={menuOpen}
             onclick={() => (menuOpen = !menuOpen)}
           >
-            {modeInfo.label}
+            {info?.noValue ? "···" : modeInfo.label}
           </button>
-          {#if menuOpen}
+          {#if menuOpen && onremove}
+            <!-- Entfernen: über der Box, solange die Auswahl offen ist -->
+            <button
+              class="remove"
+              aria-label={`${fx.name} entfernen`}
+              title={`${fx.name} entfernen`}
+              onclick={() => {
+                menuOpen = false;
+                onremove();
+              }}
+            >
+              <svg viewBox="0 0 16 16" aria-hidden="true"
+                ><path
+                  d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.7 8.5h5.6l.7-8.5M7 7v4M9 7v4"
+                /></svg
+              >
+            </button>
+          {/if}
+          {#if menuOpen && !info?.noValue}
             <div class="menu" role="menu" aria-label={`${fx.name}, Modus`}>
               <!-- Der aktuelle Modus steht schon im Reiter: nur die anderen, dafür grösser -->
               {#each MODES.filter((m) => m.mode !== mode) as m (m.mode)}
@@ -864,6 +889,43 @@
     box-shadow: 0 6px 18px rgba(0, 0, 0, 0.3);
     transform-origin: bottom;
     animation: dropup 120ms ease-out;
+  }
+  /* Entfernen: schwebt mittig über der Box (`.box` in `EffectList` ist position: relative) */
+  .remove {
+    position: absolute;
+    bottom: calc(100% + 4px);
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 21;
+    width: 34px;
+    height: 34px;
+    padding: 0;
+    display: grid;
+    place-items: center;
+    background: var(--panel);
+    border: 1.5px solid var(--line);
+    border-radius: 10px;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
+    color: var(--ink);
+    animation: dropup 120ms ease-out;
+  }
+  .remove:hover {
+    color: var(--red);
+  }
+  .remove svg {
+    width: 18px;
+    height: 18px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.6;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  @media (pointer: coarse) {
+    .remove {
+      width: 42px;
+      height: 42px;
+    }
   }
   @keyframes dropup {
     from {

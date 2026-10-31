@@ -2,18 +2,21 @@
   import { tick } from 'svelte';
   import { EFFECT_CATEGORIES, browseEffects, categoryOf, searchNoteOps } from '../domain/effects.ts';
   import type { EffectCategory, EffectInfo } from '../domain/effects.ts';
+  import { browseLockParams } from '../domain/locks.ts';
   import { project } from '../state/project.svelte.ts';
   import { session } from '../state/session.svelte.ts';
   import { CATEGORY_LABELS } from './messages.ts';
 
   /**
    * Effekt hinzufügen (Plus am Ende der Effekte, `EffectList`): Suchfeld, darunter Filter nach Art (nur Arten, die es für
-   * die Spur gibt), darunter alle Treffer mit Beschreibung. Pfeile und Enter im Suchfeld, Tippen auf einen Treffer fügt ihn an.
-   * Für die Rechenarten einer Notenspur ohne Filter (es sind nur vier).
+   * die Spur gibt, einzeilig waagrecht scrollbar, beim Öffnen immer «Alle»), darunter alle Treffer mit Beschreibung. Pfeile und
+   * Enter im Suchfeld, Tippen auf einen Treffer fügt ihn an. Für die Rechenarten einer Notenspur ohne Filter (es sind nur vier).
+   * Für die Paramlocks (`LockParams`) die sperrbaren Parameter ohne die schon gesperrten: fügt einen an oder ersetzt einen.
    */
   let dialog = $state<HTMLDialogElement>();
   let input = $state<HTMLInputElement>();
   let list = $state<HTMLElement>();
+  let chips = $state<HTMLElement>();
 
   let query = $state('');
   let category = $state<EffectCategory | null>(null);
@@ -22,18 +25,26 @@
   const target = $derived(session.effectPicker);
   const track = $derived(target ? project.tracks.find((t) => t.id === target.trackId) : undefined);
   const ops = $derived(target?.kind === 'noteOps');
+  const lock = $derived(target?.kind === 'locks' ? target : null);
   /** Relative Notenspur: hat ihre Tonleiter schon, `scale` fehlt in der Auswahl. */
   const relative = $derived(track?.type === 'note' && track.pitch === 'relative');
 
   /** Arten mit mindestens einem Effekt für diese Spur, in fester Reihenfolge. */
   const categories = $derived.by(() => {
     if (!track || ops) return [];
-    const offered = new Set(browseEffects('', track.type, null, relative).map(categoryOf));
+    const all = lock ? browseLockParams('', null, track.locks.params) : browseEffects('', track.type, null, relative);
+    const offered = new Set(all.map(categoryOf));
     return EFFECT_CATEGORIES.filter((c) => offered.has(c));
   });
 
   const options = $derived(
-    !track ? [] : ops ? searchNoteOps(query, Infinity) : browseEffects(query, track.type, category, relative),
+    !track
+      ? []
+      : ops
+        ? searchNoteOps(query, Infinity)
+        : lock
+          ? browseLockParams(query, category, track.locks.params)
+          : browseEffects(query, track.type, category, relative),
   );
 
   $effect(() => {
@@ -41,9 +52,9 @@
     if (target && !dialog.open) {
       query = '';
       active = 0;
-      // Der Filter bleibt vom letzten Mal, solange es die Art bei dieser Spur gibt
-      if (category && !categories.includes(category)) category = null;
+      category = null;
       dialog.showModal();
+      chips?.scrollTo({ left: 0 });
       input?.focus();
     } else if (!target && dialog.open) dialog.close();
   });
@@ -51,12 +62,16 @@
   const close = () => (session.effectPicker = null);
 
   function pick(info: EffectInfo) {
-    if (target) project.addEffect(target.trackId, info.name, target.kind);
+    if (target?.kind === 'locks') {
+      if (target.index === null) project.addLockParam(target.trackId, info.name);
+      else project.renameLockParam(target.trackId, target.index, info.name);
+    } else if (target) project.addEffect(target.trackId, info.name, target.kind);
     close();
   }
 
-  function filter(c: EffectCategory | null) {
+  function filter(e: MouseEvent, c: EffectCategory | null) {
     category = c;
+    (e.currentTarget as HTMLElement).scrollIntoView({ block: 'nearest', inline: 'nearest' });
     active = 0;
     list?.scrollTo({ top: 0 });
   }
@@ -91,7 +106,15 @@
 >
   <div class="box">
     <div class="top">
-      <h2 id="picker-title">{ops ? 'Mit Noten rechnen' : 'Effekt hinzufügen'}</h2>
+      <h2 id="picker-title">
+        {ops
+          ? 'Mit Noten rechnen'
+          : lock
+            ? lock.index === null
+              ? 'Parameter sperren'
+              : `${track?.locks.params[lock.index] ?? 'Parameter'} ersetzen`
+            : 'Effekt hinzufügen'}
+      </h2>
       <button class="close" aria-label="Schliessen" onclick={close}>
         <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" /></svg>
       </button>
@@ -99,7 +122,7 @@
     <input
       bind:this={input}
       type="search"
-      placeholder={ops ? 'add, div …' : 'Suchen: lpf, room, fast …'}
+      placeholder={ops ? 'add, div …' : lock ? 'Suchen: n, gain, lpf …' : 'Suchen: lpf, room, fast …'}
       aria-label="Suchen"
       aria-controls="picker-list"
       aria-activedescendant={options[active] ? `picker-${active}` : undefined}
@@ -111,16 +134,16 @@
       onkeydown={onKeydown}
     />
     {#if categories.length > 1}
-      <div class="chips" role="group" aria-label="Art">
-        <button class="chip" aria-pressed={category === null} onclick={() => filter(null)}>Alle</button>
+      <div class="chips" role="group" aria-label="Art" bind:this={chips}>
+        <button class="chip" aria-pressed={category === null} onclick={(e) => filter(e, null)}>Alle</button>
         {#each categories as c (c)}
-          <button class="chip" aria-pressed={category === c} onclick={() => filter(category === c ? null : c)}>
+          <button class="chip" aria-pressed={category === c} onclick={(e) => filter(e, category === c ? null : c)}>
             {CATEGORY_LABELS[c]}
           </button>
         {/each}
       </div>
     {/if}
-    <ul id="picker-list" role="listbox" aria-label={ops ? 'Rechenarten' : 'Effekte'} bind:this={list}>
+    <ul id="picker-list" role="listbox" aria-label={ops ? 'Rechenarten' : lock ? 'Parameter' : 'Effekte'} bind:this={list}>
       {#each options as info, i (info.name)}
         <!-- Tastatur bedient das Suchfeld (Pfeile, Enter), die Treffer bekommen keinen Fokus -->
         <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -211,12 +234,21 @@
     outline: none;
     border-color: var(--blue);
   }
+  /* Eine Zeile, waagrecht scrollbar bis an den Rand des Dialogs (wie die Klangpalette) */
   .chips {
+    flex: none;
     display: flex;
-    flex-wrap: wrap;
     gap: 6px;
+    margin: 0 -14px;
+    padding: 0 14px 4px;
+    scroll-padding-inline: 14px;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: thin;
   }
   .chip {
+    flex: none;
+    white-space: nowrap;
     padding: 4px 10px;
     font-size: 13px;
     border-color: var(--fx-line);

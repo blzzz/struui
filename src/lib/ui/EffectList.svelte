@@ -15,7 +15,7 @@
    * von links nach rechts umbrechend, am Ende ein Plus zum Hinzufügen (öffnet `EffectPicker`). Ziehen am Titel verschiebt eine Box
    * (die Reihenfolge ist die im Code). Wertsteine verhalten sich wie Klangsteine (Tippen, Ziehen, Klammern, Zufall, Wiederholung).
    * `kind = 'noteOps'`: dieselbe Liste für die Rechenarten einer Notenspur (`add`, `div` …), direkt nach den Noten.
-   * Antippen markiert eine Box (blauer Rand), Delete oder Backspace entfernt sie.
+   * Der Modus-Reiter unten öffnet die Auswahl der Modi und darüber einen Knopf zum Entfernen.
    * Die Boxen brechen um, sie werden nie verkleinert (anders als die Klangreihen).
    * Paramlocks einer Klangspur stehen fest darunter, wie im Code nach den Effekten (neue Effekte kommen davor).
    */
@@ -29,37 +29,6 @@
   );
 
   let boxes = $state<HTMLElement>();
-
-  /** Markierte Box dieser Liste, sonst null. */
-  const selected = $derived(
-    track[kind].find((fx) => fx.id === session.selectedEffect)?.id ?? null,
-  );
-
-  // Markierte Box: Delete oder Backspace entfernt sie (nicht beim Tippen in Feldern), Escape oder Antippen ausserhalb
-  // jeder Effekt-Box hebt die Markierung auf.
-  $effect(() => {
-    const id = selected;
-    if (!id) return;
-    const onKey = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement | null;
-      if (t?.closest?.("input, textarea, select, [contenteditable]")) return;
-      if (e.key === "Escape") session.selectedEffect = null;
-      if (e.key !== "Delete" && e.key !== "Backspace") return;
-      e.preventDefault();
-      session.selectedEffect = null;
-      project.removeEffect(track.id, id, kind);
-    };
-    const onDown = (e: PointerEvent) => {
-      if (!(e.target as Element).closest?.("[data-effect-id]"))
-        session.selectedEffect = null;
-    };
-    document.addEventListener("keydown", onKey);
-    document.addEventListener("pointerdown", onDown);
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      document.removeEventListener("pointerdown", onDown);
-    };
-  });
 
   /** Einfügeposition beim Ziehen einer Box (vor dem Entfernen), null = kein Ziehen. */
   let hint = $state<number | null>(null);
@@ -92,13 +61,10 @@
     {#each track[kind] as fx, i (fx.id)}
       {@const info = valueInfo(fx.name)}
       {@const errors = messages(fx.id)}
-      <!-- Antippen oder Fokus markiert die Box; mit der Tastatur über den Titel (Griff) erreichbar -->
-      <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div
         class="box"
         class:off={fx.tokens.length === 0 && !fx.rand && !fx.mod && !fx.lfo && !info?.noValue}
         class:bad={errors.length > 0}
-        class:selected={selected === fx.id}
         class:wide={!fx.rand && !fx.mod && !fx.lfo &&
           (session.mini.has(fx.id) ||
             (fx.tokens.length > 0 && singleValue(fx.tokens) === null))}
@@ -106,10 +72,8 @@
         class:after={hint === i + 1 && i === track[kind].length - 1}
         data-effect-id={fx.id}
         animate:flip={{ duration: 150 }}
-        onpointerdown={() => (session.selectedEffect = fx.id)}
-        onfocusin={() => (session.selectedEffect = fx.id)}
       >
-        <EffectBox {fx}>
+        <EffectBox {fx} onremove={() => project.removeEffect(track.id, fx.id, kind)}>
           <div class="head">
             <!-- Griff: Ziehen verschiebt die Box, mit der Tastatur Pfeil links/rechts -->
             <span
@@ -188,11 +152,6 @@
     width: auto;
     min-width: 96px;
     max-width: 100%;
-  }
-  /* Markiert: Delete entfernt die Box */
-  .box.selected {
-    outline: 2px solid var(--blue);
-    outline-offset: 1px;
   }
   .box.bad {
     border-color: var(--red);

@@ -47,8 +47,13 @@ class Session {
   help = $state(false);
   /** Liste der gespeicherten Patterns (Laden, Löschen) offen. */
   patterns = $state(false);
-  /** Dialog zum Hinzufügen eines Effekts offen: für welche Spur und Liste (`EffectPicker`). */
-  effectPicker = $state<{ trackId: string; kind: RowKind } | null>(null);
+  /**
+   * Dialog zum Hinzufügen eines Effekts offen: für welche Spur und Liste (`EffectPicker`). `locks`: Parameter der Paramlocks
+   * wählen (`LockParams`), `index` ersetzt diesen Parameter, null fügt einen hinten an.
+   */
+  effectPicker = $state<
+    { trackId: string; kind: RowKind } | { trackId: string; kind: 'locks'; index: number | null } | null
+  >(null);
   /**
    * Spuren und Effekte (Wertsteine), die über den Steinen die Zufallsknöpfe (`?`) zeigen. Sonst ist Zufall nur ein roter Punkt am Stein
    * und lässt sich nicht ändern. Standard: aus.
@@ -79,8 +84,6 @@ class Session {
    * zeigt die Box die Wertsteine ohnehin. Standard: Regler (Menge leer).
    */
   mini = $state<ReadonlySet<string>>(new Set());
-  /** Markierte Effekt-Box (Antippen der Box), Delete entfernt sie. */
-  selectedEffect = $state<string | null>(null);
   /**
    * Spuren auf Solo. Ist eine davon in der Szene, schweigen alle anderen (im Code `.hush()`, `Track.muted` bleibt).
    * Flüchtig: wird der Code von Hand bearbeitet, während Solo an ist, werden die `.hush()` zur echten Stummschaltung.

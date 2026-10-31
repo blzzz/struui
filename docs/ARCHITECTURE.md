@@ -262,7 +262,7 @@ dafür ohne Ladeanzeige geladen. Synths, Soundfonts (`gm_…`) und eigene Aufnah
   einem Beispiel 0 bis zum Doppelten, ohne Beispiel 0–1. Eingetippt gehen auch Werte ausserhalb. Effekte mit Namen statt
   Zahlen (`vowel`) bekommen eine Auswahl. Die Box zeigt oben mittig den Namen, darunter den Knopf, darunter der Modus
   («Wert», «Zufall», «Welle», «LFO», «Notation», ein Klick öffnet die Auswahl). Die rechte Kante der Box (12px) blendet die Zusatzfelder
-  des Modus ein und aus: rechts über die ganze Höhe der Box, Titel, Knopf und Modus bleiben links beisammen. Antippen markiert eine Box (`session.selectedEffect`), Delete oder Backspace entfernt sie. «Notation» zeigt stattdessen die Wertsteine (`session.mini`, flüchtig);
+  des Modus ein und aus: rechts über die ganze Höhe der Box, Titel, Knopf und Modus bleiben links beisammen. Der Modus-Reiter öffnet die Auswahl der Modi (nach oben) und darüber einen Knopf zum Entfernen; bei Befehlen ohne Wert heisst der Reiter «···» und öffnet nur diesen. «Notation» zeigt stattdessen die Wertsteine (`session.mini`, flüchtig);
   ist der Wert mehr als ein einzelner Stein ohne Zufall und Wiederholung (`singleValue`), bleibt nur sie, damit nichts verloren geht.
   **Strudels `slider()`:** im Modus «Wert» stehen bei Zahlen min und max hinter der rechten Kante (blass mit dem Vorschlag, bis eingetippt) (`Effect.slider`, Vorschlag aus den Beispielwerten,
   `suggestSliderRange`, der Schritt folgt aus `sliderStep`). Erst dann steht der Wert als `.lpf(slider(800, 100, 8000, 10))` im Code (entschieden: nur nach Bearbeiten),

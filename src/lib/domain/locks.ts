@@ -8,8 +8,8 @@
  * hinteren Teile (`1:4` lässt `s` stehen). Wer einen hinteren Teil setzt, füllt die leeren davor mit Startwerten.
  */
 
-import { EFFECTS, defaultValue, effectInfo, isValueAtom } from './effects.ts';
-import type { Effect } from './effects.ts';
+import { EFFECTS, categoryOf, defaultValue, effectInfo, isValueAtom, search } from './effects.ts';
+import type { Effect, EffectCategory, EffectInfo } from './effects.ts';
 import { PAUSE, newId } from './types.ts';
 import type { Token } from './types.ts';
 
@@ -45,6 +45,25 @@ export function isLockParam(name: string): boolean {
 export function lockParams(): string[] {
   const fx = EFFECTS.filter((e) => isLockParam(e.name)).map((e) => e.name);
   return [...Object.keys(OWN), ...[...new Set(fx)].sort((a, b) => a.localeCompare(b))];
+}
+
+/** Ein sperrbarer Parameter als Eintrag der Effektsuche. Variante und Klang stehen unter `sample`. */
+export function lockInfo(name: string): EffectInfo {
+  const own = OWN[name];
+  if (own) return { name, group: 'sample', synonyms: [], description: own.description, hint: '', values: own.values };
+  return effectInfo(name) ?? { name, group: 'audio', synonyms: [], description: '', hint: '', values: [] };
+}
+
+/**
+ * Sperrbare Parameter für die Effektsuche, ohne `exclude` (die schon gesperrten), einer Kategorie (null = alle),
+ * gesucht wie Effekte. Ohne Suchtext in der Reihenfolge von `lockParams`.
+ */
+export function browseLockParams(query: string, category: EffectCategory | null, exclude: readonly string[] = []): EffectInfo[] {
+  const offered = lockParams()
+    .filter((p) => !exclude.includes(p))
+    .map(lockInfo)
+    .filter((info) => category === null || categoryOf(info) === category);
+  return search(offered, query, Infinity);
 }
 
 /** Kurze Beschreibung für die Auswahl. */

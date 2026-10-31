@@ -1,30 +1,33 @@
 <script lang="ts">
-  import { lockDescription, lockParams } from "../domain/locks.ts";
+  import { lockDescription } from "../domain/locks.ts";
   import { project } from "../state/project.svelte.ts";
+  import { session } from "../state/session.svelte.ts";
   import type { Track } from "../domain/types.ts";
 
   /**
    * Block vorne in der Reihe der Paramlocks: die Parameter übereinander, je einer auf Höhe seines Teils in den Steinen
-   * (`--lock-row`). Antippen öffnet die Bearbeitung: die Auswahl ersetzt einen Parameter (die Werte bleiben), × entfernt ihn
-   * samt Teil in jedem Stein, «+ Parameter» fügt einen hinten an; sein Teil ist zunächst überall leer.
+   * (`--lock-row`). Antippen öffnet die Bearbeitung: ein Parameter öffnet die Effektsuche (`EffectPicker`) und wird ersetzt
+   * (die Werte bleiben), × entfernt ihn samt Teil in jedem Stein, «+ Parameter» fügt einen hinten an; sein Teil ist zunächst
+   * überall leer.
    */
   let { track }: { track: Track } = $props();
 
-  const ALL = lockParams();
-  const free = $derived(ALL.filter((p) => !track.locks.params.includes(p)));
+  const choose = (index: number | null) =>
+    (session.effectPicker = { trackId: track.id, kind: "locks", index });
 
   let open = $state(false);
   let root = $state<HTMLElement>();
   let block = $state<HTMLButtonElement>();
 
-  // Tippen ausserhalb oder Escape schliesst die Bearbeitung
+  // Tippen ausserhalb oder Escape schliesst die Bearbeitung, nicht aber im Dialog der Effektsuche
   $effect(() => {
     if (!open) return;
     const onDown = (e: PointerEvent) => {
+      if (session.effectPicker) return;
       if (!root?.contains(e.target as Node)) open = false;
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
+      if (e.key !== "Escape" || session.effectPicker) return;
       open = false;
       block?.focus();
     };
@@ -54,16 +57,13 @@
     <div class="panel" role="group" aria-label="Gesperrte Parameter">
       {#each track.locks.params as param, i (param)}
         <div class="param">
-          <select
-            value={param}
-            aria-label={`Parameter ${i + 1}`}
-            title={`${param}: ${lockDescription(param)}`}
-            onchange={(e) =>
-              project.renameLockParam(track.id, i, e.currentTarget.value)}
+          <button
+            class="pick"
+            aria-haspopup="dialog"
+            aria-label={`Parameter ${i + 1}: ${param}. Ersetzen`}
+            title={`${param}: ${lockDescription(param)}. Tippen: ersetzen`}
+            onclick={() => choose(i)}>{param}</button
           >
-            <option value={param}>{param}</option>
-            {#each free as p (p)}<option value={p}>{p}</option>{/each}
-          </select>
           <button
             class="x"
             disabled={track.locks.params.length <= 1}
@@ -75,20 +75,12 @@
           >
         </div>
       {/each}
-      <select
-        class="add"
-        value=""
-        aria-label="Parameter hinzufügen"
+      <button
+        class="pick add"
+        aria-haspopup="dialog"
         title="Parameter hinten anfügen"
-        onchange={(e) => {
-          const name = e.currentTarget.value;
-          e.currentTarget.value = "";
-          if (name) project.addLockParam(track.id, name);
-        }}
+        onclick={() => choose(null)}>+ Parameter</button
       >
-        <option value="">+ Parameter</option>
-        {#each free as p (p)}<option value={p}>{p}</option>{/each}
-      </select>
     </div>
   {/if}
 </div>
@@ -147,6 +139,7 @@
     flex-direction: column;
     gap: 4px;
     padding: 6px;
+    min-width: 160px;
     background: var(--panel);
     border: 1.5px solid var(--line);
     border-radius: 10px;
@@ -157,11 +150,11 @@
     align-items: center;
     gap: 4px;
   }
-  select {
+  .pick {
     flex: 1;
-    /* 16px verhindert das automatische Zoomen auf iOS */
+    text-align: left;
     font:
-      600 16px ui-monospace,
+      600 14px ui-monospace,
       SFMono-Regular,
       Menlo,
       Consolas,

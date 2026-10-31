@@ -703,9 +703,13 @@
     isolation: isolate;
     margin-top: 10px;
     padding: 0 8px 8px;
+    /* Abstand vom Inhalt bis an den Rand des Hintergrunds, für Zeilen über die ganze Breite (Paramlocks) */
+    --fx-edge-left: calc(8px + var(--reach-left, 0px));
+    --fx-edge-right: calc(8px + var(--reach-right, 0px));
   }
   .split.inline .fx {
     margin: 0 0 0 10px;
+    --fx-edge-left: 8px;
   }
   /* Hintergrund bis an den Rand der Spur-Box: darunter über die ganze Breite, daneben bis rechts.
      Steht noch eine Fehlermeldung darunter, endet er am Container. Ecken am Rand folgen der Box (18px). */

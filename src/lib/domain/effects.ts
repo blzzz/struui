@@ -267,7 +267,8 @@ export function searchNoteOps(query: string, limit = 12): EffectInfo[] {
   return search(NOTE_OPS, query, limit);
 }
 
-function search(offered: readonly EffectInfo[], query: string, limit: number): EffectInfo[] {
+/** Sucht in einer eigenen Liste wie `searchEffects` (gleiche Rangfolge), z. B. in den sperrbaren Parametern (`browseLockParams`). */
+export function search(offered: readonly EffectInfo[], query: string, limit: number): EffectInfo[] {
   const q = query.trim().toLowerCase();
   if (q === '') return offered.slice(0, limit);
   const rank = (e: EffectInfo): number => {

@@ -68,13 +68,15 @@
   .locks {
     margin-top: 12px;
   }
-  /* Wie eine Effekt-Box (EffectList), aber als Zeile über die ganze Breite */
+  /* Wie eine Effekt-Box (EffectList), aber als Band über die ganze Breite des Effekt-Containers (Ränder aus TrackView) */
   .box {
     display: flex;
     flex-direction: column;
-    padding: 4px 4px 5px;
+    margin: 12px calc(-1 * var(--fx-edge-right, 0px)) 0
+      calc(-1 * var(--fx-edge-left, 0px));
+    padding: 12px var(--fx-edge-right, 4px) 5px var(--fx-edge-left, 4px);
     border: 1.5px solid transparent;
-    border-radius: 8px;
+    border-inline: none;
     background: var(--box);
     --lock-row: 18px;
     --lock-pad: 3px;
@@ -85,7 +87,7 @@
   /* Titel als Schalter zum Zu- und Aufklappen, sieht aus wie der Titel einer Effekt-Box */
   .name {
     align-self: flex-start;
-    margin: 0 2px 4px;
+    margin: 0 8px 12px;
     padding: 0;
     border: none;
     border-radius: 4px;

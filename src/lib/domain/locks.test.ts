@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { locksToCode, trackToCode } from './codegen.ts';
 import {
   addLockParam,
+  browseLockParams,
   isLockParam,
   isLockValue,
   joinLockParts,
@@ -53,6 +54,18 @@ test('locks: sperrbar sind n, s und Effekte mit einem Wert, keine Musterbefehle'
   assert.deepEqual(all.slice(0, 2), ['n', 's']);
   assert.ok(all.includes('velocity'));
   assert.equal(new Set(all).size, all.length);
+});
+
+test('locks: Parameter in der Effektsuche, ohne die schon gesperrten, n und s unter Sample', () => {
+  const names = (q: string, c: Parameters<typeof browseLockParams>[1], ex: string[] = []) =>
+    browseLockParams(q, c, ex).map((i) => i.name);
+  assert.deepEqual(names('', null).slice(0, 2), ['n', 's']);
+  assert.ok(!names('', null, ['n', 'velocity']).includes('velocity'));
+  assert.ok(!names('', null, ['n']).includes('n'));
+  assert.deepEqual(names('', 'sample').slice(0, 2), ['n', 's']);
+  assert.equal(names('lpf', null)[0], 'lpf');
+  assert.ok(names('', 'filter').includes('lpf'));
+  assert.ok(!names('', null).includes('fast'));
 });
 
 test('locks: Parameter anfügen, ersetzen und entfernen (samt Teil in jedem Wert)', () => {
