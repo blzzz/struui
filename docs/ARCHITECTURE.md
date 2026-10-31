@@ -116,6 +116,16 @@ dafür ohne Ladeanzeige geladen. Synths, Soundfonts (`gm_…`) und eigene Aufnah
   und zeigt Strudels Meldung. Steine gleicher Art an gleicher Stelle behalten ihre ID (`adoptIds`).
   Tests prüfen, dass Strudels Syntaxbaum vor und nach dem Umweg gleich ist, `test:strudel` zusätzlich an allen gültigen Zufallsspuren.
   Offen: Die Kamera kennt rohe Steine nicht; Klangnamen werden nicht gegen die Klangliste geprüft.
+- **Paramlocks** (`domain/locks.ts`, `Track.locks`, `ui/LocksBox.svelte`, `ui/LockParams.svelte`): wie bei Elektron setzt eine Klangspur Werte Schritt
+  für Schritt, im Code nach den Effekten `.up("1 .5 ~ .7:4:sd".as("velocity:n:s"))`. `up` ist keine Strudel-Funktion, sondern
+  eine eigene Ergänzung zum Prebake (`audio/up.ts`, nach `prebake()` angemeldet, ebenso in `test:strudel`): wie `set.mix`, überschreibt
+  aber nur die Werte, die der Stein setzt, und gibt den Rhythmus vor (Pause = kein Ereignis, wie `struct`). Eine feste Box am Ende
+  der Effekte (`EffectList`, ohne Griff; neue Effekte kommen davor), wie im Code: was später kommt, gewinnt. In jeder Klangspur da, auch leer (dann nicht im Code). Jeder Stein zeigt
+  seine Teile übereinander. Die Parameter stehen als Block vorne in der Reihe, ebenso übereinander; Antippen öffnet ihre Bearbeitung
+  (ersetzen, entfernen samt Teil, hinten anfügen). Sperrbar sind `n`, `s` und
+  Effekte der Gruppen `audio` und `pitch`. Antippen öffnet je Parameter ein Feld. **Strudel kennt keinen leeren Teil in der Mitte**
+  (`~:4` macht den ganzen Schritt still), leer bleiben nur hintere Teile; wer einen hinteren setzt, füllt leere davor mit Startwerten.
+  Klammern, Pausen, Zufall und Wiederholung gelten wie in jeder Wertreihe. Steine wechseln nur zwischen Lock-Reihen derselben Spur.
 - **Spuren lassen sich stumm schalten** (`Track.muted`). Die Spur bleibt im Code, endet aber mit `.hush()`, Strudel macht daraus Stille.
 - **Patterns** (`state/patterns.svelte.ts`, Format in `domain/patterns.ts`): im localStorage (`strudel-steine:patterns`, Version 1)
   steht je Pattern Name und Code-Text: der volle Code der gewählten Szene wie «Code kopieren», mit Sammelkommentar für die Lage und
@@ -195,8 +205,11 @@ dafür ohne Ladeanzeige geladen. Synths, Soundfonts (`gm_…`) und eigene Aufnah
 - **Gesamtlautstärke** (`session.volume`, 0–1, Doppelklick = 1): setzt den Ausgangsknoten von superdough
   (`getSuperdoughAudioController().output.destinationGain`), steht also nicht im Code und gilt auch für Szenen nicht.
   Hängt an einem internen Detail von superdough, nach Strudel-Updates prüfen. Spuren gehen über die volle Breite. Die Code-Ansicht zeigt das ganze Programm, oben der Link zu Strudel.
-- **Effekte pro Spur** (`domain/effects.ts`, `Track.effects`, `ui/EffectList.svelte`). Unter den Steinen ein Suchfeld mit
-  Autovervollständigung; die Wahl fügt eine Box an. **Der Wert eines Effekts ist eine Steinreihe wie eine Spur**
+- **Effekte pro Spur** (`domain/effects.ts`, `Track.effects`, `ui/EffectList.svelte`). Die Effekte stehen in einem dunkelblauen Container (`TrackView`) unter oder neben der
+  Notation; sein Kopf hat bei Notenspuren die Reiter Note FX (Rechenarten) und Audio FX, rechts den Schalter darunter/daneben,
+  daneben teilt Ziehen am linken Rand den Platz. Am Ende der Boxen ein Plus; es öffnet
+  einen Suchdialog (`ui/EffectPicker.svelte`) mit Filtern nach Art (Filter, Hüllkurve, Raum … aus `categoryOf`, nach
+  Namensregeln, weil Strudel seine Klangeffekte nicht einordnet); die Wahl fügt eine Box an. **Der Wert eines Effekts ist eine Steinreihe wie eine Spur**
   (`Effect.tokens`), nur stehen Werte statt Klängen auf den Steinen (`sound` = `800`, `.5`, `a`). Klammern, Zufall,
   Wiederholung und Ziehen (nur zwischen Wertreihen) wirken gleich. **Werte werden direkt bearbeitet:** Tippen öffnet sofort
   (ohne Warten auf Doppeltippen) ein Feld im Stein, jede gültige Eingabe gilt sofort; ↑/↓ und −/+ springen zum nächsten Wert
@@ -274,8 +287,8 @@ dafür ohne Ladeanzeige geladen. Synths, Soundfonts (`gm_…`) und eigene Aufnah
   square, also ohne perlin; Mitte, Tiefe, Segmente, Dauer, Phase) schwingt um einen Wert statt zwischen min und max und steht
   wie die Modulation statt der Wertsteine im Code: `.lpf(sine2.early(0.25).mul(400).add(800).segment(16).slow(4))` (Strudels Wellen
   von -1 bis 1, also 400 bis 1200). `.early(0)` und `.slow(1)` entfallen, `.round()` nach derselben Regel (für Mitte ± Tiefe).
-  Der Knopf dreht die Mitte wie im Modus «Wert»; Welle, Tiefe (±), Dauer in Zyklen, Phase (Teil einer Periode, 0 bis unter 1)
-  und Segmente (pro Periode) stehen hinter der rechten Kante. Zurück zu «Wert» wird die Mitte der Wert. Der Rückweg liest genau
+  Der Knopf dreht die Tiefe (`±400`, linear von 0 bis zur halben Breite des Bereichs, eingetippt jede über 0); Welle, Mitte,
+  Dauer in Zyklen, Phase (Teil einer Periode, 0 bis unter 1) und Segmente (pro Periode) stehen hinter der rechten Kante. Zurück zu «Wert» wird die Mitte der Wert. Der Rückweg liest genau
   diese Kette (`early` und `slow` wahlweise, `seg` auch). `sine2` usw. sind als Szenennamen gesperrt.
   Die Zahlenfelder der Zusatzfelder lassen sich hoch und runter ziehen (`interaction/drag-number.ts`), Tippen setzt den Cursor.
   Ungeprüft im Browser, vor allem Drehknopf, Klick zum Eintippen, Ziehen an Feldern und am Titel auf iOS.
@@ -311,9 +324,18 @@ dafür ohne Ladeanzeige geladen. Synths, Soundfonts (`gm_…`) und eigene Aufnah
   Klang/MIDI, Noten und Sampler warten die anderen in `Track.parked` (je Inhalt). Reihen tragen einen Inhalt (`Lane.content`: Klänge, Noten, Werte),
   Ziehen und Paletten wirken nur zwischen gleichem Inhalt. `test:strudel` prüft die Zuordnung von Noten- und Klangsteinen.
   Bewusst nicht: Notenspuren an MIDI (`note().midi()`, MIDI-Spuren bleiben Klangsteine plus `.note()`).
+- **Absolut und relativ** (entschieden, `Track.pitch`, `domain/pitch.ts`). Eine Zeile über den Notensteinen, Schalter «Relativ» (aus = absolut) und daneben die Tonleiter (nur relativ aktiv): absolut sind es
+  Notennamen wie bisher (`note("c e g")`), relativ Stufen einer Tonleiter (`n("0 2 4").scale("C4:major")`, ganze Zahlen, negativ
+  abwärts, `#`/`b` für Töne dazwischen; ↑/↓ = eine Stufe). Die Tonleiter (`Track.scale`: Grundton, Oktave 1–6, Start 4, Art) wählt
+  man mit drei Auswahlen daneben; im Code steht sie immer mit Oktave direkt nach `n(…)`, `n(…)` ohne `.scale(…)` ist keine Spur.
+  Umschalten rechnet die Steine um, ohne die Melodie zu ändern (`convertPitches`): eine Note zwischen zwei Stufen wird die tiefere
+  mit `#` (cis in C-Dur: `0#`). Eine andere Tonleiter lässt die Stufen stehen, die Melodie folgt. Die Halbtöne je Stufe kommen mit
+  `gen:effects` aus Tonal.js (`SCALE_STEPS`), Schreibweise beim Zurückrechnen mit `b`, wenn der Grundton eines trägt oder die
+  Tonleiter moll-artig ist. Rechenarten (`add` …) zählen relativ in Stufen. Der Effekt `scale` fehlt relativ in der Auswahl.
+  `test:strudel` vergleicht jede Tonleiter mit Strudel (Stufen −8 bis 13 mit Vorzeichen, zwei Grundtöne) und prüft das Leuchten.
 - **Rechenarten für Noten** (`Track.noteOps`, Liste direkt unter der Notenpalette, vor `.s`). `add`, `sub`, `mul`, `div`:
   `npm run gen:effects` liest sie aus `@strudel/core/pattern.mjs` (Verknüpfungen mit `numeralArgs`, soweit dokumentiert) nach
-  `NOTE_OPS`. Sie bedienen sich wie Effekte (Wertsteine, Suchfeld), stehen im Code aber **an der Mini-Notation**:
+  `NOTE_OPS`. Sie bedienen sich wie Effekte (Wertsteine, Plus mit Suchdialog), stehen im Code aber **an der Mini-Notation**:
   `note("f d".add("<0 3>").div(2))`. Als Methode nach `note(…)` wirkten sie nicht auf die Noten (Strudel legt die Zahl dann
   in ein eigenes Feld `value`). Strudel rechnet mit MIDI-Zahlen (`c3` = 48); `test:strudel` prüft, dass `add` transponiert und
   die Wertsteine im richtigen Zyklus leuchten. Bei Klang- und MIDI-Spuren bleiben sie gespeichert, aber nicht im Code.
@@ -418,7 +440,7 @@ dafür ohne Ladeanzeige geladen. Synths, Soundfonts (`gm_…`) und eigene Aufnah
   nicht und wird beim nächsten Bearbeiten entfernt. Rückweg aus Text: `[a, b*2?]` mit je einem Klang pro Teil wird ein Stapel,
   alles andere mit Komma (`[a b, c]`, `[a, b]*2`, `<a, b>`) bleibt ein roher Stein. Ganze Stapel lassen sich nicht auf einmal
   verschieben, Steine im Editor fügen nicht durch Verweilen an (nur aus der Palette).
-- **Bewusst weggelassen:** Euclid `(3,8)`, `,` zwischen Folgen (Polyphonie ganzer Folgen), Melodien mit `n()` (Melodien gehen über Notenspuren mit `note()`).
+- **Bewusst weggelassen:** Euclid `(3,8)`, `,` zwischen Folgen (Polyphonie ganzer Folgen), `n()` ausserhalb relativer Notenspuren (Melodien mit Stufen gehen über `n(…).scale(…)`, siehe Notenspuren).
 
 ## 4. Offene Entscheidungen (für dich)
 
@@ -459,6 +481,7 @@ Jede mit Optionen. Keine Empfehlung festgelegt.
 11. **Sprache.** Deutsche Texte stehen fest im Code (`ui/messages.ts`, Komponenten). i18n ja oder nein.
 12. **Restliche Strudel-Befehle.** Musterbefehle mit höchstens einem Wert sind Boxen (Abschnitt 3). Ziel: möglichst alle Befehle
    irgendwo unterbringen. Bis dahin werden Zeilen mit diesen Befehlen beim Lesen von Code zu Spuren mit rohem Code.
+   Paramlocks (Abschnitt 3) sind ein erster Fall mehrerer Werte je Stein: Teile mit Doppelpunkt, übereinander gezeigt.
    a) **Mehrere Werte:** `euclid(3, 8)`, `euclidRot`, `euclidLegato`, `euclidish`, `range`, `rangex`, `compress`, `focus`, `zoom`,
    `bite`, `swingBy`, `echo`, `stut`, `ribbon`, `slice`/`splice` (als Effekt), `loopAtCps`. Optionen: eine Box mit einer Wertreihe je
    Wert (Modell: `Effect.tokens` wird eine Liste von Reihen), oder je Wert eine eigene Box, oder für Euclid die Mini-Notation `bd(3,8)` (Punkt 5).

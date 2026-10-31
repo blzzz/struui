@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   EFFECTS,
+  browseEffects,
+  categoryOf,
   NOTE_OPS,
   defaultValue,
   effectInfo,
@@ -35,10 +37,10 @@ import { quickSwitch } from './edit.ts';
 import { closeToken, effect, nextInCycle, openToken, soundToken, trackName } from './types.ts';
 import type { TrackType } from './types.ts';
 // @ts-expect-error reines JavaScript ohne Typen
-import { OUTPUT, extractEffects, extractNoteOps, extractSamplerModes, renderModule } from '../../../scripts/strudel-effects.mjs';
+import { OUTPUT, extractEffects, extractNoteOps, extractSamplerModes, extractScaleSteps, renderModule } from '../../../scripts/strudel-effects.mjs';
 
 test('effects: die erzeugte Liste passt zum installierten Strudel (sonst npm run gen:effects)', () => {
-  assert.equal(readFileSync(OUTPUT, 'utf8'), renderModule(extractEffects(), extractNoteOps(), extractSamplerModes()));
+  assert.equal(readFileSync(OUTPUT, 'utf8'), renderModule(extractEffects(), extractNoteOps(), extractSamplerModes(), extractScaleSteps()));
 });
 
 test('effects: übliche Effekte sind dabei, Klangwahl und MIDI nicht', () => {
@@ -506,4 +508,35 @@ test('LFO: schwingt um die Mitte, early(0) und slow(1) entfallen, ganze Zahlen m
     'ohne Wert die Mitte des Bereichs, auf den Schritt gerundet',
   );
   for (const e of EFFECTS) assert.ok(isLfoSeries(suggestLfoSeries(e, null)), e.name);
+});
+
+test('Kategorien: Familien nach Präfix, Musterbefehle nach Gruppe, kaum Unbekanntes', () => {
+  const cat = (name: string) => categoryOf(effectInfo(name)!);
+  assert.equal(cat('lpf'), 'filter');
+  assert.equal(cat('hpq'), 'filter');
+  assert.equal(cat('attack'), 'envelope');
+  assert.equal(cat('room'), 'space');
+  assert.equal(cat('delayfeedback'), 'space');
+  assert.equal(cat('distort'), 'distortion');
+  assert.equal(cat('phaser'), 'motion');
+  assert.equal(cat('fmi'), 'synth');
+  assert.equal(cat('penv'), 'pitch');
+  assert.equal(cat('pan'), 'level');
+  assert.equal(cat('speed'), 'sample');
+  assert.equal(cat('chop'), 'sample');
+  assert.equal(cat('fast'), 'pattern');
+  assert.equal(cat('degradeBy'), 'random');
+  assert.equal(cat('transpose'), 'tonal');
+  const other = EFFECTS.filter((e) => categoryOf(e) === 'other');
+  assert.ok(other.length <= 5, `ohne Kategorie: ${other.map((e) => e.name).join(' ')}`);
+});
+
+test('browseEffects: ganze Liste einer Kategorie, nur was zur Spur passt', () => {
+  const filters = browseEffects('', 'sound', 'filter');
+  assert.ok(filters.length > 12);
+  assert.ok(filters.every((e) => categoryOf(e) === 'filter'));
+  assert.deepEqual(browseEffects('', 'midi', 'filter'), []);
+  assert.equal(browseEffects('lpf', 'sound', null)[0].name, 'lpf');
+  assert.ok(browseEffects('scale', 'note', null).some((e) => e.name === 'scale'));
+  assert.ok(!browseEffects('scale', 'note', null, true).some((e) => e.name === 'scale'), 'relative Spur hat ihre Tonleiter schon');
 });

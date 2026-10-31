@@ -1,8 +1,11 @@
 import { LFO_WAVES, NOTE_OPS, WAVES, effectInfo, isLfoSeries, isModSeries, isRandSeries, isSliderRange, noteOpInfo } from '../domain/effects.ts';
 import type { LfoSeries, LfoWave, ModSeries, RandSeries, SliderRange, Wave } from '../domain/effects.ts';
+import { LOCKS, isLockParam, isLockValue } from '../domain/locks.ts';
 import { SLICES_MAX } from '../domain/sampler.ts';
 import type { SamplerMode } from '../domain/sampler.ts';
-import { CHANNEL_MAX, ORBIT_MAX, soundToken, trackName } from '../domain/types.ts';
+import { parseScaleName } from '../domain/pitch.ts';
+import type { PitchMode, ScaleChoice } from '../domain/pitch.ts';
+import { CHANNEL_MAX, ORBIT_MAX, PAUSE, soundToken, trackName } from '../domain/types.ts';
 import type { Token, TrackType } from '../domain/types.ts';
 import { textToTokens } from './from-text.ts';
 
@@ -16,6 +19,7 @@ import { textToTokens } from './from-text.ts';
  * Rechenarten für die Noten stehen an deren Mini-Notation: `note("f d".add("<0 3>"))`.
  * Folgt direkt auf `s("…")` ein `.slice(8, "…")`, ist es eine Sampler-Spur: `/* x *\/ s("brk").slice(8, "0 3")`. Ein `.scrub("…")`
  * an derselben Stelle macht nur dann eine Sampler-Spur, wenn die Spur schon eine ist (`prefer`), sonst ist es ein Effekt.
+ * Paramlocks einer Klangspur stehen nach den Effekten: `s("bd").lpf(800).up("1 .5:4".as("velocity:n"))`.
  */
 export interface CodeLine {
   /** Aus dem Kommentar am Anfang (`/* drums *\/`), leer ohne Kommentar. */
@@ -39,11 +43,17 @@ export interface CodeLine {
   samplerMode: SamplerMode;
   /** Sampler-Spur mit `slice`: Zahl der Abschnitte. Sonst 8, ohne Bedeutung. */
   slices: number;
+  /** Notenspur: `note("c e")` absolut, `n("0 2").scale("C4:major")` relativ. Bei anderen Spuren `absolute`. */
+  pitch: PitchMode;
+  /** Relative Notenspur: die Tonleiter aus `.scale(…)`, sonst null. */
+  scale: ScaleChoice | null;
   /** Notenspur: die Steine aus `.s(…)`, null ohne `.s()` oder bei anderen Spuren. */
   voice: { tokens: Token[] } | null;
   /** Notenspur: Rechenarten an der Mini-Notation, in ihrer Reihenfolge. */
   noteOps: ValueRow[];
   effects: ValueRow[];
+  /** Klangspur: Parameter und Steine aus `.up("…".as("…"))`, sonst null. */
+  locks: { params: string[]; tokens: Token[] } | null;
 }
 
 /**
@@ -255,6 +265,27 @@ export function codeToTrack(code: string, prefer?: TrackType): CodeResult {
     return { name, tokens, slider, rand, mod, lfo };
   };
 
+  /** Paramlocks nach `.up`: `("1 .5:4".as("velocity:n"))`. Jeder Wert hat höchstens so viele Teile wie Parameter. */
+  const lockRow = (): { params: string[]; tokens: Token[] } => {
+    const shape = 'Paramlocks sind .up("…".as("parameter:parameter")).';
+    expect('(');
+    const start = pos;
+    const tokens = mini();
+    if (!call(['as'])) throw new CodeError(shape, pos);
+    space();
+    const m = /^(["'])([^"']*)\1/.exec(code.slice(pos));
+    if (!m) throw new CodeError(shape, pos);
+    const params = m[2].split(':').map((p) => p.trim());
+    const unknown = params.find((p) => !isLockParam(p));
+    if (unknown !== undefined) throw new CodeError(`«${unknown}» lässt sich nicht sperren (möglich: n, s und Effekte mit einem Wert).`, pos + 1);
+    pos += m[0].length;
+    expect(')');
+    expect(')');
+    const bad = tokens.find((t) => t.kind === 'sound' && t.sound !== PAUSE && !isLockValue(t.sound, params.length));
+    if (bad?.kind === 'sound') throw new CodeError(`«${bad.sound}» passt nicht zu ${params.length} Parameter${params.length > 1 ? 'n' : ''} (${params.join(':')}).`, start);
+    return { params, tokens };
+  };
+
   try {
     space();
     let name = '';
@@ -269,10 +300,11 @@ export function codeToTrack(code: string, prefer?: TrackType): CodeResult {
       throw new CodeError('Der Name steht als Kommentar vor der Spur, z. B. «/* drums */ s("bd")».', pos);
     }
     const fn = identifier();
-    if (fn !== 's' && fn !== 'sound' && fn !== 'note') {
-      throw new CodeError('Eine Spur beginnt mit s("…") oder note("…").', pos - fn.length);
+    if (fn !== 's' && fn !== 'sound' && fn !== 'note' && fn !== 'n') {
+      throw new CodeError('Eine Spur beginnt mit s("…"), note("…") oder n("…").scale("…").', pos - fn.length);
     }
-    const notes = fn === 'note';
+    const relative = fn === 'n';
+    const notes = fn === 'note' || relative;
     expect('(');
     const tokens = mini();
     const noteOps: CodeLine['noteOps'] = [];
@@ -280,12 +312,23 @@ export function codeToTrack(code: string, prefer?: TrackType): CodeResult {
       pos += 1;
       const at = pos;
       const op = identifier();
-      if (!notes) throw new CodeError('Rechnen mit Noten (add, div …) gibt es nur in note(…).', at - 1);
+      if (!notes) throw new CodeError('Rechnen mit Noten (add, div …) gibt es nur in note(…) und n(…).', at - 1);
       if (!noteOpInfo(op)) throw new CodeError(`Unbekannte Rechenart «${op}» (möglich: ${NOTE_OPS.map((o) => o.name).join(', ')}).`, at);
       expect('(');
       noteOps.push(value(op));
     }
     expect(')');
+
+    // Relative Notenspur: die Tonleiter steht direkt nach n(…), erst sie macht aus den Stufen Noten
+    let scale: ScaleChoice | null = null;
+    if (relative) {
+      space();
+      const m = /^\.\s*scale\s*\(\s*(["'])([^"']*)\1\s*\)/.exec(code.slice(pos));
+      if (!m) throw new CodeError('Nach n(…) folgt die Tonleiter, z. B. .scale("C4:major").', pos);
+      scale = parseScaleName(m[2].trim());
+      if (!scale) throw new CodeError(`Unbekannte Tonleiter «${m[2]}» (z. B. C4:major, A3:minor:pentatonic).`, pos + m[0].indexOf(m[2]));
+      pos += m[0].length;
+    }
 
     // Sampler-Spur: `.slice(n, "…")` oder (wenn schon eine) `.scrub("…")` direkt nach s("…")
     let sampler: { mode: SamplerMode; slices: number; tokens: Token[]; at: number } | null = null;
@@ -323,6 +366,7 @@ export function codeToTrack(code: string, prefer?: TrackType): CodeResult {
     let soundOnly: { at: number; what: string } | null = null;
     let midiOnly: { at: number; what: string } | null = null;
     let voice: { tokens: Token[] } | null = null;
+    let locks: CodeLine['locks'] = null;
     let muted = false;
     /** Ganze Zahl im Bereich, für Orbit und Kanal. */
     const whole = (what: string, max: number): number => {
@@ -354,7 +398,14 @@ export function codeToTrack(code: string, prefer?: TrackType): CodeResult {
         expect(')');
         continue;
       }
-      if (notes && fx === 'midi') throw new CodeError('.midi() gibt es nur bei Spuren mit s("…"), nicht mit note("…").', at);
+      if (fx === LOCKS) {
+        if (notes || sampler) throw new CodeError('Paramlocks (.up) gibt es nur in Klangspuren mit s("…").', at);
+        if (locks) throw new CodeError('Die Paramlocks (.up) stehen nur einmal in der Zeile.', at);
+        locks = lockRow();
+        soundOnly ??= { at, what: '.up()' };
+        continue;
+      }
+      if (notes && fx === 'midi') throw new CodeError('.midi() gibt es nur bei Spuren mit s("…"), nicht mit note("…") oder n("…").', at);
       const special = ['postgain', 'orbit', 'midichan', 'midi'].includes(fx);
       if (!special && !effectInfo(fx)) throw new CodeError(`Unbekannter Effekt «${fx}».`, at);
       expect('(');
@@ -416,6 +467,9 @@ export function codeToTrack(code: string, prefer?: TrackType): CodeResult {
       slices: sampler?.slices ?? 8,
       noteOps,
       effects,
+      locks,
+      pitch: relative ? 'relative' : 'absolute',
+      scale,
     };
   } catch (e) {
     if (e instanceof CodeError) return { ok: false, offset: e.offset, message: e.message };

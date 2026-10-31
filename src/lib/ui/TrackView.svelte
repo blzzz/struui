@@ -5,11 +5,13 @@
   import { session } from "../state/session.svelte.ts";
   import EffectList from "./EffectList.svelte";
   import Lane from "./Lane.svelte";
+  import LaneToggles from "./LaneToggles.svelte";
   import TrackCode from "./TrackCode.svelte";
   import TrackMenu from "./TrackMenu.svelte";
   import { splitDrag } from "../interaction/split-drag.ts";
   import { VOLUME_MAX } from "../domain/types.ts";
   import { SLICES_MAX, clampSlices } from "../domain/sampler.ts";
+  import { SCALE_OCTAVES, SCALE_ROOTS, SCALE_TYPES, scaleName } from "../domain/pitch.ts";
   import type { Track } from "../domain/types.ts";
   import type { Snippet } from "svelte";
   import type { Attachment } from "svelte/attachments";
@@ -42,6 +44,8 @@
   const showRandom = $derived(session.random.has(track.id));
   /** Drehknöpfe (Wiederholung, Modulo) unter den Steinen sichtbar. Sonst nur farbige Balken am Stein. */
   const showKnobs = $derived(!session.noKnobs.has(track.id));
+  /** Drehknöpfe beim Klang der Noten: zu Beginn aus, `noKnobs` kehrt das hier um. */
+  const soundKnobs = $derived(session.noKnobs.has(track.voice.id));
   /** Effekte rechts neben der Notation (senkrechter Strich) statt darunter. */
   const inlineFx = $derived(session.inlineFx.has(track.id));
   /** Gezogene Aufteilung (Anteil der Notation), null = Effekte nach Inhalt. */
@@ -70,10 +74,10 @@
   }
 
   /**
-   * Der Trennstrich reicht bis an den Rand der Spur-Box (`.cell` der Arbeitsfläche, nächster positionierter Vorfahre):
-   * waagrecht nach links und rechts, senkrecht nach unten. Die Box kann höher sein als ihr Inhalt.
+   * Der Effekt-Container reicht bis an den Rand der Spur-Box (`.cell` der Arbeitsfläche, nächster positionierter Vorfahre):
+   * nach links, rechts und unten. Die Box kann höher sein als ihr Inhalt. Nur der Hintergrund wächst, nicht das Layout.
    */
-  const reachOutline: Attachment<HTMLElement> = (el) => {
+  const reachEdge: Attachment<HTMLElement> = (el) => {
     const box = el.offsetParent as HTMLElement | null;
     if (!box) return;
     const place = () => {
@@ -93,6 +97,19 @@
     ro.observe(box);
     return () => ro.disconnect();
   };
+  /** Reiter im Effekt-Container einer Notenspur. */
+  let fxTab = $state<"noteOps" | "effects">("effects");
+  /** Effekt-Container und Sounds aufgeklappt. Klick auf den aktiven Reiter (bzw. den Titel) klappt zu und wieder auf. */
+  let fxOpen = $state(true);
+  let soundsOpen = $state(true);
+
+  function chooseTab(tab: "noteOps" | "effects") {
+    if (fxTab === tab) fxOpen = !fxOpen;
+    else {
+      fxTab = tab;
+      fxOpen = true;
+    }
+  }
   const isMidi = $derived(track.type === "midi");
   const isNote = $derived(track.type === "note");
   const isSampler = $derived(track.type === "sampler");
@@ -137,8 +154,6 @@
 <section
   class="track"
   class:muted={track.muted || silenced}
-  class:norandom={!showRandom}
-  class:noknobs={!showKnobs}
   data-lane={track.id}
   data-lane-end={track.tokens.length}
 >
@@ -263,8 +278,7 @@
     {#if showCode}
       <TrackCode {track} />
     {:else}
-      <!-- Notation (Sample, Steine, Rechenarten, Klang) und Effekte, getrennt durch einen Strich mit Schalter in der Mitte:
-           waagrecht (Effekte darunter) oder senkrecht (Effekte rechts daneben) -->
+      <!-- Notation (Sample, Steine, Klang) und Effekt-Container: Effekte darunter oder rechts daneben -->
       <div
         class="split"
         class:inline={inlineFx}
@@ -272,13 +286,16 @@
         style:--ratio={ratio}
         bind:this={split}
       >
+        <!-- Die Schalter links vom Notationseditor (LaneToggles) gelten für Sample und Steine der Spur.
+             Der Klang der Noten (sounds) und Effekte mit Steinen haben eigene (EffectBox). -->
         <div class="notation">
-          <!-- Links vom Notationseditor zwei Schalter für die ganze Spur, zusammen so hoch wie ein Stein und auf seiner Höhe:
-           Würfel = Zufallsknöpfe über den Steinen (aus: roter Punkt am Stein, nicht änderbar),
-           Drehknopf = Knöpfe für Wiederholung und Modulo darunter (aus: farbiger Balken am Stein, nicht änderbar). -->
           {#if isSampler}
             <!-- Sampler-Spur: zuerst das Sample (s("brk"), Klangsteine aus der Palette), dann wie die Wertsteine es spielen -->
-            <div class="voice sample">
+            <div
+              class="voice sample"
+              class:norandom={!showRandom}
+              class:noknobs={!showKnobs}
+            >
               <div
                 class="box"
                 class:off={track.sample.tokens.length === 0}
@@ -345,67 +362,103 @@
               {/if}
             </div>
           {/if}
-          <div class="editor">
+          {#if isNote}
+            <!-- Notenspur: Notennamen (absolut, note) oder Stufen einer Tonleiter (relativ, n(…).scale(…)).
+                 Umschalten rechnet die Steine um, die Melodie bleibt. -->
+            <div class="sampler pitch" role="group" aria-label="Wie die Steine Noten angeben">
+              <button
+                class="switch"
+                role="switch"
+                aria-checked={track.pitch === "relative"}
+                title={track.pitch === "relative"
+                  ? "Relativ: Stufen der Tonleiter (n mit scale). Aus: Notennamen (note)"
+                  : "Aus: Notennamen (note). Ein: Stufen der Tonleiter, 0 = Grundton (n mit scale)"}
+                onclick={() =>
+                  project.setPitch(track.id, track.pitch === "relative" ? "absolute" : "relative")}
+              >
+                <span class="knob" aria-hidden="true"></span>Relativ
+              </button>
+              <!-- Tonleiter: Grundton, Oktave des Grundtons, Art. Nur relativ aktiv; die Stufen bleiben, die Melodie folgt. -->
+              <div
+                class="scale"
+                title={track.pitch === "relative"
+                  ? `Tonleiter, im Code .scale("${scaleName(track.scale)}")`
+                  : "Tonleiter: erst mit «Relativ» aktiv"}
+              >
+                <select
+                  disabled={track.pitch !== "relative"}
+                  aria-label="Grundton"
+                  value={track.scale.root}
+                  onchange={(e) => project.setScale(track.id, { root: e.currentTarget.value })}
+                >
+                  {#if !SCALE_ROOTS.includes(track.scale.root)}<option value={track.scale.root}>{track.scale.root}</option>{/if}
+                  {#each SCALE_ROOTS as root (root)}<option value={root}>{root}</option>{/each}
+                </select>
+                <select
+                  disabled={track.pitch !== "relative"}
+                  aria-label="Oktave des Grundtons"
+                  value={track.scale.octave}
+                  onchange={(e) => project.setScale(track.id, { octave: Number(e.currentTarget.value) })}
+                >
+                  {#if !(SCALE_OCTAVES as readonly number[]).includes(track.scale.octave)}<option value={track.scale.octave}>{track.scale.octave}</option>{/if}
+                  {#each SCALE_OCTAVES as octave (octave)}<option value={octave}>{octave}</option>{/each}
+                </select>
+                <select
+                  disabled={track.pitch !== "relative"}
+                  class="type"
+                  aria-label="Tonleiter"
+                  value={track.scale.type}
+                  onchange={(e) => project.setScale(track.id, { type: e.currentTarget.value })}
+                >
+                  {#each SCALE_TYPES as type (type)}<option value={type}>{type.replaceAll(":", " ")}</option>{/each}
+                </select>
+              </div>
+            </div>
+          {/if}
+          <div
+            class="editor"
+            class:norandom={!showRandom}
+            class:noknobs={!showKnobs}
+          >
             <!-- Erst mit mindestens einem Stein, vorher gibt es nichts umzuschalten -->
             {#if track.tokens.length > 0}
-              <div class="toggles">
-                <button
-                  class="toggle dice"
-                  aria-pressed={showRandom}
-                  aria-label="Zufall bearbeiten"
-                  title={showRandom
-                    ? "Zufallsknöpfe verbergen"
-                    : "Zufallsknöpfe zeigen (?)"}
-                  onclick={() => session.toggleRandom(track.id)}
-                >
-                  <svg viewBox="0 0 16 16" aria-hidden="true">
-                    <rect x="2" y="2" width="12" height="12" rx="2.5" />
-                    <circle cx="5.3" cy="5.3" r="1.1" />
-                    <circle cx="8" cy="8" r="1.1" />
-                    <circle cx="10.7" cy="10.7" r="1.1" />
-                  </svg>
-                </button>
-                <button
-                  class="toggle knobs"
-                  aria-pressed={showKnobs}
-                  aria-label="Wiederholung bearbeiten"
-                  title={showKnobs
-                    ? "Drehknöpfe verbergen"
-                    : "Drehknöpfe zeigen (* ! @ %)"}
-                  onclick={() => session.toggleKnobs(track.id)}
-                >
-                  <svg viewBox="0 0 16 16" aria-hidden="true">
-                    <circle class="ring" cx="8" cy="8" r="4.5" />
-                    <path d="M8 8l2.2-2.2" />
-                    <circle class="tick" cx="8" cy="1.6" r="0.9" />
-                    <circle class="tick" cx="13.5" cy="10.8" r="0.9" />
-                    <circle class="tick" cx="2.5" cy="10.8" r="0.9" />
-                  </svg>
-                </button>
-              </div>
+              <LaneToggles id={track.id} />
             {/if}
             <Lane laneId={track.id} tokens={track.tokens} value={isSampler} />
           </div>
           {#if isNote}
-            <!-- Rechenarten auf den Noten (add, div …), im Code an der Mini-Notation: note("f d".add("<0 3>")) -->
-            <EffectList {track} kind="noteOps" />
             <!-- Klang der Noten (.s), eine feste Reihe vor den Effekten. Meist ein Stein, mehrere wechseln (<sine sawtooth>). -->
-            <div class="voice">
+            <div
+              class="voice"
+              class:norandom={!session.random.has(track.voice.id)}
+              class:noknobs={!soundKnobs}
+            >
               <div
-                class="box"
+                class="box sounds"
                 class:off={track.voice.tokens.length === 0}
                 class:bad={voiceMessages.length > 0}
               >
-                <span class="box-name" title="Klang der Noten, im Code .s(…)"
-                  >s</span
+                <button
+                  class="box-name toggle-name"
+                  aria-expanded={soundsOpen}
+                  title={`Klang der Noten, im Code .s(…). Klick: ${soundsOpen ? "zuklappen" : "aufklappen"}`}
+                  onclick={() => (soundsOpen = !soundsOpen)}>Sounds</button
                 >
-                <Lane laneId={track.voice.id} tokens={track.voice.tokens} />
+                {#if soundsOpen}
+                  <!-- Eigene Schalter wie links vom Notationseditor, hier beide zu Beginn aus -->
+                  <div class="editor">
+                    {#if track.voice.tokens.length > 0}
+                      <LaneToggles id={track.voice.id} knobsAtStart={false} />
+                    {/if}
+                    <Lane laneId={track.voice.id} tokens={track.voice.tokens} />
+                  </div>
+                {/if}
               </div>
               {#if voiceMessages.length > 0}
                 <p class="error">
                   {voiceMessages.join(" ")} Die Noten klingen dann als triangle.
                 </p>
-              {:else if track.voice.tokens.length === 0}
+              {:else if soundsOpen && track.voice.tokens.length === 0}
                 <p class="hint">
                   Ohne Klang spielt Strudel die Noten als triangle.
                 </p>
@@ -413,47 +466,90 @@
             </div>
           {/if}
         </div>
-        <!-- Senkrecht: Ziehen teilt den Platz neu auf, Doppelklick auf den Strich richtet die Effekte wieder nach Inhalt -->
-        <div
-          class="divider"
-          role="presentation"
-          {@attach reachOutline}
-          {@attach splitDrag(() => ({
-            active: () => inlineFx,
-            container: () => split ?? null,
-            onRatio: (r) => session.setFxSplit(track.id, r),
-          }))}
-          ondblclick={(e) => {
-            if (inlineFx && e.target === e.currentTarget)
-              session.setFxSplit(track.id, null);
-          }}
+        <!-- Effekte im eigenen Container. Kopf: bei Notenspuren Reiter Note FX (Rechenarten an der Mini-Notation,
+             note("f d".add("<0 3>"))) und Audio FX, rechts der Schalter darunter/daneben. -->
+        <section
+          class="fx"
+          class:last={messages.length === 0}
+          aria-label="Effekte"
+          {@attach reachEdge}
         >
-          <button
-            class="flow"
-            aria-pressed={inlineFx}
-            aria-label="Effekte neben der Notation"
-            title={inlineFx
-              ? "Effekte unter die Notation stellen (Ziehen: Platz aufteilen)"
-              : "Effekte neben die Notation stellen"}
-            onclick={() => session.toggleInlineFx(track.id)}
-            onkeydown={onFlowKey}
-          >
-            <!-- Fluss von der Notation zu den Effekten: zeigt nach unten bzw. nach rechts -->
-            <svg viewBox="0 0 16 16" aria-hidden="true">
-              <circle cx="8" cy="3" r="1.6" />
-              <path d="M8 4.6v8.4M5 10l3 3 3-3" />
-            </svg>
-          </button>
-        </div>
-        <div class="fx">
-          <EffectList {track} />
-          {#if withoutNote}
-            <p class="hint">
-              Ohne <code>.note()</code> schickt diese Spur keine Noten.
-              <button class="small" onclick={addNote}>note hinzufügen</button>
-            </p>
+          {#if inlineFx}
+            <!-- Linker Rand: Ziehen teilt den Platz neu auf, Doppelklick richtet die Effekte wieder nach Inhalt -->
+            <div
+              class="grab"
+              role="presentation"
+              {@attach splitDrag(() => ({
+                active: () => inlineFx,
+                container: () => split ?? null,
+                onRatio: (r) => session.setFxSplit(track.id, r),
+              }))}
+              ondblclick={() => session.setFxSplit(track.id, null)}
+            ></div>
           {/if}
-        </div>
+          <div class="fx-head">
+            {#if isNote}
+              <div class="tabs" role="tablist" aria-label="Effekte">
+                <button
+                  role="tab"
+                  aria-selected={fxTab === "noteOps"}
+                  aria-expanded={fxTab === "noteOps" ? fxOpen : undefined}
+                  title="Rechnen mit den Noten (add, div …), wirkt vor dem Klang. Erneuter Klick: zu- oder aufklappen"
+                  onclick={() => chooseTab("noteOps")}
+                  >Note FX{#if track.noteOps.length > 0}<span class="count"
+                      >{track.noteOps.length}</span
+                    >{/if}</button
+                >
+                <button
+                  role="tab"
+                  aria-selected={fxTab === "effects"}
+                  aria-expanded={fxTab === "effects" ? fxOpen : undefined}
+                  title="Effekte auf den Klang. Erneuter Klick: zu- oder aufklappen"
+                  onclick={() => chooseTab("effects")}
+                  >Audio FX{#if track.effects.length > 0}<span class="count"
+                      >{track.effects.length}</span
+                    >{/if}</button
+                >
+              </div>
+            {:else}
+              <button
+                class="fx-title"
+                aria-expanded={fxOpen}
+                title={fxOpen ? "Effekte zuklappen" : "Effekte aufklappen"}
+                onclick={() => (fxOpen = !fxOpen)}>FX</button
+              >
+            {/if}
+            <button
+              class="flow"
+              aria-pressed={inlineFx}
+              aria-label="Effekte neben der Notation"
+              title={inlineFx
+                ? "Effekte unter die Notation stellen (linken Rand ziehen: Platz aufteilen)"
+                : "Effekte neben die Notation stellen"}
+              onclick={() => session.toggleInlineFx(track.id)}
+              onkeydown={onFlowKey}
+            >
+              <!-- Fluss von der Notation zu den Effekten: zeigt nach unten bzw. nach rechts -->
+              <svg viewBox="0 0 16 16" aria-hidden="true">
+                <circle cx="8" cy="3" r="1.6" />
+                <path d="M8 4.6v8.4M5 10l3 3 3-3" />
+              </svg>
+            </button>
+          </div>
+          {#if !fxOpen}
+            <!-- Zugeklappt: nur der Kopf -->
+          {:else if isNote && fxTab === "noteOps"}
+            <EffectList {track} kind="noteOps" />
+          {:else}
+            <EffectList {track} />
+            {#if withoutNote}
+              <p class="hint">
+                Ohne <code>.note()</code> schickt diese Spur keine Noten.
+                <button class="small" onclick={addNote}>note hinzufügen</button>
+              </p>
+            {/if}
+          {/if}
+        </section>
       </div>
     {/if}
   </div>
@@ -572,7 +668,7 @@
     border-color: var(--line);
     color: var(--mute);
   }
-  /* Notation, Trennstrich, Effekte: untereinander (block) oder nebeneinander (inline) */
+  /* Notation und Effekte: untereinander (block) oder nebeneinander (inline) */
   .split {
     display: flex;
     flex-direction: column;
@@ -600,65 +696,137 @@
     flex: calc(1 - var(--ratio)) 1 0;
     max-width: none;
   }
-  /* Den Abstand zur Notation gibt hier der Trennstrich */
+  /* Effekt-Container: dunkelblau, unter der Notation oder rechts daneben */
+  .fx {
+    position: relative;
+    /* Hintergrund (::before) hinter dem Inhalt, aber über der Spur-Box */
+    isolation: isolate;
+    margin-top: 10px;
+    padding: 0 8px 8px;
+  }
+  .split.inline .fx {
+    margin: 0 0 0 10px;
+  }
+  /* Hintergrund bis an den Rand der Spur-Box: darunter über die ganze Breite, daneben bis rechts.
+     Steht noch eine Fehlermeldung darunter, endet er am Container. Ecken am Rand folgen der Box (18px). */
+  .fx::before {
+    content: "";
+    position: absolute;
+    z-index: -1;
+    inset: 0 calc(-1 * var(--reach-right, 0px)) 0
+      calc(-1 * var(--reach-left, 0px));
+    border-radius: 0;
+    background: var(--fx);
+  }
+  .fx.last::before {
+    bottom: calc(-1 * var(--reach-bottom, 0px));
+    border-radius: 0 0 18px 18px;
+  }
+  .split.inline .fx::before {
+    left: 0;
+    border-radius: 10px 0 0 10px;
+  }
+  .split.inline .fx.last::before {
+    border-radius: 10px 0 18px 10px;
+  }
   .fx > :global(.effects) {
     margin-top: 0;
   }
-  /* Trennstrich mit rundem Schalter in der Mitte */
-  .divider {
-    position: relative;
-    flex: none;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    height: 28px;
-    margin: 6px 0;
-  }
-  .divider::before {
-    content: "";
+  /* Linker Rand des Containers daneben: Ziehen teilt den Platz zwischen Notation und Effekten */
+  .grab {
     position: absolute;
-    left: calc(-1 * var(--reach-left, 0px));
-    right: calc(-1 * var(--reach-right, 0px));
-    top: 50%;
-    border-top: 1.5px solid var(--line);
-  }
-  .split.inline .divider {
-    width: 28px;
-    height: auto;
-    margin: 0 8px;
+    left: -10px;
+    top: 0;
+    bottom: 0;
+    width: 14px;
     cursor: col-resize;
-    /* Am Strich zieht der Finger, die Arbeitsfläche verschiebt sich hier nicht */
+    /* Hier zieht der Finger, die Arbeitsfläche verschiebt sich nicht */
     touch-action: none;
   }
-  .split.inline .divider:global([data-dragging])::before {
-    border-left-color: var(--blue);
+  .grab:hover,
+  .grab:global([data-dragging]) {
+    background: linear-gradient(
+      to right,
+      transparent 4px,
+      var(--blue) 4px 6px,
+      transparent 6px
+    );
   }
-  .split.inline .divider::before {
-    left: 50%;
-    right: auto;
-    top: 0;
-    bottom: calc(-1 * var(--reach-bottom, 0px));
-    border-top: none;
-    border-left: 1.5px solid var(--line);
+  .fx-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    min-height: 34px;
+    margin: 4px 0px 8px;
   }
+  .fx-title {
+    padding: 4px 8px;
+    border: none;
+    border-radius: 6px;
+    background: var(--fx-raised);
+    color: var(--ink);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+  }
+  /* Zugeklappt: der aktive Reiter bleibt erkennbar, aber ohne Fläche */
+  .fx-title[aria-expanded="false"],
+  .tabs button[aria-expanded="false"] {
+    background: transparent;
+    box-shadow: inset 0 0 0 1.5px var(--fx-raised);
+  }
+  .tabs {
+    display: flex;
+    gap: 2px;
+  }
+  .tabs button {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 8px;
+    border: none;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: var(--fx-mute);
+  }
+  .tabs button:hover {
+    color: var(--ink);
+  }
+  .tabs button[aria-selected="true"] {
+    background: var(--fx-raised);
+    color: var(--ink);
+  }
+  .count {
+    min-width: 16px;
+    padding: 0 4px;
+    border-radius: 8px;
+    background: var(--fx-line);
+    font-size: 10px;
+    line-height: 16px;
+    text-align: center;
+  }
+  /* Schalter darunter/daneben, rechts im Kopf */
   .flow {
-    position: relative;
-    width: 16px;
-    height: 16px;
+    flex: none;
+    width: 28px;
+    height: 28px;
     padding: 0;
     display: grid;
     place-items: center;
-    border-radius: 50%;
-    background: var(--mute);
-    border-color: var(--mute);
-    color: var(--panel);
+    border: none;
+    border-radius: 6px;
+    color: var(--fx-mute);
   }
   .flow:hover {
     color: var(--ink);
+    background: var(--fx-raised);
   }
   .flow svg {
-    width: 12px;
-    height: 12px;
+    width: 16px;
+    height: 16px;
     fill: none;
     stroke: currentColor;
     stroke-width: 1.6;
@@ -682,69 +850,6 @@
   .editor > :global(.lane) {
     flex: 1;
     min-width: 0;
-  }
-  /* Die Schaltergruppe ist so hoch wie ein Stein und steht auf Höhe der Steine der ersten Reihe
-     (mit Zufallsknöpfen darüber um deren Zeile tiefer, siehe TokenColumn) */
-  .toggles {
-    flex: none;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    height: var(--s);
-    margin-top: calc(var(--s) + 2px);
-  }
-  .norandom .toggles {
-    margin-top: 0;
-  }
-  /* Zurückhaltend: ohne Rand und Fläche, nur das Symbol. Aus blass, an weiss. */
-  .toggle {
-    flex: 1;
-    width: 28px;
-    min-height: 0;
-    padding: 0;
-    border: none;
-    background: transparent;
-    color: var(--mute);
-    opacity: 0.6;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-  .toggle:hover {
-    opacity: 1;
-  }
-  .toggle svg {
-    width: 16px;
-    height: 16px;
-  }
-  .dice rect {
-    fill: none;
-    stroke: currentColor;
-    stroke-width: 1.5;
-  }
-  .dice circle {
-    fill: currentColor;
-  }
-  .knobs .ring,
-  .knobs path {
-    fill: none;
-    stroke: currentColor;
-    stroke-width: 1.5;
-    stroke-linecap: round;
-  }
-  .knobs .tick {
-    fill: currentColor;
-  }
-  /* An: weiss (im hellen Farbschema wäre Weiss unsichtbar, dort die Textfarbe) */
-  .toggle[aria-pressed="true"] {
-    background: transparent;
-    color: var(--ink);
-    opacity: 1;
-  }
-  @media (prefers-color-scheme: dark) {
-    .toggle[aria-pressed="true"] {
-      color: #fff;
-    }
   }
   .mute.active {
     background: var(--red);
@@ -887,6 +992,87 @@
     background: color-mix(in srgb, var(--blue) 18%, transparent);
     color: var(--ink);
   }
+  /* Schalter «Relativ»: kleiner Kippschalter vor der Beschriftung */
+  /* Konfigurationszeile der Notenspur: immer eine Zeile, bei wenig Platz wird die Tonleiter schmaler */
+  .sampler.pitch {
+    flex-wrap: nowrap;
+    min-width: 0;
+  }
+  .switch {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 28px;
+    padding: 0 4px 0 2px;
+    border: none;
+    background: transparent;
+    color: var(--mute);
+    font:
+      600 13px ui-monospace,
+      SFMono-Regular,
+      Menlo,
+      Consolas,
+      monospace;
+  }
+  .switch .knob {
+    position: relative;
+    width: 28px;
+    height: 16px;
+    border-radius: 8px;
+    background: var(--line);
+    transition: background 150ms;
+  }
+  .switch .knob::after {
+    content: "";
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--ink);
+    transition: transform 150ms;
+  }
+  .switch[aria-checked="true"] {
+    color: var(--ink);
+  }
+  .switch[aria-checked="true"] .knob {
+    background: var(--blue);
+  }
+  .switch[aria-checked="true"] .knob::after {
+    transform: translateX(12px);
+  }
+  /* Tonleiter: drei Auswahlen in derselben Zeile, ohne «Relativ» blass und gesperrt */
+  .scale {
+    flex: 1 1 auto;
+    display: flex;
+    gap: 4px;
+    min-width: 0;
+  }
+  .scale select {
+    flex: none;
+    min-width: 0;
+    height: 28px;
+    padding: 0 6px;
+    border: 1.5px solid var(--line);
+    border-radius: 8px;
+    background: var(--bg);
+    color: var(--ink);
+    font:
+      600 13px ui-monospace,
+      SFMono-Regular,
+      Menlo,
+      Consolas,
+      monospace;
+  }
+  .scale .type {
+    flex: 0 1 14em;
+    text-overflow: ellipsis;
+  }
+  .scale select:disabled {
+    opacity: 0.4;
+  }
   .slices {
     display: inline-flex;
     align-items: center;
@@ -917,17 +1103,36 @@
     border-radius: 8px;
     background: var(--panel);
   }
+  /* Klang der Noten: dunkelgrün hinterlegt statt umrandet (der Rand bleibt für Fehler), als Zeile über die ganze Breite */
+  .box.sounds {
+    width: auto;
+    border-color: transparent;
+    background: var(--sounds);
+  }
   .box.bad {
     border-color: var(--red);
   }
   .box-name {
-    margin-bottom: 2px;
+    margin: 2px 4px 8px;
     font:
       600 12px ui-monospace,
       SFMono-Regular,
       Menlo,
       Consolas,
       monospace;
+  }
+  /* Titel als Schalter zum Zu- und Aufklappen, sieht aus wie der Titel */
+  .toggle-name {
+    align-self: flex-start;
+    padding: 0;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: inherit;
+    text-align: left;
+  }
+  .toggle-name[aria-expanded="false"] {
+    margin-bottom: 2px;
   }
   .box.off .box-name {
     color: var(--mute);

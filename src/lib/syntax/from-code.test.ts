@@ -34,8 +34,23 @@ test('code: ganze Zeile mit Name (Kommentar), Stummschaltung (.hush()) und Effek
     ['/* d */ s("bd sd").fast(2).struct("x ~ x x").rev().degradeBy(.3)', '/* d */ s("bd sd").fast(2).struct("x ~ x x").rev().degradeBy(0.3)'],
     ['/* n */ note("c e g").s("piano").scale("C:major:pentatonic").transpose("<0 3M>")', '/* n */ note("c e g").s("piano").scale("C:major:pentatonic").transpose("<0 3M>")'],
     ['/* n */ note("c e").trans(-2)', '/* n */ note("c e").trans(-2)'],
+    ['/* r */ n("0 2 -1 4#").scale("C4:major").s("sine")', '/* r */ n("0 2 -1 4#").scale("C4:major").s("sine")'],
+    ['/* r */ n("0 2" .add( 2 )) .scale( \'Bb:dorian\' ).lpf(800)', '/* r */ n("0 2".add(2)).scale("Bb3:dorian").lpf(800)'],
+    ['/* r */ n("<0 [2 4]>").scale("f#2:major:pentatonic")', '/* r */ n("<0 [2 4]>").scale("F#2:major:pentatonic")'],
   ];
   for (const [input, expected] of cases) assert.equal(roundTrip(input), expected, input);
+});
+
+test('code: n(…).scale(…) ist eine relative Notenspur, note(…) eine absolute', () => {
+  const r = codeToTrack('/* r */ n("0 2").scale("A3:minor")');
+  assert.ok(r.ok);
+  assert.equal(r.type, 'note');
+  assert.equal(r.pitch, 'relative');
+  assert.deepEqual(r.scale, { root: 'A', octave: 3, type: 'minor' });
+  const a = codeToTrack('/* a */ note("c e")');
+  assert.ok(a.ok);
+  assert.equal(a.pitch, 'absolute');
+  assert.equal(a.scale, null);
 });
 
 test('code: Effekte werden zu Wertsteinen', () => {
@@ -77,7 +92,8 @@ test('code: Fehler nennen die Stelle', () => {
   assert.equal(at('/* a */ s("bd").s("sine")'), 16, '.s() nur bei Notenspuren');
   assert.equal(at('/* a */ note("c").s("a").s("b")'), 25, '.s() nur einmal');
   assert.equal(at('/* a */ note("c").midi()'), 18, 'Notenspuren gehen nicht an MIDI');
-  assert.equal(at('/* a */ n("c")'), 8, 'n() ist keine Spur');
+  assert.equal(at('/* a */ n("0")'), 14, 'n() braucht die Tonleiter direkt danach');
+  assert.equal(at('/* a */ n("0").scale("C4:gibtsnicht")'), 22, 'unbekannte Tonleiter');
   assert.equal(at('/* a */ s("bd".add(1))'), 14, 'Rechnen nur in note()');
   assert.equal(at('/* a */ note("c".foo(1))'), 17, 'unbekannte Rechenart');
   assert.equal(at('/* a */ note("c".lpf(1))'), 17, 'Effekte nicht an der Mini-Notation');
@@ -201,4 +217,28 @@ test('code: sine2.mul(…).add(…).segment(…) wird zum LFO und zurück', () =
     '/* a */ s("bd").lpf(sine2.mul(400).add(800).segment(4).fast(2))',
     '/* a */ s("bd").lpf(perlin2.mul(400).add(800).segment(4))',
   ]) assert.ok(!codeToTrack(bad).ok, bad);
+});
+
+test('code: Paramlocks (.up("…".as("…"))) einer Klangspur hin und zurück', () => {
+  assert.equal(
+    roundTrip('/* d */ s("bd").up( "1 ~ [.7:4:sd .5]" .as( \'velocity:n:s\' ) ).lpf(800)'),
+    '/* d */ s("bd").lpf(800).up("1 ~ [.7:4:sd .5]".as("velocity:n:s"))',
+  );
+  const r = codeToTrack('s("bd").up("1 .5:4".as("velocity:n"))');
+  assert.ok(r.ok);
+  assert.deepEqual(r.locks?.params, ['velocity', 'n']);
+  const ok = codeToTrack('s("bd")');
+  assert.ok(ok.ok && ok.locks === null);
+  for (const [code, message] of [
+    ['s("bd").up("1:4:sd".as("velocity:n"))', /passt nicht zu 2 Parametern/],
+    ['s("bd").up("1".as("fast"))', /«fast» lässt sich nicht sperren/],
+    ['s("bd").up("1")', /Paramlocks sind/],
+    ['s("bd").up("1".as("gain")).up("1".as("gain"))', /nur einmal/],
+    ['note("c").up("1".as("gain"))', /nur in Klangspuren/],
+    ['s("bd").up("1".as("gain")).midi()', /\.up\(\) gibt es nicht mit \.midi\(\)/],
+  ] as const) {
+    const bad = codeToTrack(code);
+    assert.ok(!bad.ok, code);
+    assert.match(bad.message, message, code);
+  }
 });

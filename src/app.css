@@ -19,6 +19,15 @@
   --wood-ink: #2c1f0e;
   /* Wertsteine der Effekte */
 
+  /* Klang der Noten einer Notenspur (sounds) */
+  --sounds: #1d3a26;
+  /* Effekt-Container der Spur (dunkelblau) und Effekt-Dialog (heller) */
+  --fx: #142238;
+  --fx-raised: #20334f;
+  --fx-line: #2e4466;
+  --fx-mute: #8fa3c2;
+  --fx-dialog: #1c2d48;
+
   --red: #d2453d;
   --blue: #2f72c9;
   --green: #3d9a4f;

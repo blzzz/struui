@@ -66,8 +66,8 @@ test('program: Code rund um den Stapel bleibt stehen, Aufrufe am Stapel auch', (
 });
 
 test('program: was Strudel-Steine nicht versteht, wird roher Code mit Name und Stummschaltung', () => {
-  const r = read('stack(\n  /* mel */ n("0 2").scale("C:minor").hush(),\n  // Kommentar\n  s("bd").jux(rev),\n  ...more\n)');
-  assert.deepEqual(r.entries.map(brief), ['raw mel (stumm): n("0 2").scale("C:minor")', 'raw : s("bd").jux(rev)', 'raw : ...more']);
+  const r = read('stack(\n  /* mel */ n("0 2").scale("C:<major minor>").hush(),\n  // Kommentar\n  s("bd").jux(rev),\n  ...more\n)');
+  assert.deepEqual(r.entries.map(brief), ['raw mel (stumm): n("0 2").scale("C:<major minor>")', 'raw : s("bd").jux(rev)', 'raw : ...more']);
 });
 
 test('program: Kommentare vor einem Eintrag geben nur einen erlaubten Namen', () => {
@@ -77,7 +77,7 @@ test('program: Kommentare vor einem Eintrag geben nur einen erlaubten Namen', ()
 
 test('program: Ausdrücke mit Label werden Spuren, _ schaltet stumm', () => {
   const r = read('setcps(.6)\n$: s("bd")\nconst x = 1\ndrums: s("hh").lpf(800)\n_$: note("c e")\n_bass: n("0").scale("C:minor")');
-  assert.deepEqual(r.entries.map(brief), ['sound ', 'sound drums', 'note  (stumm)', 'raw bass (stumm): n("0").scale("C:minor")']);
+  assert.deepEqual(r.entries.map(brief), ['sound ', 'sound drums', 'note  (stumm)', 'note bass (stumm)']);
   assert.deepEqual(r.tempo, { cps: 0.6, unit: 'cps' });
   assert.equal(r.frame.before, 'const x = 1');
 });

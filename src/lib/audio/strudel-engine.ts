@@ -1,5 +1,6 @@
 import type { EngineHost } from './engine.ts';
 import type { TokenRange } from '../domain/codegen.ts';
+import { registerUp } from './up.ts';
 import type { Hap, Repl } from '@strudel/core';
 
 type Webaudio = typeof import('@strudel/webaudio');
@@ -217,6 +218,8 @@ export class StrudelEngine {
     } catch (e) {
       this.note = `Nicht alle Klangquellen konnten geladen werden (${(e as Error)?.message ?? e}). Manche Klänge fehlen oder klingen anders als auf strudel.cc.`;
     }
+    // Eigene Ergänzung zum Prebake: Paramlocks
+    registerUp(core);
     this.repl = repl;
     this.mod = mod;
   }

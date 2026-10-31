@@ -1,7 +1,7 @@
 // Liest die Effekte aus den JSDoc-Kommentaren von `@strudel/core/controls.mjs`, statt sie abzuschreiben,
 // dazu die Sample-Funktionen (`chop`, `fit` …) und die Rechenarten für Noten (`add`, `div` …) aus `@strudel/core/pattern.mjs`,
 // die Musterbefehle (`fast`, `struct`, `degradeBy`, `transpose`, `scale` …) aus `@strudel/core` und `@strudel/tonal`
-// und die Tonleitern für `scale` aus Tonal.js.
+// und die Tonleitern für `scale` aus Tonal.js (Namen und Intervalle).
 // Aufruf: npm run gen:effects (schreibt src/lib/domain/effects.generated.ts).
 // Der Test `effects.test.ts` prüft, dass die Datei zum installierten Strudel passt.
 import { readFileSync, realpathSync, writeFileSync } from 'node:fs';
@@ -269,16 +269,45 @@ export function extractPatternOps(taken, sources = PATTERN_SOURCES.map(([file, g
  * Namen mit Apostroph (`messiaen's mode #3`) kann die Mini-Notation nicht lesen. Alphabetisch.
  */
 export function extractScaleTypes() {
+  return Object.keys(extractScaleSteps()).sort((a, b) => a.localeCompare(b));
+}
+
+/** Liste `SCALES` aus `@tonaljs/scale-type`: je Intervalle (`1P 2M 3M …`) und Namen. */
+function tonalScales() {
   const tonal = createRequire(realpathSync(TONAL_PACKAGE)).resolve('@tonaljs/tonal/package.json');
   const scaleType = createRequire(tonal).resolve('@tonaljs/scale-type/package.json');
   const source = readFileSync(join(dirname(scaleType), 'dist', 'index.mjs'), 'utf8');
   const m = /const SCALES = (\[[\s\S]*?\n\]);/.exec(source);
   if (!m) throw new Error('Liste SCALES in @tonaljs/scale-type nicht gefunden');
-  const scales = JSON.parse(m[1].replace(/,(\s*\])/g, '$1'));
-  return scales
-    .map(([, name]) => name.replaceAll(' ', ':'))
-    .filter((name) => !name.includes("'"))
-    .sort((a, b) => a.localeCompare(b));
+  return JSON.parse(m[1].replace(/,(\s*\])/g, '$1'));
+}
+
+/**
+ * Halbtöne über dem Grundton je Stufe, für jede Tonleiter aus `extractScaleTypes` (`major` → 0 2 4 5 7 9 11).
+ * Damit rechnet eine relative Notenspur Noten in Stufen um und zurück, wie Strudels `scale` (`test:strudel` vergleicht).
+ */
+export function extractScaleSteps() {
+  const steps = {};
+  for (const [intervals, name] of tonalScales()) {
+    if (name.includes("'")) continue;
+    steps[name.replaceAll(' ', ':')] = intervals.split(' ').map(semitones);
+  }
+  return steps;
+}
+
+/** Halbtöne eines Intervalls in Tonals Schreibweise (`3M`, `5P`, `4A`, `7m`, `5d`). */
+function semitones(interval) {
+  const m = /^(\d+)(P|M|m|A+|d+)$/.exec(interval);
+  if (!m) throw new Error(`Unbekanntes Intervall «${interval}» in @tonaljs/scale-type`);
+  const num = Number(m[1]) - 1;
+  const step = num % 7;
+  const base = [0, 2, 4, 5, 7, 9, 11][step] + 12 * Math.floor(num / 7);
+  const q = m[2];
+  const perfect = step === 0 || step === 3 || step === 4;
+  if (q === 'P' || q === 'M') return base;
+  if (q === 'm') return base - 1;
+  if (q[0] === 'A') return base + q.length;
+  return base - q.length - (perfect ? 0 : 1);
 }
 
 /**
@@ -296,7 +325,7 @@ export function extractNoteOps(source = readFileSync(PATTERN, 'utf8')) {
   return numeral.filter((n) => docs.has(n)).map((n) => docs.get(n));
 }
 
-export function renderModule(effects, noteOps, samplerModes) {
+export function renderModule(effects, noteOps, samplerModes, scaleSteps) {
   return `// Erzeugt von scripts/strudel-effects.mjs aus @strudel/core, @strudel/tonal und Tonal.js. Nicht von Hand ändern: npm run gen:effects
 import type { EffectInfo } from './effects.ts';
 
@@ -305,12 +334,15 @@ export const EFFECTS: readonly EffectInfo[] = ${JSON.stringify(effects, null, 2)
 export const NOTE_OPS: readonly EffectInfo[] = ${JSON.stringify(noteOps, null, 2)};
 
 export const SAMPLER_MODES: readonly EffectInfo[] = ${JSON.stringify(samplerModes, null, 2)};
+
+/** Halbtöne über dem Grundton je Stufe, je Tonleiter (\`major\` → 0 2 4 5 7 9 11). */
+export const SCALE_STEPS: Readonly<Record<string, readonly number[]>> = ${JSON.stringify(scaleSteps)};
 `;
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const effects = extractEffects();
   const noteOps = extractNoteOps();
-  writeFileSync(OUTPUT, renderModule(effects, noteOps, extractSamplerModes()));
+  writeFileSync(OUTPUT, renderModule(effects, noteOps, extractSamplerModes(), extractScaleSteps()));
   console.log(`${effects.length} Effekte und Befehle, ${noteOps.length} Rechenarten für Noten nach ${OUTPUT}`);
 }

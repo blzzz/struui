@@ -1,10 +1,13 @@
 import { PAUSE, hasModifiers, hasSteps, joinsPrevious, label } from './types.ts';
 import type { Modifiers, Token, TrackType } from './types.ts';
 import { effectInfo } from './effects.ts';
+import { LOCKS } from './locks.ts';
 import type { Effect, LfoSeries, ModSeries, RandSeries, SliderRange } from './effects.ts';
 import { clampSlices } from './sampler.ts';
 import type { SamplerMode } from './sampler.ts';
 import { splitVariant } from './sounds.ts';
+import { DEFAULT_SCALE, scaleName } from './pitch.ts';
+import type { PitchMode, ScaleChoice } from './pitch.ts';
 import { tempoCode } from './tempo.ts';
 import type { TempoUnit } from './tempo.ts';
 
@@ -101,6 +104,8 @@ export interface CodeTrack {
   name?: string;
   /** Effekte ohne Wertsteine werden übersprungen, ausser solche ohne Wert (`.fit()`). */
   effects?: readonly Pick<Effect, 'name' | 'tokens' | 'slider' | 'rand' | 'mod' | 'lfo'>[];
+  /** Klangspur: Paramlocks nach den Effekten (`.up("…".as("…"))`). Ohne Steine (oder null) nicht im Code. */
+  locks?: { readonly params: readonly string[]; readonly tokens: readonly Token[] } | null;
   muted?: boolean;
   /** Lautstärke nach allen Effekten. Fehlt sie oder ist sie 1, steht nichts im Code. Nur bei Klangspuren. */
   volume?: number;
@@ -108,6 +113,10 @@ export interface CodeTrack {
   type?: TrackType;
   /** Notenspur: Rechenarten an der Mini-Notation (`note("c e".add(3))`). Ohne Wertsteine übersprungen. */
   noteOps?: readonly { name: string; tokens: readonly Token[]; slider?: SliderRange | null; rand?: RandSeries | null; mod?: ModSeries | null; lfo?: LfoSeries | null }[];
+  /** Notenspur: Notennamen (`note`) oder Stufen (`n(…).scale(…)`). Fehlt es, absolut. */
+  pitch?: PitchMode;
+  /** Relative Notenspur: die Tonleiter (`.scale("C4:major")` direkt nach `n(…)`). */
+  scale?: ScaleChoice | null;
   /** Notenspur: Klang der Noten (`.s("sine")`). Ohne Steine steht kein `.s()` im Code. */
   voice?: { readonly tokens: readonly Token[] } | null;
   /** Sampler-Spur: das Sample (`s("brk")`). Ohne Steine (oder null) steht die Spur nicht im Code. */
@@ -167,6 +176,14 @@ export function effectToCode(e: {
   const head = `.${e.name}("`;
   const { text, ranges } = trackToMiniWithRanges(e.tokens);
   return { text: `${head}${text}")`, ranges: shift(ranges, head.length) };
+}
+
+/** Paramlocks als Code (`.up("1 .5:4".as("velocity:n"))`), oder null ohne Steine. Immer Mini-Notation, die Steine leuchten. */
+export function locksToCode(l: { readonly params: readonly string[]; readonly tokens: readonly Token[] }): { text: string; ranges: TokenRange[] } | null {
+  if (l.tokens.length === 0 || l.params.length === 0) return null;
+  const head = `.${LOCKS}("`;
+  const { text, ranges } = trackToMiniWithRanges(l.tokens);
+  return { text: `${head}${text}".as("${l.params.join(':')}"))`, ranges: shift(ranges, head.length) };
 }
 
 /**
@@ -235,7 +252,8 @@ export function trackToCode(t: CodeTrack): { text: string; ranges: TokenRange[] 
   if (t.code != null) return { text: `${trackComment(t)}${t.code}${t.muted ? '.hush()' : ''}`, ranges: [] };
   if (t.type === 'sampler') return withTail(t, samplerHead(t));
   const { text: mini, ranges: local } = trackToMiniWithRanges(t.tokens);
-  let text = `${trackComment(t)}${t.type === 'note' ? 'note' : 's'}("`;
+  const relative = t.type === 'note' && t.pitch === 'relative';
+  let text = `${trackComment(t)}${t.type === 'note' ? (relative ? 'n' : 'note') : 's'}("`;
   const ranges = shift(local, text.length);
   text += `${mini}"`;
   // Rechenarten an der Mini-Notation, nicht nach note(…): dort wirkten sie nicht auf die Noten
@@ -246,6 +264,8 @@ export function trackToCode(t: CodeTrack): { text: string; ranges: TokenRange[] 
     text += fx.text;
   }
   text += ')';
+  // Stufen werden erst mit der Tonleiter zu Noten; Rechenarten davor rechnen in Stufen
+  if (relative) text += `.scale("${scaleName(t.scale ?? DEFAULT_SCALE)}")`;
   const voice = t.type === 'note' && t.voice ? effectToCode({ name: 's', tokens: t.voice.tokens }) : null;
   if (voice) {
     ranges.push(...shift(voice.ranges, text.length));
@@ -263,6 +283,12 @@ function withTail(t: CodeTrack, head: { text: string; ranges: TokenRange[] }): {
     if (!fx) continue;
     ranges.push(...shift(fx.ranges, text.length));
     text += fx.text;
+  }
+  // Nach den Effekten: die Locks überschreiben deren Werte Schritt für Schritt
+  const locked = t.type === undefined || t.type === 'sound' ? t.locks && locksToCode(t.locks) : null;
+  if (locked) {
+    ranges.push(...shift(locked.ranges, text.length));
+    text += locked.text;
   }
   if (t.type === 'midi') {
     // `.midi()` nach allen Werten: es liest die Werte, die alle Aufrufe davor gesetzt haben

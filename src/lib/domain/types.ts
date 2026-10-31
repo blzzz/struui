@@ -5,7 +5,11 @@
  */
 
 import type { Effect } from './effects.ts';
+import { locks } from './locks.ts';
+import type { Locks } from './locks.ts';
 import { DEFAULT_VOICE } from './notes.ts';
+import { DEFAULT_SCALE } from './pitch.ts';
+import type { PitchMode, ScaleChoice } from './pitch.ts';
 import { DEFAULT_SAMPLE, DEFAULT_SLICES } from './sampler.ts';
 import type { SamplerMode } from './sampler.ts';
 
@@ -97,6 +101,10 @@ export interface Track {
   tokens: Token[];
   /** Die Steine der anderen Inhaltsarten, damit sie beim Zurückwechseln wieder da sind. */
   parked: Partial<Record<TrackContent, Token[]>>;
+  /** Notenspur: Notennamen (`absolute`, `note("c e")`) oder Stufen der Tonleiter `scale` (`relative`, `n("0 2").scale("C4:major")`). */
+  pitch: PitchMode;
+  /** Relative Notenspur: die Tonleiter. Bei absoluten Notenspuren und anderen Spuren gespeichert, nicht im Code. */
+  scale: ScaleChoice;
   /** Notenspur: Rechenarten auf den Noten, in dieser Reihenfolge (`note("c e".add("<0 3>").div(2))`). Sonst gespeichert, nicht im Code. */
   noteOps: Effect[];
   /** Notenspur: womit die Noten klingen, als Wertreihe mit Klangnamen (`.s("sine")`). Bei anderen Spuren gespeichert, aber nicht im Code. */
@@ -109,6 +117,8 @@ export interface Track {
   slices: number;
   /** Effekte der ganzen Spur, in dieser Reihenfolge an den Code gehängt (`.lpf(800).room(0.5)`). */
   effects: Effect[];
+  /** Klangspur: Paramlocks nach den Effekten (`.up("1 .5:4".as("velocity:n"))`, siehe `locks.ts`). Ohne Steine nicht im Code. */
+  locks: Locks;
   /** Stumm geschaltet: steht weiter im Code, Strudel spielt sie aber nicht (`.hush()` am Ende). */
   muted: boolean;
   /** Lautstärke der Spur nach allen Effekten (`.postgain()`), 1 = unverändert und nicht im Code. Nicht bei MIDI-Spuren. */
@@ -172,12 +182,15 @@ export function track(tokens: Token[] = [], name = ''): Track {
     name,
     tokens,
     parked: {},
+    pitch: 'absolute',
+    scale: { ...DEFAULT_SCALE },
     noteOps: [],
     voice: effect('s', [soundToken(DEFAULT_VOICE)]),
     sample: effect('s', [soundToken(DEFAULT_SAMPLE)]),
     samplerMode: 'slice',
     slices: DEFAULT_SLICES,
     effects: [],
+    locks: locks(),
     muted: false,
     volume: 1,
     orbit: 1,

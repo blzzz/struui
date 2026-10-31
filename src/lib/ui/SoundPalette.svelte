@@ -588,6 +588,7 @@
     align-items: center;
     color: var(--mute);
     font-size: 13px;
+    justify-content: center;
   }
   /* Lange Namen (VCSL, Drum Machines): so breit wie der Text */
   .snd.long {

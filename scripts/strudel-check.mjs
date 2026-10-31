@@ -40,9 +40,12 @@ try {
   const effects = await server.ssrLoadModule('/src/lib/domain/effects.ts');
   // Nur die Tonleitern (transpose, scale), nicht voicings.mjs: das braucht chord-voicings, nur als CommonJS verpackt
   const tonal = await server.ssrLoadModule('@strudel/tonal/tonal.mjs');
+  const { registerUp } = await server.ssrLoadModule('/src/lib/audio/up.ts');
 
   await core.evalScope(core, mini, tonal);
   mini.miniAllStrings?.();
+  // Wie in der Engine nach dem Prebake
+  registerUp(core);
   // Funktionen, die sonst die Strudel-Oberfläche liefert
   globalThis.setcps = () => {};
   globalThis.setcpm = () => {};
@@ -307,6 +310,46 @@ try {
     console.log('ok: Rechenarten für Noten transponieren, Noten- und Wertsteine leuchten richtig');
   }
 
+  // Relative Notenspur: n("…").scale("…") klingt in jeder Tonleiter so, wie `degreeToNote` rechnet (auch negative Stufen,
+  // Runden durch die Tonleiter und Vorzeichen), Rechenarten zählen in Stufen, und jedes Ereignis trifft genau einen Notenstein.
+  {
+    const pitch = await server.ssrLoadModule('/src/lib/domain/pitch.ts');
+    const notes = await server.ssrLoadModule('/src/lib/domain/notes.ts');
+    const degrees = ['-8', '-1', '0', '1', '2', '4', '6', '7', '9', '13', '0#', '2b', '3##'];
+    let checked = 0;
+    for (const type of pitch.SCALE_TYPES) {
+      for (const scale of [{ root: 'Eb', octave: 3, type }, { root: 'F#', octave: 4, type }]) {
+        patterns.length = 0;
+        const stones = degrees.map((d) => snd(d));
+        const program = codegen.toStrudelProgram(
+          [{ tokens: stones, type: 'note', pitch: 'relative', scale, voice: { tokens: [snd('sine')] } }],
+          { cps: 0.5 },
+        );
+        await run(program.code);
+        const haps = patterns[0].queryArc(0, 1).sort((a, b) => a.whole.begin - b.whole.begin);
+        assert.equal(haps.length, degrees.length, `${type}: ${program.code}`);
+        haps.forEach((hap, i) => {
+          const want = notes.toMidi(pitch.degreeToNote(degrees[i], scale));
+          assert.equal(notes.toMidi(String(hap.value.note)), want, `${pitch.scaleName(scale)} Stufe ${degrees[i]}: Strudel ${hap.value.note}`);
+          const lit = hap.context.locations.flatMap((loc) => program.ranges.filter((r) => loc.start >= r.start && loc.start < r.end)).map((r) => r.tokenId);
+          assert.deepEqual(lit.filter((id) => stones.some((s) => s.id === id)), [stones[i].id], `${type}: Stein ${degrees[i]} leuchtet`);
+          checked += 1;
+        });
+      }
+    }
+    // Rechenarten an n(…) rechnen in Stufen: 0 2 plus 2 ist e und g in C-Dur
+    patterns.length = 0;
+    const program = codegen.toStrudelProgram(
+      [{ tokens: [snd('0'), snd('2')], type: 'note', pitch: 'relative', scale: pitch.DEFAULT_SCALE, noteOps: [types.effect('add', [snd('2')])] }],
+      { cps: 0.5 },
+    );
+    assert.match(program.code, /n\("0 2"\.add\(2\)\)\.scale\("C4:major"\)/, 'relative Spur im Code');
+    await run(program.code);
+    const added = patterns[0].queryArc(0, 1).sort((a, b) => a.whole.begin - b.whole.begin).map((h) => notes.toMidi(String(h.value.note)));
+    assert.deepEqual(added, [64, 67], 'add zählt in Stufen');
+    console.log(`ok: relative Notenspuren klingen wie berechnet (${checked} Stufen in ${pitch.SCALE_TYPES.length} Tonleitern), Notensteine leuchten`);
+  }
+
   // Sample-Funktionen: s("brk").fit().chop(2).scrub("<0 .5>") läuft, scrub setzt begin, und seine Wertsteine leuchten
   {
     patterns.length = 0;
@@ -524,6 +567,37 @@ try {
     await run(codegen.toArrangedProgram([{ id: 'A', variable: 'A', tracks: [{ tokens: a }] }], [], { cps: 0.5 }).code);
     assert.equal(patterns[0].queryArc(0, 1).length, 0, 'leeres Arrangement schweigt');
     console.log('ok: Arrangement spielt Szenen nacheinander (arrange), nur die angezeigte Szene leuchtet');
+  }
+
+  // Paramlocks: up(…as(…)) nach den Effekten überschreibt nur die gesetzten Werte und gibt den Rhythmus vor
+  // (Pause = kein Ereignis). Der Lock-Stein, der ein Ereignis auslöst, leuchtet mit dem Klangstein.
+  {
+    patterns.length = 0;
+    const { locks } = await server.ssrLoadModule('/src/lib/domain/locks.ts');
+    const steps = [snd('1'), snd('.5'), snd('~'), snd('.7:4:sd')];
+    const kick = snd('bd');
+    const program = codegen.toStrudelProgram(
+      [{ tokens: [kick], effects: [types.effect('room', [snd('.1')])], locks: locks(['velocity', 'n', 's'], steps) }],
+      { cps: 0.5 },
+    );
+    assert.match(program.code, /s\("bd"\)\.room\(0\.1\)\.up\("1 \.5 ~ \.7:4:sd"\.as\("velocity:n:s"\)\)/);
+    await run(program.code);
+    const haps = patterns[0].queryArc(0, 1);
+    assert.deepEqual(
+      haps.map((h) => h.value),
+      [
+        { s: 'bd', room: 0.1, velocity: 1 },
+        { s: 'bd', room: 0.1, velocity: 0.5 },
+        { s: 'sd', n: 4, room: 0.1, velocity: 0.7 },
+      ],
+    );
+    [steps[0], steps[1], steps[3]].forEach((step, i) => {
+      const ids = (haps[i].context.locations ?? []).flatMap((loc) => program.ranges.filter((r) => loc.start >= r.start && loc.start < r.end).map((r) => r.tokenId));
+      assert.ok(ids.includes(step.id) && ids.includes(kick.id), `Lock-Stein ${i} leuchtet nicht mit dem Klang`);
+    });
+    const back = fromCode.codeToTrack(program.code.split('\n').at(-2).trim());
+    assert.ok(back.ok && back.locks?.params.join(':') === 'velocity:n:s');
+    console.log('ok: Paramlocks (up mit as) setzen Werte und Rhythmus, Lock- und Klangsteine leuchten, Rückweg liest sie');
   }
 
   // Zufallsabgleich: Der eigene Klammer-Parser muss dieselben Spuren akzeptieren wie Strudels Grammatik.

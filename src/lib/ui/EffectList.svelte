@@ -1,61 +1,32 @@
 <script lang="ts">
   import { flip } from "svelte/animate";
-  import {
-    searchEffects,
-    searchNoteOps,
-    singleValue,
-    valueInfo,
-  } from "../domain/effects.ts";
-  import type { EffectInfo } from "../domain/effects.ts";
+  import { singleValue, valueInfo } from "../domain/effects.ts";
   import { project } from "../state/project.svelte.ts";
   import type { RowKind } from "../state/project.svelte.ts";
   import { session } from "../state/session.svelte.ts";
   import { reorder } from "../interaction/reorder.ts";
   import EffectBox from "./EffectBox.svelte";
-  import { GROUP_LABELS, PARSE_MESSAGES } from "./messages.ts";
+  import LocksBox from "./LocksBox.svelte";
+  import { PARSE_MESSAGES } from "./messages.ts";
   import type { Track } from "../domain/types.ts";
 
   /**
    * Effekte einer Spur: eine kleine Box pro Effekt (Titel mittig, darunter Drehknopf oder die Wertsteine, dann der Modus, siehe `EffectBox`),
-   * von links nach rechts umbrechend, darunter ein Suchfeld zum Hinzufügen. Ziehen am Titel verschiebt eine Box
+   * von links nach rechts umbrechend, am Ende ein Plus zum Hinzufügen (öffnet `EffectPicker`). Ziehen am Titel verschiebt eine Box
    * (die Reihenfolge ist die im Code). Wertsteine verhalten sich wie Klangsteine (Tippen, Ziehen, Klammern, Zufall, Wiederholung).
    * `kind = 'noteOps'`: dieselbe Liste für die Rechenarten einer Notenspur (`add`, `div` …), direkt nach den Noten.
    * Antippen markiert eine Box (blauer Rand), Delete oder Backspace entfernt sie.
    * Die Boxen brechen um, sie werden nie verkleinert (anders als die Klangreihen).
+   * Paramlocks einer Klangspur stehen fest darunter, wie im Code nach den Effekten (neue Effekte kommen davor).
    */
   let { track, kind = "effects" }: { track: Track; kind?: RowKind } = $props();
   const ops = $derived(kind === "noteOps");
+  /** Paramlocks: in jeder Klangspur, auch leer (dann nicht im Code). */
+  const showLocks = $derived(kind === "effects" && track.type === "sound");
 
-  let query = $state("");
-  let open = $state(false);
-  let active = $state(0);
-  let search = $state<HTMLElement>();
-
-  // Schliessen beim Tippen ausserhalb statt beim Blur: iOS nimmt dem Feld den Fokus vor dem Klick auf eine Option,
-  // die Liste verschwände sonst, bevor der Klick ankommt.
-  $effect(() => {
-    if (!open) return;
-    const onDown = (e: PointerEvent) => {
-      if (!search?.contains(e.target as Node)) open = false;
-    };
-    document.addEventListener("pointerdown", onDown);
-    return () => document.removeEventListener("pointerdown", onDown);
-  });
-
-  const listId = $derived(`${kind}-list-${track.id}`);
-  const options = $derived(
-    ops ? searchNoteOps(query) : searchEffects(query, track.type),
+  const addLabel = $derived(
+    ops ? "Mit Noten rechnen (add, div …)" : "Effekt oder Befehl hinzufügen",
   );
-  const placeholder = $derived(
-    ops ? "Mit Noten rechnen (add, div …)" : "Effekt oder Befehl hinzufügen …",
-  );
-
-  function pick(info: EffectInfo) {
-    project.addEffect(track.id, info.name, kind);
-    query = "";
-    open = false;
-    active = 0;
-  }
 
   let boxes = $state<HTMLElement>();
 
@@ -108,24 +79,6 @@
     );
   }
 
-  function onKeydown(e: KeyboardEvent) {
-    if (e.key === "ArrowDown") {
-      e.preventDefault();
-      open = true;
-      active = Math.min(active + 1, options.length - 1);
-    } else if (e.key === "ArrowUp") {
-      e.preventDefault();
-      active = Math.max(active - 1, 0);
-    } else if (e.key === "Enter") {
-      if (open && options[active]) {
-        e.preventDefault();
-        pick(options[active]);
-      }
-    } else if (e.key === "Escape") {
-      if (open) open = false;
-      else query = "";
-    }
-  }
 
   const messages = (effectId: string) => [
     ...new Set(
@@ -135,120 +88,73 @@
 </script>
 
 <div class="effects">
-  {#if track[kind].length > 0}
-    <div class="boxes" bind:this={boxes}>
-      {#each track[kind] as fx, i (fx.id)}
-        {@const info = valueInfo(fx.name)}
-        {@const errors = messages(fx.id)}
-        <!-- Antippen oder Fokus markiert die Box; mit der Tastatur über den Titel (Griff) erreichbar -->
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <div
-          class="box"
-          class:off={fx.tokens.length === 0 && !fx.rand && !fx.mod && !fx.lfo && !info?.noValue}
-          class:bad={errors.length > 0}
-          class:selected={selected === fx.id}
-          class:wide={!fx.rand && !fx.mod && !fx.lfo &&
-            (session.mini.has(fx.id) ||
-              (fx.tokens.length > 0 && singleValue(fx.tokens) === null))}
-          class:before={hint === i}
-          class:after={hint === i + 1 && i === track[kind].length - 1}
-          data-effect-id={fx.id}
-          animate:flip={{ duration: 150 }}
-          onpointerdown={() => (session.selectedEffect = fx.id)}
-          onfocusin={() => (session.selectedEffect = fx.id)}
-        >
-          <EffectBox {fx}>
-            <div class="head">
-              <!-- Griff: Ziehen verschiebt die Box, mit der Tastatur Pfeil links/rechts -->
-              <span
-                class="name"
-                role="button"
-                tabindex="0"
-                title={info
-                  ? `${info.description}${info.hint ? ` (${info.hint})` : ""}`
-                  : undefined}
-                aria-label={`${fx.name} verschieben (Pfeil links/rechts)`}
-                onkeydown={(e) => onHandleKey(e, fx.id, i)}
-                {@attach reorder(() => ({
-                  item: () =>
-                    boxes?.querySelector<HTMLElement>(
-                      `[data-effect-id="${fx.id}"]`,
-                    ) ?? null,
-                  items: () => [
-                    ...(boxes?.querySelectorAll<HTMLElement>(":scope > .box") ??
-                      []),
-                  ],
-                  onHint: (index) => (hint = index),
-                  onDrop: (index) =>
-                    project.moveEffect(track.id, fx.id, index, kind),
-                }))}>{fx.name}</span
-              >
-            </div>
-          </EffectBox>
-          {#if errors.length > 0}
-            <p class="error">{errors.join(" ")} Dieser Effekt ist aus.</p>
-          {/if}
-        </div>
-      {/each}
-    </div>
-  {/if}
-
-  <div class="search" bind:this={search}>
-    <input
-      type="text"
-      role="combobox"
-      {placeholder}
-      aria-label={placeholder}
-      aria-autocomplete="list"
-      aria-expanded={open && options.length > 0}
-      aria-controls={listId}
-      aria-activedescendant={open && options[active]
-        ? `${listId}-${active}`
-        : undefined}
-      spellcheck="false"
-      autocomplete="off"
-      autocapitalize="off"
-      bind:value={query}
-      oninput={() => {
-        open = true;
-        active = 0;
-      }}
-      onfocus={() => (open = true)}
-      onblur={(e) => {
-        // Fokus wandert zu einem anderen Element (Tab); beim Tippen in die Liste ist relatedTarget leer
-        if (e.relatedTarget) open = false;
-      }}
-      onkeydown={onKeydown}
-    />
-    {#if open && options.length > 0}
-      <ul
-        id={listId}
-        role="listbox"
-        aria-label={ops ? "Rechenarten" : "Effekte"}
+  <div class="boxes" bind:this={boxes}>
+    {#each track[kind] as fx, i (fx.id)}
+      {@const info = valueInfo(fx.name)}
+      {@const errors = messages(fx.id)}
+      <!-- Antippen oder Fokus markiert die Box; mit der Tastatur über den Titel (Griff) erreichbar -->
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div
+        class="box"
+        class:off={fx.tokens.length === 0 && !fx.rand && !fx.mod && !fx.lfo && !info?.noValue}
+        class:bad={errors.length > 0}
+        class:selected={selected === fx.id}
+        class:wide={!fx.rand && !fx.mod && !fx.lfo &&
+          (session.mini.has(fx.id) ||
+            (fx.tokens.length > 0 && singleValue(fx.tokens) === null))}
+        class:before={hint === i}
+        class:after={hint === i + 1 && i === track[kind].length - 1}
+        data-effect-id={fx.id}
+        animate:flip={{ duration: 150 }}
+        onpointerdown={() => (session.selectedEffect = fx.id)}
+        onfocusin={() => (session.selectedEffect = fx.id)}
       >
-        {#each options as info, i (info.name)}
-          {@const extra = [GROUP_LABELS[info.group], info.synonyms.join(", ")]
-            .filter(Boolean)
-            .join(" · ")}
-          <!-- Tastatur bedient das Suchfeld (Pfeile, Enter), die Optionen bekommen keinen Fokus -->
-          <!-- svelte-ignore a11y_click_events_have_key_events -->
-          <li
-            id={`${listId}-${i}`}
-            role="option"
-            aria-selected={i === active}
-            class:active={i === active}
-            onpointerdown={(e) => e.preventDefault()}
-            onpointerenter={() => (active = i)}
-            onclick={() => pick(info)}
-          >
-            <span class="opt-name">{info.name}</span>
-            {#if extra}<span class="syn">{extra}</span>{/if}
-            <span class="opt-desc">{info.description}</span>
-          </li>
-        {/each}
-      </ul>
-    {/if}
+        <EffectBox {fx}>
+          <div class="head">
+            <!-- Griff: Ziehen verschiebt die Box, mit der Tastatur Pfeil links/rechts -->
+            <span
+              class="name"
+              role="button"
+              tabindex="0"
+              title={info
+                ? `${info.description}${info.hint ? ` (${info.hint})` : ""}`
+                : undefined}
+              aria-label={`${fx.name} verschieben (Pfeil links/rechts)`}
+              onkeydown={(e) => onHandleKey(e, fx.id, i)}
+              {@attach reorder(() => ({
+                item: () =>
+                  boxes?.querySelector<HTMLElement>(
+                    `[data-effect-id="${fx.id}"]`,
+                  ) ?? null,
+                items: () => [
+                  ...(boxes?.querySelectorAll<HTMLElement>(":scope > .box") ??
+                    []),
+                ],
+                onHint: (index) => (hint = index),
+                onDrop: (index) =>
+                  project.moveEffect(track.id, fx.id, index, kind),
+              }))}>{fx.name}</span
+            >
+          </div>
+        </EffectBox>
+        {#if errors.length > 0}
+          <p class="error">{errors.join(" ")} Dieser Effekt ist aus.</p>
+        {/if}
+      </div>
+    {/each}
+    <button
+      class="add"
+      aria-label={addLabel}
+      title={addLabel}
+      aria-haspopup="dialog"
+      onclick={() => (session.effectPicker = { trackId: track.id, kind })}
+    >
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10" /></svg>
+    </button>
   </div>
+  {#if showLocks}
+    <LocksBox {track} />
+  {/if}
 </div>
 
 <style>
@@ -349,72 +255,27 @@
     font-size: 11px;
     color: var(--red);
   }
-  input {
-    width: 100%;
-    min-width: 0;
-    padding: 5px 8px;
-    border: 1.5px solid var(--line);
-    border-radius: 6px;
-    background: transparent;
-    color: var(--ink);
-    /* 16px verhindert das automatische Zoomen auf iOS */
-    font:
-      16px ui-monospace,
-      SFMono-Regular,
-      Menlo,
-      Consolas,
-      monospace;
-  }
-  input:focus {
-    outline: none;
-    border-color: var(--blue);
-  }
-  .search {
-    position: relative;
-    max-width: 420px;
-  }
-  .search input {
-    border-style: dashed;
-  }
-  ul {
-    position: absolute;
-    z-index: 15;
-    top: calc(100% + 4px);
-    left: 0;
-    right: 0;
-    max-height: 320px;
-    overflow-y: auto;
-    margin: 0;
-    padding: 4px;
-    list-style: none;
-    background: var(--panel);
-    border: 1.5px solid var(--line);
-    border-radius: 8px;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
-  }
-  li {
+  /* Plus am Ende: so hoch wie die Boxen seiner Zeile (allein wie eine Box mit Knopf), schmaler */
+  .add {
+    align-self: stretch;
+    width: 40px;
+    min-height: 96px;
+    padding: 0;
     display: grid;
-    grid-template-columns: auto 1fr;
-    column-gap: 8px;
-    padding: 6px 8px;
-    border-radius: 6px;
-    cursor: pointer;
-  }
-  li.active {
-    background: color-mix(in srgb, var(--blue) 18%, transparent);
-  }
-  .opt-name {
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    font-weight: 600;
-  }
-  .syn {
+    place-items: center;
+    border: 1.5px dashed var(--line);
+    border-radius: 8px;
     color: var(--mute);
-    font-size: 12px;
-    align-self: center;
   }
-  .opt-desc {
-    grid-column: 1 / -1;
-    color: var(--mute);
-    font-size: 12px;
+  .add:hover {
+    border-color: var(--ink);
+    color: var(--ink);
+  }
+  .add svg {
+    width: 18px;
+    height: 18px;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
   }
 </style>

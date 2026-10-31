@@ -6,7 +6,11 @@ import { defaultValue, effectInfo, noteOpInfo, singleValue, valueInfo } from '..
 import type { Effect, EffectInfo, LfoSeries, ModSeries, RandSeries, SliderRange } from '../domain/effects.ts';
 import { DEFAULT_SAMPLE, clampSlices, convertValue, samplerInfo, startValues, takesSpeed } from '../domain/sampler.ts';
 import type { SamplerMode } from '../domain/sampler.ts';
+import { addLockParam, lockDefault, lockParts, removeLockParam, renameLockParam, setLockPart } from '../domain/locks.ts';
+import type { Locks } from '../domain/locks.ts';
 import { DEFAULT_VOICE } from '../domain/notes.ts';
+import { convertPitches } from '../domain/pitch.ts';
+import type { PitchMode, ScaleChoice } from '../domain/pitch.ts';
 import type { ParseResult } from '../domain/parse.ts';
 import type { TempoUnit } from '../domain/tempo.ts';
 import { DEFAULT_BANG, DEFAULT_RANDOM, DEFAULT_STAR } from '../domain/scales.ts';
@@ -36,6 +40,8 @@ import { session } from './session.svelte.ts';
 
 /** Erste Note einer neuen Notenspur und des + in einer leeren Notenreihe. */
 const FIRST_NOTE = 'c';
+/** Erster Stein einer relativen Notenspur: der Grundton. */
+const FIRST_DEGREE = '0';
 
 export type PlaceMode = 'replace' | 'insert';
 
@@ -64,7 +70,8 @@ export type LaneContent = TrackContent;
 
 /**
  * Eine Steinreihe: die Klänge, Noten oder (Sampler-Spur) Werte einer Spur (ID der Spur), der Klang einer Notenspur
- * (ID von `track.voice`), das Sample einer Sampler-Spur (ID von `track.sample`) oder die Werte eines Effekts (ID des Effekts).
+ * (ID von `track.voice`), das Sample einer Sampler-Spur (ID von `track.sample`), die Paramlocks einer Klangspur
+ * (ID von `track.locks`) oder die Werte eines Effekts (ID des Effekts).
  * Alle bearbeiten sich gleich; nur was auf den Steinen steht, unterscheidet sich.
  */
 export interface Lane {
@@ -75,6 +82,8 @@ export interface Lane {
   content: LaneContent;
   /** Bei Werten: Beschreibung und Beispielwerte (Effekt, Rechenart oder Sampler-Art), sonst null. */
   info: EffectInfo | null;
+  /** Die Paramlocks der Spur, wenn die Reihe ihre ist: Werte aus Teilen, je Parameter einer. Sonst null. */
+  locks: Locks | null;
 }
 
 /** Tempo beim Start und in einem neuen Pattern (Zyklen pro Sekunde). */
@@ -115,6 +124,8 @@ export function codeTracksOf(
     muted: t.muted || (soloing && !solo.has(t.id)),
     volume: t.volume,
     type: t.type,
+    pitch: t.pitch,
+    scale: t.scale,
     orbit: t.orbit,
     channel: t.channel,
     port: t.port,
@@ -124,6 +135,7 @@ export function codeTracksOf(
     slices: t.slices,
     noteOps: t.noteOps.filter((o) => ok(o.id)),
     effects: t.effects.filter((e) => ok(e.id)),
+    locks: ok(t.locks.id) ? t.locks : null,
     code: t.code,
   }));
 }
@@ -144,6 +156,7 @@ class Project {
         [t.id, analyze(t.tokens)] as const,
         [t.voice.id, analyze(t.voice.tokens)] as const,
         [t.sample.id, analyze(t.sample.tokens)] as const,
+        [t.locks.id, analyze(t.locks.tokens)] as const,
         ...t.noteOps.map((o) => [o.id, analyze(o.tokens)] as const),
         ...t.effects.map((e) => [e.id, analyze(e.tokens)] as const),
       ]),
@@ -203,12 +216,13 @@ class Project {
     for (const t of this.tracks) {
       if (t.id === laneId) {
         const info = t.type === 'sampler' ? samplerInfo(t.samplerMode, t.slices) : null;
-        return { tokens: t.tokens, track: t, effect: null, content: contentOf(t.type), info };
+        return { tokens: t.tokens, track: t, effect: null, content: contentOf(t.type), info, locks: null };
       }
-      if (t.voice.id === laneId) return { tokens: t.voice.tokens, track: t, effect: t.voice, content: 'sounds', info: null };
-      if (t.sample.id === laneId) return { tokens: t.sample.tokens, track: t, effect: t.sample, content: 'sounds', info: null };
+      if (t.voice.id === laneId) return { tokens: t.voice.tokens, track: t, effect: t.voice, content: 'sounds', info: null, locks: null };
+      if (t.sample.id === laneId) return { tokens: t.sample.tokens, track: t, effect: t.sample, content: 'sounds', info: null, locks: null };
+      if (t.locks.id === laneId) return { tokens: t.locks.tokens, track: t, effect: t.locks, content: 'values', info: null, locks: t.locks };
       const e = t.effects.find((x) => x.id === laneId) ?? t.noteOps.find((x) => x.id === laneId);
-      if (e) return { tokens: e.tokens, track: t, effect: e, content: 'values', info: valueInfo(e.name) ?? null };
+      if (e) return { tokens: e.tokens, track: t, effect: e, content: 'values', info: valueInfo(e.name) ?? null, locks: null };
     }
     return null;
   }
@@ -220,6 +234,12 @@ class Project {
   valueLists(laneId: string): boolean {
     const lane = this.lane(laneId);
     return lane?.content === 'values' && !!lane.info && (takesSpeed(lane.info.name) || !!lane.info.parts);
+  }
+
+  /** Liegen auf der Reihe Stufen einer Tonleiter (relative Notenspur) statt Notennamen? */
+  relative(laneId: string): boolean {
+    const lane = this.lane(laneId);
+    return lane?.content === 'notes' && lane.track.pitch === 'relative';
   }
 
   /** Inhalt einer Reihe, null wenn es sie nicht gibt. Paletten legen nur in passende Reihen ab. */
@@ -247,7 +267,7 @@ class Project {
 
   /** Steine einer Spur, die zum ersten Mal diesen Inhalt bekommt. */
   private startTokens(t: Track): Token[] {
-    if (t.type === 'note') return [soundToken(FIRST_NOTE)];
+    if (t.type === 'note') return [soundToken(t.pitch === 'relative' ? FIRST_DEGREE : FIRST_NOTE)];
     if (t.type === 'sampler') return startValues(t.samplerMode).map((v) => soundToken(v));
     return [];
   }
@@ -317,6 +337,16 @@ class Project {
       t.voice.tokens = line.voice.tokens;
     } else if (line.type === 'note') {
       t.voice.tokens = [];
+    }
+    // Paramlocks stehen nur bei Klangspuren im Code; ohne `.up()` ist die Reihe leer, die Parameter bleiben
+    if (line.type === 'sound') {
+      adoptIds(t.locks.tokens, line.locks?.tokens ?? []);
+      t.locks.tokens = line.locks?.tokens ?? [];
+      if (line.locks) t.locks.params = line.locks.params;
+    }
+    if (line.type === 'note') {
+      t.pitch = line.pitch;
+      if (line.scale) t.scale = line.scale;
     }
     // Was die andere Art von Spur einstellt, bleibt für das Zurückwechseln erhalten
     if (line.type !== 'midi') {
@@ -406,6 +436,24 @@ class Project {
   }
 
   /**
+   * Notenspur: Notennamen (`absolute`) oder Stufen der Tonleiter (`relative`). Die Steine werden umgerechnet, die Melodie bleibt
+   * gleich (Noten zwischen zwei Stufen bekommen ein `#`, siehe `noteToDegree`). Die Rechenarten bleiben, wie sie sind:
+   * relativ rechnen sie in Stufen statt Halbtönen.
+   */
+  setPitch(trackId: string, pitch: PitchMode): void {
+    const t = this.find(trackId);
+    if (!t || t.pitch === pitch) return;
+    t.tokens = convertPitches(t.tokens, pitch, t.scale);
+    t.pitch = pitch;
+  }
+
+  /** Tonleiter einer relativen Notenspur. Die Stufen bleiben, die Melodie folgt der neuen Tonleiter. */
+  setScale(trackId: string, scale: Partial<ScaleChoice>): void {
+    const t = this.find(trackId);
+    if (t) t.scale = { ...t.scale, ...scale };
+  }
+
+  /**
    * Sampler-Spur: Positionen (`scrub`) oder Abschnitte (`slice`). Die Steine bleiben; nur Werte, die in der neuen Art keinen
    * Sinn ergeben, werden umgerechnet: Abschnitt 2 von 8 wird Position 0.25 und umgekehrt (auf den nächsten Abschnitt gerundet).
    */
@@ -460,6 +508,7 @@ class Project {
     t.effects = [];
     t.voice = fresh.voice;
     t.sample = fresh.sample;
+    t.locks = fresh.locks;
     t.samplerMode = fresh.samplerMode;
     t.slices = fresh.slices;
     t.tokens = this.startTokens(t);
@@ -647,7 +696,8 @@ class Project {
     const lane = this.lane(laneId);
     if (!lane || lane.content !== 'notes') return null;
     const last = [...lane.tokens].reverse().find((t) => t.kind === 'sound' && t.sound !== PAUSE);
-    const token = soundToken(last?.kind === 'sound' ? last.sound : FIRST_NOTE);
+    const first = lane.track.pitch === 'relative' ? FIRST_DEGREE : FIRST_NOTE;
+    const token = soundToken(last?.kind === 'sound' ? last.sound : first);
     lane.tokens.push(token);
     return token.id;
   }
@@ -657,7 +707,8 @@ class Project {
     const lane = this.lane(laneId);
     if (!lane || lane.content !== 'values') return null;
     const last = [...lane.tokens].reverse().find((t) => t.kind === 'sound' && t.sound !== PAUSE);
-    const token = soundToken(last?.kind === 'sound' ? last.sound : ((lane.info && defaultValue(lane.info)) ?? '0'));
+    const start = lane.locks ? lockDefault(lane.locks.params[0]) : ((lane.info && defaultValue(lane.info)) ?? '0');
+    const token = soundToken(last?.kind === 'sound' ? last.sound : start);
     lane.tokens.push(token);
     return token.id;
   }
@@ -668,6 +719,40 @@ class Project {
     if (t?.kind === 'sound') t.sound = value;
   }
 
+  /**
+   * Paramlocks: Teil `index` eines Werts setzen (`setLockPart`). Leer geht nur für hintere Teile.
+   * Gibt false zurück, wenn der Wert so nicht geht; dann bleibt er.
+   */
+  setLockPart(laneId: string, tokenId: string, index: number, part: string): boolean {
+    const lane = this.lane(laneId);
+    const t = lane?.tokens.find((x) => x.id === tokenId);
+    if (!lane?.locks || t?.kind !== 'sound') return false;
+    const next = setLockPart(t.sound, index, part, lane.locks.params);
+    if (next === null) return false;
+    t.sound = next;
+    return true;
+  }
+
+  /** Teile eines Werts der Paramlocks, je Parameter einer (leer = nicht gesperrt). */
+  lockPartsOf(laneId: string, value: string): string[] {
+    const l = this.lane(laneId)?.locks;
+    return l ? lockParts(value, l.params.length) : [value];
+  }
+
+  /** Paramlocks: Parameter anfügen, entfernen (samt Teil in jedem Wert) oder ersetzen. */
+  addLockParam(trackId: string, name: string): void {
+    const t = this.find(trackId);
+    if (t && !t.locks.params.includes(name)) addLockParam(t.locks, name);
+  }
+  removeLockParam(trackId: string, index: number): void {
+    const t = this.find(trackId);
+    if (t) removeLockParam(t.locks, index);
+  }
+  renameLockParam(trackId: string, index: number, name: string): void {
+    const t = this.find(trackId);
+    if (t && !t.locks.params.includes(name)) renameLockParam(t.locks, index, name);
+  }
+
   /** Verschieben, auch in eine andere Reihe derselben Art (Klänge zu Klängen, Noten zu Noten, Werte zu Werten). */
   move(fromLaneId: string, tokenId: string, toLaneId: string, toIndex: number): void {
     const from = this.lane(fromLaneId);
@@ -675,6 +760,10 @@ class Project {
     const fromIndex = this.indexOf(fromLaneId, tokenId);
     if (!from || !to || fromIndex < 0) return;
     if (from.content !== to.content) return;
+    // Werte aus Teilen gehören zu ihren Parametern
+    if (from.locks !== to.locks) return;
+    // Notennamen und Stufen bedeuten Verschiedenes
+    if (this.relative(fromLaneId) !== this.relative(toLaneId)) return;
     moveToken(from.tokens, fromIndex, to.tokens, toIndex);
   }
 

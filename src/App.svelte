@@ -5,6 +5,7 @@
   import SceneDock from "./lib/ui/SceneDock.svelte";
   import HelpDialog from "./lib/ui/HelpDialog.svelte";
   import PatternDialog from "./lib/ui/PatternDialog.svelte";
+  import EffectPicker from "./lib/ui/EffectPicker.svelte";
   import ValueSheet from "./lib/ui/ValueSheet.svelte";
   import TopBar from "./lib/ui/TopBar.svelte";
   import Board from "./lib/ui/Board.svelte";
@@ -84,6 +85,7 @@
 <ValueSheet />
 <HelpDialog />
 <PatternDialog />
+<EffectPicker />
 
 <style>
   main {

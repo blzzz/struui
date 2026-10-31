@@ -1,7 +1,7 @@
 import type { Attachment } from 'svelte/attachments';
 
 export interface SplitDragOptions {
-  /** Nur dann zieht die Geste (senkrechter Strich); sonst bleibt alles beim Klick. */
+  /** Nur dann zieht die Geste (Effekte daneben); sonst bleibt alles beim Klick. */
   active(): boolean;
   /** Die Hülle mit beiden Seiten und dem Trenner dazwischen. */
   container(): HTMLElement | null;
@@ -15,9 +15,9 @@ const THRESHOLD = 4;
 const MIN = 0.15;
 
 /**
- * Ziehen am Trenner (Strich oder Knopf darauf) teilt den Platz zwischen linker und rechter Seite neu auf.
+ * Ziehen am Trenner (linker Rand des Effekt-Containers) teilt den Platz zwischen linker und rechter Seite neu auf.
  * Mit Seitenverhältnissen der Bildschirmlage, die Verkleinerung der Arbeitsfläche (`scale`) spielt so keine Rolle.
- * Nach einem Ziehen wird der folgende Klick verschluckt, damit der Knopf auf dem Strich nicht umschaltet.
+ * Nach einem Ziehen wird der folgende Klick verschluckt, damit darunter nichts umschaltet.
  * Wie die anderen Gesten hört sie nach dem Drücken am ganzen Fenster zu und endet bei `pointercancel` oder `Escape`.
  */
 export function splitDrag(get: () => SplitDragOptions): Attachment<HTMLElement> {
@@ -72,7 +72,7 @@ export function splitDrag(get: () => SplitDragOptions): Attachment<HTMLElement> 
     };
 
     handle.addEventListener('pointerdown', onDown);
-    // In der Einfangphase, damit der Klick den Knopf auf dem Strich nach einem Ziehen nicht erreicht
+    // In der Einfangphase, damit der Klick das Element darunter nach einem Ziehen nicht erreicht
     handle.addEventListener('click', onClick, true);
     return () => {
       handle.removeEventListener('pointerdown', onDown);

@@ -35,6 +35,7 @@
   import { dragNumber } from "../interaction/drag-number.ts";
   import EffectKnob from "./EffectKnob.svelte";
   import Lane from "./Lane.svelte";
+  import LaneToggles from "./LaneToggles.svelte";
 
   /**
    * Inhalt einer Effekt-Box unter dem Titel: ein grosser Drehknopf für eine einzelne Zahl (`EffectKnob`, ein Klick
@@ -46,7 +47,8 @@
    * allein; bis dahin blass mit dem Vorschlag aus den Beispielwerten. «Zufall» (`RandSeries`): min, max, Segmente, ribbon
    * (an/aus) und Zyklen, der Knopf (beschriftet «Offset») blättert durch den Offset (`#12`, ohne ribbon «frei»; Drehen schaltet ribbon ein). «Welle» (`ModSeries`): Welle, min, max und Segmente, der Knopf
    * (beschriftet «Dauer (Zyklen)») stellt die Dauer einer Periode in Zyklen ein (`↻4`, rastet bei `SLOWS` ein). «LFO» (`LfoSeries`):
-   * Welle, Tiefe (±), Dauer, Phase und Segmente, der Knopf (beschriftet «Mitte») dreht den Wert, um den der LFO schwingt, wie im Modus «Wert». «Notation»: die Wertsteine (`session.mini`), ohne Zusatzfelder.
+   * Welle, Mitte (der Wert, um den er schwingt), Dauer, Phase und Segmente, der Knopf (beschriftet «Tiefe») dreht den Ausschlag
+   * von 0 bis zur halben Breite des Bereichs (`depthSpan`). «Notation»: die Wertsteine (`session.mini`), ohne Zusatzfelder.
    * Ist der Wert mehr als ein einzelner Stein, bleibt nur «Notation» (oder «Zufall»), bis nur noch einer übrig ist
    * (nichts geht verloren). Ohne Bereich liefern Strudels Beispielwerte die Skala des Knopfs (`valueScale`, als Marken
    * am Ring); eingetippt gehen auch Werte ausserhalb.
@@ -169,7 +171,7 @@
   const PHASE_DRAG: Drag = { step: 0.05, min: 0, px: 6 };
 
   function onLfoField(
-    key: "depth" | "segments" | "slow" | "phase",
+    key: "center" | "segments" | "slow" | "phase",
     input: string,
   ) {
     const text = normalize(input);
@@ -190,12 +192,20 @@
     project.setEffectLfo(fx.id, next);
   }
 
-  /** Stellung des Knopfs beim LFO: die Mitte, gemessen wie im Modus «Wert». */
-  const lfoPosition = $derived.by(() => {
-    if (!lfo) return 0;
-    if (range) return toRange(lfo.center, range);
-    return scale.kind === "number" ? toSlider(lfo.center, scale.stops) : 0;
-  });
+  /** Bereich des Werts beim LFO (eingestellt oder aus den Beispielwerten, samt Mitte): der Knopf reicht bis zur halben Breite. */
+  const lfoRange = $derived(range ?? suggestSliderRange(info, shownLfo.center));
+  const depthSpan = $derived((lfoRange.max - lfoRange.min) / 2);
+  /** Stellung des Knopfs beim LFO: die Tiefe, linear bis `depthSpan`, darüber (eingetippt) am Rand. */
+  const depthPosition = $derived(
+    lfo ? Math.min(1, lfo.depth / depthSpan) : 0,
+  );
+
+  /** Tiefe aus der Stellung des Knopfs: auf den Schritt des Bereichs gerundet, mindestens ein Schritt (0 wäre kein LFO). */
+  function turnDepth(pos: number) {
+    const step = sliderStep(lfoRange.min, lfoRange.max);
+    const depth = Number((Math.round((pos * depthSpan) / step) * step).toPrecision(12));
+    setLfo({ depth: Math.max(step, depth) });
+  }
 
   function onRange(key: "min" | "max", input: string) {
     const text = normalize(input);
@@ -403,26 +413,32 @@
       {:else if lfo}
         {@const l = lfo}
         <EffectKnob
-          value={String(l.center)}
-          position={lfoPosition}
-          {marks}
-          label={`${fx.name}, LFO ${l.wave} ±${l.depth}, Mitte`}
-          onTurn={(pos) => {
-            if (range) setLfo({ center: fromRange(pos, range) });
-            else if (scale.kind === "number")
-              setLfo({ center: fromSlider(pos, scale.stops) });
-          }}
+          value={String(l.depth)}
+          display={`±${l.depth}`}
+          position={depthPosition}
+          marks={[0, 0.25, 0.5, 0.75, 1]}
+          label={`${fx.name}, LFO ${l.wave} um ${l.center}, Tiefe`}
+          onTurn={turnDepth}
           onEdit={(text) => {
             const t = normalize(text);
-            if (!NUMBER.test(t)) return false;
-            setLfo({ center: Number(t) });
+            if (!NUMBER.test(t) || Number(t) <= 0) return false;
+            setLfo({ depth: Number(t) });
             return true;
           }}
-          valid={(text) => NUMBER.test(normalize(text))}
+          valid={(text) =>
+            NUMBER.test(normalize(text)) && Number(normalize(text)) > 0}
         />
-        <span class="knob-cap">Mitte</span>
+        <span class="knob-cap">Tiefe</span>
       {:else if mini}
-        <div class="lane">
+        <!-- Eigene Schalter für Zufall und Wiederholung, wie links vom Notationseditor der Spur -->
+        <div
+          class="lane"
+          class:norandom={!session.random.has(fx.id)}
+          class:noknobs={session.noKnobs.has(fx.id)}
+        >
+          {#if fx.tokens.length > 0}
+            <LaneToggles id={fx.id} />
+          {/if}
           <Lane laneId={fx.id} tokens={fx.tokens} value />
         </div>
       {:else if info?.parts && parts}
@@ -486,10 +502,10 @@
           </button>
           {#if menuOpen}
             <div class="menu" role="menu" aria-label={`${fx.name}, Modus`}>
-              {#each MODES as m (m.mode)}
+              <!-- Der aktuelle Modus steht schon im Reiter: nur die anderen, dafür grösser -->
+              {#each MODES.filter((m) => m.mode !== mode) as m (m.mode)}
                 <button
-                  role="menuitemradio"
-                  aria-checked={mode === m.mode}
+                  role="menuitem"
                   disabled={!allowed(m.mode)}
                   title={m.mode === "value" && forced
                     ? "Nur ein einzelner Wert ohne Zufall und Wiederholung lässt sich als Regler zeigen"
@@ -497,9 +513,6 @@
                   style:--mode-ink={`var(--mode-${m.mode})`}
                   onclick={() => choose(m.mode)}
                 >
-                  <span class="check" aria-hidden="true"
-                    >{mode === m.mode ? "✓" : ""}</span
-                  >
                   {m.label}
                 </button>
               {/each}
@@ -625,13 +638,13 @@
         </select>
       </div>
       <div class="group">
-        <span class="cap">Tiefe ±</span>
+        <span class="cap">Mitte</span>
         {@render field(
-          "lfo:depth",
-          "Tiefe",
-          String(shownLfo.depth),
-          (t) => onLfoField("depth", t),
-          { step: sliderStep(0, shownLfo.depth * 4), min: 0 },
+          "lfo:center",
+          "Mitte (Wert, um den der LFO schwingt)",
+          String(shownLfo.center),
+          (t) => onLfoField("center", t),
+          { step: sliderStep(lfoRange.min, lfoRange.max) },
         )}
       </div>
       <div class="group">
@@ -738,7 +751,7 @@
       : mode === "mod"
         ? "Welle, min, max und Segmente (die Dauer dreht der Knopf)"
         : mode === "lfo"
-          ? "Welle, Tiefe, Dauer, Phase und Segmente (die Mitte dreht der Knopf)"
+          ? "Welle, Mitte, Dauer, Phase und Segmente (die Tiefe dreht der Knopf)"
           : "min und max (slider() im Code)"}
     onclick={() => (editing = !editing)}
   >
@@ -777,8 +790,13 @@
     margin-top: 3px;
   }
   /* Knopf (oder Auswahl, Wertsteine) und rechts daneben die Zusatzfelder */
+  /*
+   * Wird die Box schmaler, als Knopf und Zusatzfelder nebeneinander brauchen (die Box ist höchstens so breit wie die
+   * Effektliste, auf dem Handy schnell erreicht), rutschen die Felder unter den Knopf, statt über die Box hinauszuragen.
+   */
   .main {
     display: flex;
+    flex-wrap: wrap;
     align-items: stretch;
     gap: 6px;
   }
@@ -859,16 +877,15 @@
   }
   .menu button {
     flex: 1 1 0;
-    max-height: 28px;
+    max-height: 40px;
     display: flex;
     align-items: center;
-    gap: 4px;
     width: 100%;
     min-height: 0;
-    padding: 0 6px;
+    padding: 0 10px;
     text-align: left;
     font:
-      11px ui-monospace,
+      600 13px ui-monospace,
       SFMono-Regular,
       Menlo,
       Consolas,
@@ -889,18 +906,6 @@
   }
   .menu button:disabled {
     opacity: 0.35;
-  }
-  .menu button[aria-checked="true"] {
-    font-weight: 700;
-    background: color-mix(
-      in srgb,
-      var(--mode-ink, var(--ink)) 10%,
-      transparent
-    );
-  }
-  .check {
-    width: 1em;
-    flex: none;
   }
   /* Rechte Kante der Box (die Box ist position: relative): Zusatzfelder ein und aus */
   /* In der Farbe des Modus: immer leicht getönt, beim Zeigen und offen kräftiger */
@@ -1115,7 +1120,15 @@
     margin: 4px 0 2px;
   }
 
+  /* Schalter links, Steine rechts daneben */
   .lane {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
     margin-top: 4px;
+  }
+  .lane > :global(.lane) {
+    flex: 1;
+    min-width: 0;
   }
 </style>

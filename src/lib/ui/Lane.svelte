@@ -8,6 +8,7 @@
   import TokenColumn from "./TokenColumn.svelte";
   import { watchFit } from "./fit.ts";
   import type { Token } from "../domain/types.ts";
+  import type { Snippet } from "svelte";
 
   /**
    * Eine Steinreihe: die Klänge einer Spur oder die Werte eines Effekts (`value`).
@@ -18,13 +19,18 @@
    * Noten- und Wertreihen bleiben in Originalgrösse und brechen um.
    * Die Reihe bleibt auch beim Tippen in einen Stein verkleinert, nur sein Feld hat normale Grösse (`TokenStone`).
    */
+  /** `lead`: steht vorne in der Reihe, vor den Steinen (die Parameter der Paramlocks). */
   let {
     laneId,
     tokens,
     value = false,
-  }: { laneId: string; tokens: Token[]; value?: boolean } = $props();
+    lead,
+  }: { laneId: string; tokens: Token[]; value?: boolean; lead?: Snippet } =
+    $props();
 
   const parsed = $derived(project.parsedOf(laneId));
+  /** Paramlocks: die Steine sind so hoch wie ihre Teile übereinander, je Parameter eine Zeile (`--lock-row`). */
+  const lockCount = $derived(project.lane(laneId)?.locks?.params.length ?? 0);
   const endHint = $derived(
     session.dropHint?.laneId === laneId &&
       session.dropHint.mode === "insert" &&
@@ -173,7 +179,14 @@
   });
 </script>
 
-<div class="lane" class:values={value} bind:this={lane}>
+<div
+  class="lane"
+  class:values={value}
+  style:--sh={lockCount > 0
+    ? `calc(${lockCount} * var(--lock-row) + 2 * var(--lock-pad))`
+    : undefined}
+  bind:this={lane}
+>
   <div
     bind:this={row}
     class="row"
@@ -181,6 +194,7 @@
     data-lane={laneId}
     data-lane-end={tokens.length}
   >
+    {@render lead?.()}
     {#each tokens as token, i (token.id)}
       <TokenColumn
         {token}
@@ -355,6 +369,7 @@
     border-radius: 8px;
     color: var(--mute);
     font-size: 13px;
+    text-align: center;
   }
   .endcol.hint {
     box-shadow: inset 4px 0 0 0 var(--blue);

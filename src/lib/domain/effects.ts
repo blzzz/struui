@@ -206,6 +206,62 @@ export function searchEffects(query: string, type: TrackType = 'sound', limit = 
   );
 }
 
+/**
+ * Alle zur Spur passenden Effekte und Befehle einer Kategorie (null = alle), gesucht wie in `searchEffects`.
+ * `relative`: Notenspur mit Stufen, die ihre Tonleiter schon hat; dann ohne `scale`.
+ */
+export function browseEffects(query: string, type: TrackType, category: EffectCategory | null, relative = false): EffectInfo[] {
+  return search(
+    EFFECTS.filter(
+      (e) => offersEffect(type, e) && (category === null || categoryOf(e) === category) && !(relative && e.name === 'scale'),
+    ),
+    query,
+    Infinity,
+  );
+}
+
+/**
+ * Art eines Effekts für die Filter der Effektsuche. Strudel ordnet seine Klangeffekte nicht ein (alle `audio`),
+ * deshalb nach Namensregeln: die Familien teilen ein Präfix (`lp…` Tiefpass, `fm…` FM, `room…` Hall).
+ * Musterbefehle behalten ihre Gruppe. Was keine Regel trifft, ist `other`.
+ */
+export const EFFECT_CATEGORIES = [
+  'filter',
+  'envelope',
+  'space',
+  'distortion',
+  'motion',
+  'synth',
+  'pitch',
+  'level',
+  'sample',
+  'pattern',
+  'random',
+  'tonal',
+  'midi',
+  'arith',
+  'other',
+] as const;
+export type EffectCategory = (typeof EFFECT_CATEGORIES)[number];
+
+/** Regeln für Klangeffekte (`audio`, `pitch`), die erste passende gilt. */
+const AUDIO_RULES: [RegExp, EffectCategory][] = [
+  [/^(lp|hp|bp)|^(ftype|fanchor|djf|vowel)$/, 'filter'],
+  [/^(adsr|attack|decay|sustain|release|clip)$/, 'envelope'],
+  [/^(room|delay|ir)/, 'space'],
+  [/^(distort|crush|coarse|shape|drive)/, 'distortion'],
+  [/^(chorus|phaser|tremolo|vib)/, 'motion'],
+  [/^(fm|wt|warp|pw)|^(noise|color|detune|unison|spread|freq)$/, 'synth'],
+  [/^(note|octave|penv|pattack|pdecay|prelease|pcurve)$/, 'pitch'],
+  [/^(duck)|^(gain|velocity|pan|panchor|busgain|compressor|transient)$/, 'level'],
+  [/^(begin|end|loop|loopBegin|loopEnd|speed|cut|stretch|offset)$/, 'sample'],
+];
+
+export function categoryOf(info: EffectInfo): EffectCategory {
+  if (info.group !== 'audio' && info.group !== 'pitch') return info.group;
+  return AUDIO_RULES.find(([re]) => re.test(info.name))?.[1] ?? 'other';
+}
+
 /** Rechenarten für Noten, gesucht wie Effekte. */
 export function searchNoteOps(query: string, limit = 12): EffectInfo[] {
   return search(NOTE_OPS, query, limit);

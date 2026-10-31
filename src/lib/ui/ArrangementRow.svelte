@@ -206,6 +206,7 @@
     margin: 0 4px;
     font-size: 13px;
     color: var(--mute);
+    text-align: center;
   }
   /* Wie eine Spalte einer Steinreihe: Stein oben, Knopf darunter */
   .cell {

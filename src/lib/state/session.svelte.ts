@@ -1,3 +1,4 @@
+import type { RowKind } from './project.svelte.ts';
 import type { StatusMessage } from '../audio/engine.ts';
 
 export interface SheetTarget {
@@ -46,14 +47,17 @@ class Session {
   help = $state(false);
   /** Liste der gespeicherten Patterns (Laden, Löschen) offen. */
   patterns = $state(false);
+  /** Dialog zum Hinzufügen eines Effekts offen: für welche Spur und Liste (`EffectPicker`). */
+  effectPicker = $state<{ trackId: string; kind: RowKind } | null>(null);
   /**
-   * Spuren, die über den Steinen die Zufallsknöpfe (`?`) zeigen. Sonst ist Zufall nur ein roter Punkt am Stein
+   * Spuren und Effekte (Wertsteine), die über den Steinen die Zufallsknöpfe (`?`) zeigen. Sonst ist Zufall nur ein roter Punkt am Stein
    * und lässt sich nicht ändern. Standard: aus.
    */
   random = $state<ReadonlySet<string>>(new Set());
   /**
-   * Spuren, die unter den Steinen keine Drehknöpfe (Wiederholung, Modulo) zeigen. Dann sind sie nur
-   * farbige Balken am Stein. Standard: Knöpfe sichtbar (Menge leer).
+   * Spuren und Effekte (Wertsteine), die unter den Steinen keine Drehknöpfe (Wiederholung, Modulo) zeigen. Dann sind sie nur
+   * farbige Balken am Stein. Standard: Knöpfe sichtbar (Menge leer). Beim Klang der Noten (`track.voice.id`) umgekehrt:
+   * zu Beginn ohne Knöpfe, in der Menge mit (`LaneToggles` mit `knobsAtStart={false}`).
    */
   noKnobs = $state<ReadonlySet<string>>(new Set());
   /**
@@ -62,8 +66,7 @@ class Session {
    */
   unfit = $state<ReadonlySet<string>>(new Set());
   /**
-   * Spuren, deren Effekte rechts neben der Notation stehen (senkrechter Trennstrich, «inline»).
-   * Standard: darunter (waagrechter Strich, «block», Menge leer).
+   * Spuren, deren Effekt-Container rechts neben der Notation steht («inline»). Standard: darunter («block», Menge leer).
    */
   inlineFx = $state<ReadonlySet<string>>(new Set());
   /**
@@ -110,10 +113,10 @@ class Session {
   closeSheet(): void {
     this.sheet = null;
   }
-  /** Zufallsknöpfe über den Steinen einer Spur zeigen oder verbergen. */
-  toggleRandom(trackId: string): void {
+  /** Zufallsknöpfe über den Steinen einer Spur oder eines Effekts zeigen oder verbergen. */
+  toggleRandom(id: string): void {
     const next = new Set(this.random);
-    if (!next.delete(trackId)) next.add(trackId);
+    if (!next.delete(id)) next.add(id);
     this.random = next;
   }
   /** Solo einer Spur ein- oder ausschalten. Mehrere Spuren können gleichzeitig Solo sein. */
@@ -122,10 +125,10 @@ class Session {
     if (!next.delete(trackId)) next.add(trackId);
     this.solo = next;
   }
-  /** Drehknöpfe unter den Steinen einer Spur zeigen oder verbergen. */
-  toggleKnobs(trackId: string): void {
+  /** Drehknöpfe unter den Steinen einer Spur oder eines Effekts zeigen oder verbergen. */
+  toggleKnobs(id: string): void {
     const next = new Set(this.noKnobs);
-    if (!next.delete(trackId)) next.add(trackId);
+    if (!next.delete(id)) next.add(id);
     this.noKnobs = next;
   }
   /** Steinreihe zwischen «auf eine Zeile verkleinert» und Originalgrösse umschalten. */

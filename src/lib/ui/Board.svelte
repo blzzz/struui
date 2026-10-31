@@ -421,9 +421,9 @@
    * Die Kamera (in der Übersicht die Verschiebung) gleitet, bis die Wahl in der Mitte steht.
    */
   const dblclickAdd: Attachment<HTMLElement> = (el) => {
-    const onDbl = async (e: MouseEvent) => {
+    const open = async (cx: number, cy: number) => {
       if (placing) return;
-      const at = freeDot(e.clientX, e.clientY);
+      const at = freeDot(cx, cy);
       if (!at) return;
       closeAdd();
       arriving = at;
@@ -438,9 +438,44 @@
       if (board.overview) pan = { x: pan.x - dx, y: pan.y - dy };
       else cam = { x: cam.x + dx / gap, y: cam.y + dy / gap };
     };
+    const onDbl = (e: MouseEvent) => open(e.clientX, e.clientY);
+
+    // Mit dem Finger meldet der Browser kein dblclick (die Fläche wischt selbst, touch-action: none): zwei kurze Tipps
+    // kurz nacheinander an fast derselben Stelle zählen als Doppeltippen
+    let down: { x: number; y: number; t: number } | null = null;
+    let last: { x: number; y: number; t: number } | null = null;
+    const onDown = (e: PointerEvent) => {
+      if (e.pointerType === "touch" && e.isPrimary)
+        down = { x: e.clientX, y: e.clientY, t: e.timeStamp };
+    };
+    const onUp = (e: PointerEvent) => {
+      if (e.pointerType !== "touch" || !e.isPrimary || !down) return;
+      const tap =
+        e.timeStamp - down.t < TAP_MS &&
+        Math.hypot(e.clientX - down.x, e.clientY - down.y) < TAP_PX;
+      down = null;
+      if (!tap) return (last = null);
+      const now = { x: e.clientX, y: e.clientY, t: e.timeStamp };
+      if (last && now.t - last.t < DOUBLE_TAP_MS && Math.hypot(now.x - last.x, now.y - last.y) < DOUBLE_TAP_PX) {
+        last = null;
+        open(now.x, now.y);
+      } else last = now;
+    };
+
     el.addEventListener("dblclick", onDbl);
-    return () => el.removeEventListener("dblclick", onDbl);
+    el.addEventListener("pointerdown", onDown);
+    el.addEventListener("pointerup", onUp);
+    return () => {
+      el.removeEventListener("dblclick", onDbl);
+      el.removeEventListener("pointerdown", onDown);
+      el.removeEventListener("pointerup", onUp);
+    };
   };
+  /** Doppeltippen: jeder Tipp kürzer und kaum bewegt, der zweite bald danach in der Nähe des ersten. */
+  const TAP_MS = 300;
+  const TAP_PX = 10;
+  const DOUBLE_TAP_MS = 400;
+  const DOUBLE_TAP_PX = 30;
 
   /** Wo die Wahl der Art steht: unter dem Plus in der Mitte bzw. unter der Mitte der neuen Spur aus der Palette. */
   const menuAt = $derived.by(() => {
@@ -700,6 +735,20 @@
               {@attach dragMove(track.id, () => select(track.id))}
             ></button>
           {:else}
+            {#if r.w > MIN_WIDTH}
+              <!-- Über der Ecke: zurück auf die Mindestbreite, die Kamera gleitet zur Spur -->
+              <button
+                class="shrink"
+                aria-label={`Spur ${i + 1} auf Mindestbreite`}
+                title="Auf Mindestbreite"
+                onclick={() => {
+                  board.resize(track.id, MIN_WIDTH);
+                  select(track.id);
+                }}
+              >
+                <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13 8H3M7 4L3 8L7 12" /></svg>
+              </button>
+            {/if}
             <button
               class="resize"
               aria-label={`Breite von Spur ${i + 1}`}
@@ -917,8 +966,35 @@
     touch-action: none;
     cursor: ew-resize;
   }
-  .resize:hover {
+  /* Direkt über der Ecke, gleich zurückhaltend */
+  .shrink {
+    position: absolute;
+    right: 2px;
+    bottom: 28px;
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: var(--mute);
+    opacity: 0.6;
+    cursor: pointer;
+  }
+  .resize:hover,
+  .shrink:hover {
     opacity: 1;
+  }
+  .shrink svg {
+    width: 18px;
+    height: 18px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
   }
   .resize svg {
     width: 12px;

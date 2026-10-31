@@ -14,6 +14,14 @@ declare module '@strudel/core' {
     stop(): void;
   }
 
+  export interface Pattern {
+    withValue(f: (value: never) => unknown): Pattern;
+    appBoth(other: Pattern): Pattern;
+  }
+  export function reify(value: unknown): Pattern;
+  /** Meldet einen Musterbefehl an (`.name(…)` an jedem Muster). `patternify = false`: die Werte kommen unverändert an. */
+  export function register<F extends (...args: never[]) => Pattern>(name: string, func: F, patternify?: boolean): F;
+
   export function evalScope(...modules: unknown[]): Promise<unknown>;
   export function setTime(getTime: () => number): void;
 }

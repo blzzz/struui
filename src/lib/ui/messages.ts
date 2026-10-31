@@ -1,11 +1,23 @@
-import type { EffectInfo } from '../domain/effects.ts';
+import type { EffectCategory } from '../domain/effects.ts';
 import type { ParseErrorCode } from '../domain/parse.ts';
 
-/** Gruppe in der Effektsuche, nur für Musterbefehle (Effekte stehen ohne). */
-export const GROUP_LABELS: Partial<Record<EffectInfo['group'], string>> = {
+/** Filter der Effektsuche (`EffectPicker`). */
+export const CATEGORY_LABELS: Record<EffectCategory, string> = {
+  filter: 'Filter',
+  envelope: 'Hüllkurve',
+  space: 'Raum',
+  distortion: 'Verzerrung',
+  motion: 'Modulation',
+  synth: 'Synth',
+  pitch: 'Tonhöhe',
+  level: 'Pegel',
+  sample: 'Sample',
   pattern: 'Muster',
   random: 'Zufall',
-  tonal: 'Tonhöhe',
+  tonal: 'Tonart',
+  midi: 'MIDI',
+  arith: 'Rechnen',
+  other: 'Weitere',
 };
 
 /** Alle Texte, die aus der Domäne in die Oberfläche kommen. Offene Frage: i18n ja/nein. */

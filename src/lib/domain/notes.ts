@@ -24,7 +24,7 @@ export function isNote(text: string): boolean {
   return NOTE.test(text) || NUMBER.test(text);
 }
 
-function toMidi(name: string): number | null {
+export function toMidi(name: string): number | null {
   const m = NOTE.exec(name);
   if (!m) return null;
   const [, pc, acc, oct] = m;

@@ -20,7 +20,7 @@ function codeTracksOfScene(s: Scene): CodeTrack[] {
   if (!tracks) {
     const errors = new Map(
       s.tracks.flatMap((t) =>
-        [{ id: t.id, tokens: t.tokens }, t.voice, t.sample, ...t.noteOps, ...t.effects].map(
+        [{ id: t.id, tokens: t.tokens }, t.voice, t.sample, t.locks, ...t.noteOps, ...t.effects].map(
           (r) => [r.id, analyze(r.tokens).errors.length] as const,
         ),
       ),

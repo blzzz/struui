@@ -1,7 +1,9 @@
 <script lang="ts">
   import { flushSync, untrack } from "svelte";
   import { isValueAtom, singleValue, stepValue } from "../domain/effects.ts";
+  import { lockValues } from "../domain/locks.ts";
   import { DEFAULT_VOICE, isNote, stepNote } from "../domain/notes.ts";
+  import { degreeToNote, isDegree, stepDegree } from "../domain/pitch.ts";
   import { isSoundName, stepVariant } from "../domain/sounds.ts";
   import { onceVisible } from "../interaction/in-view.ts";
   import { press } from "../interaction/press.ts";
@@ -96,6 +98,8 @@
    */
   /** Notenstein (Notenspur): bearbeitet sich wie ein Wert, ↑/↓ gehen einen Halbton weiter. Pausen nicht. */
   const notes = $derived(!value && project.contentOf(laneId) === "notes");
+  /** Notenstein einer relativen Notenspur: eine Stufe der Tonleiter (`0`, `-2`, `4#`), ↑/↓ gehen eine Stufe weiter. */
+  const degrees = $derived(notes && project.relative(laneId));
   /**
    * Klangstein: ebenso, Tippen öffnet ein Feld für den Namen, wahlweise mit Variante (`bd:3`).
    * ↑/↓ und −/+ zählen die Variante. Pausen nicht. Langes Drücken öffnet wie bei Noten das Menü.
@@ -106,7 +110,7 @@
   /** Positionen einer Sampler-Spur mit `scrub`: auch mit Geschwindigkeit nach dem Doppelpunkt (`.5:2`). */
   const lists = $derived(value && project.valueLists(laneId));
   const valid = (text: string) =>
-    notes ? isNote(text) : value ? isValueAtom(text, lists) : isSoundName(text);
+    degrees ? isDegree(text) : notes ? isNote(text) : value ? isValueAtom(text, lists) : isSoundName(text);
   const values = $derived(
     value ? (project.lane(laneId)?.info?.values ?? []) : [],
   );
@@ -121,11 +125,70 @@
   let before = "";
   let input = $state<HTMLInputElement>();
 
+  /**
+   * Stein der Paramlocks: der Wert besteht aus Teilen, je Parameter einer, übereinander gezeigt. Tippen öffnet je Parameter
+   * ein Feld; jede gültige Eingabe gilt sofort. Leer geht nur für untere Teile, ein unteres füllt leere darüber mit Startwerten.
+   */
+  const lockParams = $derived(
+    value ? (project.lane(laneId)?.locks?.params ?? null) : null,
+  );
+  const locked = $derived(
+    lockParams !== null && token.kind === "sound" && !isPause(token),
+  );
+  const parts = $derived(
+    locked && token.kind === "sound"
+      ? project.lockPartsOf(laneId, token.sound)
+      : [],
+  );
+  /** Feldinhalte beim Bearbeiten, auch ungültige; `partBad` markiert, was nicht übernommen wurde. */
+  let drafts = $state<string[]>([]);
+  let partBad = $state<boolean[]>([]);
+  /** Zuletzt fokussiertes Feld, für − und +. */
+  let activePart = 0;
+  let lockEdit = $state<HTMLElement>();
+
+  function applyPart(i: number, text: string) {
+    drafts[i] = text;
+    const part = text.trim();
+    const ok =
+      (part === "" || isValueAtom(part)) &&
+      project.setLockPart(laneId, token.id, i, part);
+    partBad[i] = !ok;
+    // Leere Teile darüber bekommen Startwerte: in den übrigen Feldern zeigen
+    if (ok) drafts = parts.map((p, j) => (j === i ? text : p));
+  }
+
+  function stepPart(dir: 1 | -1) {
+    if (!lockParams) return;
+    const i = activePart;
+    applyPart(i, stepValue(parts[i] ?? "", lockValues(lockParams[i]), dir));
+  }
+
+  /** Das Bearbeiten endet erst, wenn der Fokus die Felder des Steins verlässt. */
+  function onLockFocusOut(e: FocusEvent) {
+    if (!lockEdit?.contains(e.relatedTarget as Node | null)) editing = false;
+  }
+
+  function onPartKey(e: KeyboardEvent, i: number) {
+    if (e.key === "Enter") (e.currentTarget as HTMLElement).blur();
+    else if (e.key === "Escape") {
+      project.setValue(laneId, token.id, before);
+      (e.currentTarget as HTMLElement).blur();
+    } else if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+      e.preventDefault();
+      activePart = i;
+      stepPart(e.key === "ArrowUp" ? 1 : -1);
+    }
+  }
+
   // Eben über das + angehängt (Note oder Wert): gleich offen. Das + fokussiert das Feld noch in seiner Geste (iOS-Tastatur).
   untrack(() => {
     if (editable && token.kind === "sound" && session.editNew === token.id) {
       session.editNew = null;
       before = draft = token.sound;
+      drafts = [...parts];
+      partBad = [];
+      activePart = 0;
       editing = true;
     }
   });
@@ -133,11 +196,15 @@
   function startEdit() {
     if (token.kind !== "sound") return;
     before = draft = token.sound;
+    drafts = [...parts];
+    partBad = [];
+    activePart = 0;
     editing = true;
     // Noch in der Geste fokussieren, sonst öffnet iOS keine Tastatur
     flushSync();
-    input?.focus();
-    input?.select();
+    const first = locked ? lockEdit?.querySelector("input") : input;
+    first?.focus();
+    first?.select();
   }
 
   function apply(next: string) {
@@ -146,10 +213,13 @@
   }
 
   function step(dir: 1 | -1) {
+    if (locked) return stepPart(dir);
     const current = token.kind === "sound" ? token.sound : draft;
     apply(
-      notes
-        ? stepNote(current, dir)
+      degrees
+        ? stepDegree(current, dir)
+        : notes
+          ? stepNote(current, dir)
         : value
           ? stepValue(current, values, dir)
           : stepVariant(current, dir),
@@ -167,11 +237,19 @@
     if (!lane || lane.track.type === "midi") return;
     if (lane.content === "sounds" && isSoundName(token.sound))
       void playback.preview(token.sound);
-    else if (lane.content === "notes" && isNote(token.sound))
-      void playback.preview(
-        singleValue(lane.track.voice.tokens) ?? DEFAULT_VOICE,
-        token.sound,
-      );
+    else if (lane.content === "notes") {
+      // Eine Stufe klingt als die Note, zu der die Tonleiter der Spur sie macht
+      const note = degrees
+        ? degreeToNote(token.sound, lane.track.scale)
+        : isNote(token.sound)
+          ? token.sound
+          : null;
+      if (note)
+        void playback.preview(
+          singleValue(lane.track.voice.tokens) ?? DEFAULT_VOICE,
+          note,
+        );
+    }
   }
 
   /**
@@ -295,19 +373,19 @@
       if (editable) startEdit();
       else session.openMenu(laneId, token.id);
     },
-    // Nur noch per Tastatur (Enter): Wertsteine öffnen den Wertdialog, Noten und Klänge das Feld, andere ihr Menü
+    // Nur noch per Tastatur (Enter): Wertsteine öffnen den Wertdialog, Noten, Klänge und Paramlocks ihre Felder, andere ihr Menü
     onDoubleTap: () =>
       extendSelection() ||
-      (!value && editable
+      ((!value || locked) && editable
         ? startEdit()
         : editable
           ? session.openSheet(laneId, token.id)
           : session.openMenu(laneId, token.id)),
     immediateTap: true,
-    // Noten und Klänge: langes Drücken öffnet das Menü allein, ohne Feld
+    // Noten, Klänge und Paramlocks: langes Drücken öffnet das Menü allein, ohne Feld
     onLongPress: !editable
       ? undefined
-      : !value
+      : !value || locked
         ? () => session.openMenu(laneId, token.id)
         : () => session.openSheet(laneId, token.id),
     onDragMove: (target) => {
@@ -320,8 +398,47 @@
     },
   }))}
 >
-  <div class="stone {tone}" style:font-size={editing ? null : fontSize}>
-    {#if editing}
+  <div
+    class="stone {tone}"
+    class:locked
+    style:font-size={editing || locked ? null : fontSize}
+  >
+    {#if locked && editing && lockParams}
+      <!-- Je Parameter ein Feld, schwebt ab der Oberkante des Steins nach unten (das Menü darüber bleibt frei), −/+ darin -->
+      <div
+        class="lockedit"
+        bind:this={lockEdit}
+        role="group"
+        aria-label="Paramlocks des Steins"
+        onfocusout={onLockFocusOut}
+      >
+        {#each lockParams as param, i (param)}
+          <label>
+            <span>{param}</span>
+            <input
+              type="text"
+              value={drafts[i] ?? ""}
+              size={Math.max((drafts[i] ?? "").length, 3) + 1}
+              placeholder="–"
+              aria-invalid={partBad[i] ?? false}
+              spellcheck="false"
+              autocomplete="off"
+              autocapitalize="off"
+              oninput={(e) => applyPart(i, e.currentTarget.value)}
+              onfocus={() => (activePart = i)}
+              onkeydown={(e) => onPartKey(e, i)}
+            />
+          </label>
+        {/each}
+        {@render stepButtons()}
+      </div>
+    {:else if locked}
+      <span class="parts">
+        {#each parts as part, i (i)}
+          <span class="part" class:empty={part === ""}>{part || "·"}</span>
+        {/each}
+      </span>
+    {:else if editing}
       <input
         bind:this={input}
         type="text"
@@ -409,7 +526,12 @@
       {/each}
     </div>
   {/if}
-  {#if editing}
+  {#if editing && !locked}
+    {@render stepButtons()}
+  {/if}
+</div>
+
+{#snippet stepButtons()}
     <!-- Für Touch ohne Pfeiltasten. `press` lässt dem Feld den Fokus. -->
     <div class="steps">
       <button
@@ -431,8 +553,7 @@
         {@attach press(() => step(1))}>+</button
       >
     </div>
-  {/if}
-</div>
+{/snippet}
 
 <style>
   .slot {
@@ -489,6 +610,79 @@
   }
   input[aria-invalid="true"] {
     outline-color: var(--red);
+  }
+  /* Paramlocks: Teile übereinander, je Parameter eine Zeile auf Höhe seines Namens im Block vorne (LockParams) */
+  .stone.locked {
+    padding: var(--lock-pad, 3px) 0;
+    font-size: 11px;
+  }
+  .parts {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    height: 100%;
+  }
+  .part {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 0;
+    overflow: hidden;
+    white-space: nowrap;
+  }
+  .part + .part {
+    border-top: 1px solid var(--val-edge);
+  }
+  .part.empty {
+    opacity: 0.35;
+  }
+  /* Felder je Parameter: schweben über dem Stein, Name links, wie das Feld anderer Wertsteine */
+  .lockedit {
+    position: absolute;
+    top: -6px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 13;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 6px;
+    border-radius: 8px;
+    outline: 3px solid var(--blue);
+    background: var(--val);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
+    zoom: calc(1 / var(--fit, 1));
+  }
+  .lockedit label {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 6px;
+    font: 600 11px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    white-space: nowrap;
+  }
+  .lockedit input {
+    position: static;
+    transform: none;
+    zoom: 1;
+    min-width: 0;
+    height: 28px;
+    outline: 1.5px solid var(--val-edge);
+  }
+  .lockedit input:focus {
+    outline: 2px solid var(--blue);
+  }
+  .lockedit input[aria-invalid="true"] {
+    outline: 2px solid var(--red);
+  }
+  /* −/+ im Feld unter den Teilen statt unter dem Stein (das Feld ist höher als der Stein) */
+  .lockedit .steps {
+    position: static;
+    transform: none;
+    zoom: 1;
+    align-self: center;
+    margin-top: 2px;
   }
   /* Menü über dem Stein, mittig */
   /* Menü, ± und Eingabefeld in einer verkleinerten Reihe (Lane) in normaler Grösse.
