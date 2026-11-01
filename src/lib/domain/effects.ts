@@ -35,6 +35,8 @@ export interface EffectInfo {
    * `F#:major:pentatonic`). Die Box zeigt je Teil eine Auswahl, die Wertsteine dürfen Doppelpunkte tragen.
    */
   parts?: string[][];
+  /** Strudels `lfo` kann ihn auf Audio-Ebene modulieren (superdough kennt ihn als Ziel, `lpf` als `cutoff`). */
+  modulatable?: true;
 }
 
 export interface Effect {
@@ -55,7 +57,10 @@ export interface Effect {
   rand?: RandSeries | null;
   /** Modulation statt Wert (`ModSeries`): gesetzt, steht sie im Code statt der Wertsteine, wie die Zufallsreihe. */
   mod?: ModSeries | null;
-  /** LFO statt Wert (`LfoSeries`): schwingt um einen Mittelwert, steht im Code statt der Wertsteine, wie die Modulation. */
+  /**
+   * LFO zum Wert (`LfoSeries`): Strudels `lfo`, im Code nach dem Wert (`.lpf(800).lfo({ … })`). Der Wert bleibt, der LFO
+   * schwingt im Klang um ihn herum. Nur bei Effekten, die superdough modulieren kann (`EffectInfo.modulatable`).
+   */
   lfo?: LfoSeries | null;
 }
 
@@ -76,25 +81,30 @@ export interface ModSeries {
   whole: boolean;
 }
 
-/** Wellenformen für den LFO: die mit einer Strudel-Fassung von -1 bis 1 (`sine2`), also ohne perlin. */
-export const LFO_WAVES = ['sine', 'cosine', 'tri', 'saw', 'isaw', 'square'] as const;
-export type LfoWave = (typeof LFO_WAVES)[number];
+/** Formen von Strudels `lfo` (`shape`), in der Reihenfolge ihrer Nummern 0 bis 4. */
+export const LFO_SHAPES = ['tri', 'sine', 'ramp', 'saw', 'square'] as const;
+export type LfoShape = (typeof LFO_SHAPES)[number];
 
 /**
- * LFO: `sine2.early(phase).mul(depth).add(center).segment(segments).slow(slow)`. Eine Welle von -1 bis 1, um `depth`
- * gestreckt und um `center` verschoben, schwingt also zwischen center - depth und center + depth. `phase` verschiebt sie um
- * einen Teil einer Periode (0 … <1, 0 steht nicht im Code), eine Periode dauert `slow` Zyklen (1 steht nicht im Code),
- * `segments` Stufen pro Periode. `whole`: dazu `.round()` nach `add` (`wholeValues`).
+ * LFO nach Strudels `lfo` (strudel.cc/learn/lfo): `.lpf(800).lfo({ control: 'lpf', shape: 'sine', sync: 0.25, depth: 0.5 })`.
+ * Er moduliert den Parameter im Klang (superdough), nicht das Muster. `shape` die Form. `speed` mit `unit`: `sync` Perioden
+ * pro Zyklus (bleibt im Takt) oder `rate` Schwingungen pro Sekunde. `depth`: Ausschlag relativ zum Wert (1 = halber Wert
+ * nach oben und unten), mit `absolute` als `depthabs` in der Einheit des Werts (400 bei lpf = 200 Hz nach oben und unten).
+ * `dcoffset` verschiebt die Mitte (-0.5 = um den Wert, 0 nur nach oben, -1 nur nach unten), `skew` biegt tri und square
+ * (Spitze bzw. Pulsbreite, 0 bis 1). `dcoffset` und `skew` stehen nur abweichend von Strudels Vorgabe im Code (`LFO_DEFAULTS`).
  */
 export interface LfoSeries {
-  wave: LfoWave;
-  center: number;
+  shape: LfoShape;
+  speed: number;
+  unit: 'sync' | 'rate';
   depth: number;
-  segments: number;
-  slow: number;
-  phase: number;
-  whole: boolean;
+  absolute: boolean;
+  dcoffset: number;
+  skew: number;
 }
+
+/** Strudels Vorgaben, wenn `lfo({…})` etwas nicht nennt (superdough `getLfo`, `connectLFO`). */
+export const LFO_DEFAULTS: LfoSeries = { shape: 'tri', speed: 1, unit: 'rate', depth: 1, absolute: false, dcoffset: -0.5, skew: 0.5 };
 
 /**
  * Zufall: `rand.range(min, max).segment(segments).ribbon(offset, cycles)`. Zufallswerte zwischen min und max,
@@ -476,33 +486,30 @@ export function suggestModSeries(
   return { wave: 'sine', min, max, segments: 16, slow: 4, whole: wholeValues(info, min, max) };
 }
 
-/** Brauchbar als LFO: bekannte Welle, endliche Zahlen, Tiefe über 0, Segmente ganz ab 1, Dauer über 0, Phase von 0 bis unter 1. */
+/** Brauchbar als LFO: bekannte Form und Einheit, endliche Zahlen, Tempo und Tiefe über 0, skew von 0 bis 1. */
 export function isLfoSeries(l: LfoSeries): boolean {
   return (
-    (LFO_WAVES as readonly string[]).includes(l.wave) &&
-    [l.center, l.depth, l.slow, l.phase].every(Number.isFinite) &&
+    (LFO_SHAPES as readonly string[]).includes(l.shape) &&
+    (l.unit === 'sync' || l.unit === 'rate') &&
+    [l.speed, l.depth, l.dcoffset, l.skew].every(Number.isFinite) &&
+    l.speed > 0 &&
     l.depth > 0 &&
-    Number.isInteger(l.segments) &&
-    l.segments >= 1 &&
-    l.slow > 0 &&
-    l.phase >= 0 &&
-    l.phase < 1
+    l.skew >= 0 &&
+    l.skew <= 1
   );
 }
 
+/** Vorschlag für einen neuen LFO: Sinus, eine Periode in 4 Zyklen (im Takt), ein Viertel des Werts nach oben und unten. */
+export function suggestLfoSeries(): LfoSeries {
+  return { ...LFO_DEFAULTS, shape: 'sine', speed: 0.25, unit: 'sync', depth: 0.5 };
+}
+
 /**
- * Vorschlag für einen neuen LFO: Sinus um den Wert (ohne Wert die Mitte des Bereichs), Tiefe ein Viertel des eingestellten
- * Bereichs (oder des Vorschlags dafür), beides auf dessen Schritt gerundet, 16 Stufen, 4 Zyklen, Phase 0.
+ * Tiefe beim Umschalten zwischen relativ und absolut, damit der Ausschlag gleich bleibt: absolut = relativ × Wert.
+ * Ohne Wert (oder 0, superdough nimmt dann 1) mit 1 gerechnet.
  */
-export function suggestLfoSeries(
-  info: EffectInfo | undefined,
-  current: number | null,
-  range?: SliderRange | null,
-): LfoSeries {
-  const { min, max } = range ?? suggestSliderRange(info, current);
-  const step = sliderStep(min, max);
-  const snap = (v: number) => Number((Math.round(v / step) * step).toPrecision(12));
-  const center = current ?? snap((min + max) / 2);
-  const depth = Math.max(step, snap((max - min) / 4));
-  return { wave: 'sine', center, depth, segments: 16, slow: 4, phase: 0, whole: wholeValues(info, center - depth, center + depth) };
+export function convertLfoDepth(l: LfoSeries, absolute: boolean, value: number | null): number {
+  if (absolute === l.absolute) return l.depth;
+  const base = Math.abs(value ?? 1) || 1;
+  return Number((absolute ? l.depth * base : l.depth / base).toPrecision(6));
 }

@@ -144,8 +144,9 @@ dafür ohne Ladeanzeige geladen. Synths, Soundfonts (`gm_…`) und eigene Aufnah
 - **Gewicht `@`** ist eine vierte Art der Wiederholung (eine pro Stein, wie `*` und `!`). `a _` liest der Rückweg als `a@2`.
 - **Aufleuchten bei `%n`:** Strudel meldet bei `{…}%4` zuerst die Position der Zahl, dann die des Klangnamens. Engine und
   `test:strudel` durchsuchen deshalb alle gemeldeten Positionen.
-- **Layout über den ganzen Bildschirm:** feste Leiste oben (Start/Stopp, Tempo, Gesamtlautstärke, Umschalter Steine/Code, `?` für den
-  Erklärungsdialog).
+- **Layout über den ganzen Bildschirm:** feste Leiste oben (Start/Stopp, Name des Patterns, Burger-Menü mit Neu, Laden,
+  Ansicht Steine/Code und Hilfe). Ein Klick auf die Leiste (ausser auf Bedienelemente) oder auf ihre untere Kante (Griff) klappt
+  darunter die Einstellungen auf (`session.config`): Tempo, Gesamtlautstärke und ein Container für globale Effekte (noch leer, siehe Abschnitt 4).
 - **Arbeitsfläche statt Liste** (`domain/board.ts`, `state/board.svelte.ts`, `ui/Board.svelte`): Spuren sind abgerundete Rechtecke
   auf einem unendlichen Punkteraster zwischen Palette und Szenen-Leiste. **Keine Scrollleisten** (`overflow: hidden`), eine
   Kamera verschiebt und verkleinert die Ebene per `transform` (beim Bearbeiten `cam` in Punkten, in der Übersicht eingepasst);
@@ -223,6 +224,8 @@ dafür ohne Ladeanzeige geladen. Synths, Soundfonts (`gm_…`) und eigene Aufnah
   (Name, Synonyme, erster Satz, Wertangabe, Werte aus den `@example`-Aufrufen) und schreibt `effects.generated.ts`.
   Ausgefiltert werden nur `@superdirtOnly`, Objekt-Parameter (`env`, `lfo` …) und eine kurze Liste von Nicht-Effekten
   (Klangwahl, Routing, Sysex/OSC, dazu was die Spur selbst einstellt: `postgain`, `orbit`, `midichan`, `midiport`).
+  `modulatable` (Strudels `lfo` kann den Effekt modulieren) kommt aus superdough (`CONTROL_TARGETS` in `superdoughdata.mjs`,
+  über `@strudel/webaudio`) und Strudels Hauptnamen aus `registerControl` (`lpf` → `cutoff`, `phaser` → `phaserrate`).
   Jeder Eintrag hat eine **Gruppe** (`audio`, `pitch` = `note`, `midi` = `ccn`, `ccv`, `progNum`, `midibend` …, `sample`). Klangspuren bieten
   Audio, Tonhöhe und Sample-Funktionen an, MIDI-Spuren MIDI, Tonhöhe sowie `velocity` und `gain` (`offersEffect`).
   **Sample-Funktionen** (Gruppe `sample`, nur Klangspuren): `chop`, `striate`, `scrub`, `loopAt`, `fit`. Sie verändern die
@@ -283,16 +286,31 @@ dafür ohne Ladeanzeige geladen. Synths, Soundfonts (`gm_…`) und eigene Aufnah
   `.lpf(sine.range(200, 2000).segment(16).slow(4))`, `.slow(1)` entfällt, `.round()` nach derselben Regel. Der Knopf stellt die
   Dauer einer Periode in Zyklen ein (rastet bei 0.25 … 32 ein, eingetippt jede über 0), Welle, min, max und Segmente stehen hinter
   der rechten Kante. Der Rückweg liest genau diese Kette (`seg` auch, `slow` wahlweise). Die Wellennamen sind als Szenennamen gesperrt.
-  **LFO**: Modus «LFO», nur bei Zahlen. `Effect.lfo` (`LfoSeries`: Welle aus `LFO_WAVES` = sine, cosine, tri, saw, isaw,
-  square, also ohne perlin; Mitte, Tiefe, Segmente, Dauer, Phase) schwingt um einen Wert statt zwischen min und max und steht
-  wie die Modulation statt der Wertsteine im Code: `.lpf(sine2.early(0.25).mul(400).add(800).segment(16).slow(4))` (Strudels Wellen
-  von -1 bis 1, also 400 bis 1200). `.early(0)` und `.slow(1)` entfallen, `.round()` nach derselben Regel (für Mitte ± Tiefe).
-  Der Knopf dreht die Tiefe (`±400`, linear von 0 bis zur halben Breite des Bereichs, eingetippt jede über 0); Welle, Mitte,
-  Dauer in Zyklen, Phase (Teil einer Periode, 0 bis unter 1) und Segmente (pro Periode) stehen hinter der rechten Kante. Zurück zu «Wert» wird die Mitte der Wert. Der Rückweg liest genau
-  diese Kette (`early` und `slow` wahlweise, `seg` auch). `sine2` usw. sind als Szenennamen gesperrt.
+  **LFO**: Modus «LFO», Strudels `lfo` (strudel.cc/learn/lfo), nur bei einer Zahl und nur bei Effekten mit `modulatable`.
+  Anders als Zufallsreihe und Modulation verändert er nicht das Muster, sondern moduliert den Parameter im Klang (superdough,
+  pro Ereignis). Der Wert bleibt im Code, der LFO folgt ihm: `.lpf(800).lfo({ control: 'lpf', shape: 'sine', sync: 0.25, depth: 0.5 })`.
+  `Effect.lfo` (`LfoSeries`): Form aus `LFO_SHAPES` (tri, sine, ramp, saw, square = Strudels 0–4), Tempo als `sync` (Perioden
+  pro Zyklus) oder `rate` (Hz), Tiefe als `depth` (relativ zum Wert, 1 = halber Wert nach oben und unten) oder `depthabs` (in
+  der Einheit des Werts, Spitze zu Spitze), `dcoffset` (Lage, -0.5 = um den Wert) und `skew` (tri und square). `control` steht
+  immer da, weil Strudel sonst den zuletzt gesetzten Parameter nimmt (unter einem globalen Effekt oft ein anderer); `dcoffset`
+  und `skew` nur abweichend von Strudels Vorgabe (`LFO_DEFAULTS`). Der Knopf dreht die Tiefe (relativ bis 2, absolut bis zur
+  Breite des Bereichs); Form, Wert, Tempo (Schalter sync), Tiefe (Schalter absolut, rechnet so um, dass der Ausschlag bleibt),
+  Lage und skew stehen hinter der rechten Kante. Ohne Wert setzt der Wechsel zu «LFO» die Mitte des Bereichs. Der Rückweg
+  liest `.lfo({…})` direkt nach dem Effekt, auch Strudels Kurznamen (`c`, `sh`, `s`, `r`, `dep`, `da`, `dc`, `sk`), Formen als
+  Nummer und `.lfo()` ohne Angaben (Strudels Vorgaben); `curve`, `subControl`, `fxi`, eine `id` und Mini-Notation als Wert
+  versteht die Box nicht (roher Code). Globale Effekte lesen ihn ebenso (`globalPrefix` zählt den LFO als eigenen Aufruf).
+  Ungeprüft im Browser: dass superdough den LFO hörbar anwendet (`test:strudel` prüft nur, was Strudel ans Ereignis hängt).
   Die Zahlenfelder der Zusatzfelder lassen sich hoch und runter ziehen (`interaction/drag-number.ts`), Tippen setzt den Cursor.
   Ungeprüft im Browser, vor allem Drehknopf, Klick zum Eintippen, Ziehen an Feldern und am Titel auf iOS.
   Offen: Effekte als physische Steine für die Kamera, Effekte auf einzelnen Steinen statt der ganzen Spur.
+- **Globale Effekte** (`project.global`, `codegen.toStrudelProgram`, `ui/TopBar.svelte`): eine Effektliste, die auf alle Spuren wirkt,
+  im Bereich unter der Leiste oben (gleiche Boxen wie bei Spuren, `EffectList`, ohne Paramlocks). Im Code direkt am Stapel, vor dem
+  eigenen Code am Stapel (`frame.chain`): `stack(…).room(0.3).lpf("<800 2000>")`. Ohne Spur mit Steinen stehen sie nicht im Code.
+  Die Wertsteine leuchten. Getragen von einer Spur mit fester ID (`GLOBAL_ID`), von der nur `effects` gilt; so laufen alle
+  Effekt-Befehle über `trackId`. Gehören zur Szene (`Scene.global`) und zum Verlauf. Im Arrangement am Stapel jeder Szene
+  (`const Szene01 = stack(…).room(0.3)`). Der Rückweg (`programToTracks`, `globalPrefix`) liest am Stapel des letzten Ausdrucks die
+  bekannten Effekte und Musterbefehle (auch `.fast(2)`) bis zum ersten anderen Aufruf; der Rest bleibt Rahmen. Früher stand dort
+  alles im Rahmen. Strudels `all(…)` wird nicht gelesen und bleibt eigener Code.
 - **Kanalzug pro Spur** (`ui/TrackView.svelte`): rechts vom Namen waagrecht `M` (stumm), `S` (Solo), Orbit bzw. MIDI-Kanal und der Lautstärkeregler (höchstens 120 px breit). Am rechten Rand des Spurkopfs drei Punkte (`ui/TrackMenu.svelte`): Menü mit Art der Spur (Klang, Noten, MIDI), «Code zeigen» bzw. «UI zeigen» und «Spur entfernen»; in der Code-Ansicht steht zusätzlich ein Knopf «UI» im Spurkopf. In der Code-Ansicht fallen
   Regler und `M` weg, Lautstärke und Stummschaltung stehen dann im Text. Die Lautstärke (`Track.volume`, 0–1.5) ist Strudels `postgain`
   (wirkt nach allen Effekten, Standard 1) und steht nur im Code, wenn sie nicht 1 ist, als letzter Aufruf der Zeile.
@@ -402,9 +420,11 @@ dafür ohne Ladeanzeige geladen. Synths, Soundfonts (`gm_…`) und eigene Aufnah
   Welche Quellen die Palette ohne Suche zeigt, ist eine Auswahl in `sounds.ts` (`SOUND_GROUPS`): uzu-Drumkit, Synths, Rauschen,
   Dirt-Samples und Piano, Mridangam, VCSL, ZZFX. Die 683 Drum-Machine-Klänge nur über die Suche.
   Offen: Drum Machines als Wahl (`.bank()`), Soundfonts (`gm_…`, melodisch, noch nicht erfasst), unbekannte Klangnamen markieren.
-- **Szenen** (`domain/scene.ts`, `state/scenes.svelte.ts`, `ui/SceneDock.svelte`): feste Leiste unten. Es gibt immer
+- **Szenen** (`domain/scene.ts`, `state/scenes.svelte.ts`, `ui/SceneDock.svelte`): feste Leiste unten, zu Beginn zugeklappt (`session.dock`): dann nur
+  die gewählte Szene in einer Zeile, Rückgängig und Übernehmen. Die Kante oben (`ui/EdgeToggle.svelte`, dieselbe wie unter der
+  Leiste oben) oder ein Klick auf freie Stellen klappt sie auf: Szenen, Arrangement-Schalter, Arrangement. Es gibt immer
   mindestens eine Szene (am Anfang «Szene01» mit dem Startzustand) und genau eine ist gewählt (gelb umrandet). Eine Szene ist der
-  ganze Zustand (alle Spuren samt Effekten und das Tempo, als Kopie). «+ Szene» kopiert den aktuellen Zustand in eine neue Szene
+  ganze Zustand (alle Spuren samt Effekten, die globalen Effekte und das Tempo, als Kopie). «+ Szene» kopiert den aktuellen Zustand in eine neue Szene
   gleich hinter der gewählten und wählt sie (Name «Szene02» …, gleich markiert). Antippen wählt eine Szene und lädt sie (ersetzt
   Spuren und Tempo, IDs bleiben). Auch ungültiger Code wird gespeichert, die Szene ist schlicht der Arbeitsstand.
   Unten rechts ein geteilter Knopf: links die Aktion, rechts (▾) die Wahl «Manuell» oder «Auto».
@@ -414,8 +434,8 @@ dafür ohne Ladeanzeige geladen. Synths, Soundfonts (`gm_…`) und eigene Aufnah
   bekommt sie trotzdem) oder abbrechen. Abweichung wird per JSON-Vergleich erkannt (`sameContent`). Die letzte Szene lässt sich nicht entfernen; fällt die
   gewählte weg, wird die Nachbarin geladen. Eigene Aufnahmen stecken nicht in der Szene, sie bleiben ohnehin in `sampleBank`.
   Offen: Persistenz (heute nur im Speicher, ein Pattern speichert nur die gewählte Szene, siehe Abschnitt 4, Punkt 4), Reihenfolge ändern, Bezug zu Undo/Redo (Punkt 3).
-- **Arrangement** (`domain/arrangement.ts`, `state/arrangement.svelte.ts`, `ui/ArrangementRow.svelte`): Umschaltknopf (`aria-pressed`) unten links
-  in der Szenen-Leiste (Standard aus). An: ganz unten eine Zeile mit Abschnitten wie eine Steinreihe: oben der Szenenstein,
+- **Arrangement** (`domain/arrangement.ts`, `state/arrangement.svelte.ts`, `ui/ArrangementRow.svelte`): Umschaltknopf (`aria-pressed`) in eigener
+  Zeile unter den Szenen (Standard aus), nur aufgeklappt sichtbar; zugeklappt steht «Arrangement» neben der Szene. An: direkt darunter eine Zeile mit Abschnitten wie eine Steinreihe: oben der Szenenstein,
   darunter der grüne `!`-Knopf für die Zyklen (`Knob.svelte`, derselbe Drehknopf wie `ModSlot`, Stufen `TIMES_VALUES`
   1–16, nicht ausschaltbar). Szenen werden aus der Leiste nach unten hineingezogen (`tokenGestures` mit Ziel
   `ARRANGEMENT_LANE`, ohne Arrangement kein Ziehen: Option `drags`), Abschnitte darin verschoben; Antippen öffnet wie bei den Steinen ein Icon-Menü

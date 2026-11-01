@@ -72,7 +72,8 @@ export const EFFECTS: readonly EffectInfo[] = [
     "synonyms": [],
     "description": "DC offset of the LFO for the bandpass filter",
     "hint": "dc offset. set to 0 for unipolar",
-    "values": []
+    "values": [],
+    "modulatable": true
   },
   {
     "name": "bpdecay",
@@ -95,7 +96,8 @@ export const EFFECTS: readonly EffectInfo[] = [
     "synonyms": [],
     "description": "Depth of the LFO for the bandpass filter",
     "hint": "depth of modulation",
-    "values": []
+    "values": [],
+    "modulatable": true
   },
   {
     "name": "bpdepthfrequency",
@@ -110,7 +112,8 @@ export const EFFECTS: readonly EffectInfo[] = [
       "100",
       "200",
       "500"
-    ]
+    ],
+    "modulatable": true
   },
   {
     "name": "bpenv",
@@ -144,7 +147,8 @@ export const EFFECTS: readonly EffectInfo[] = [
       "2000",
       "4000",
       "8000"
-    ]
+    ],
+    "modulatable": true
   },
   {
     "name": "bpq",
@@ -159,7 +163,8 @@ export const EFFECTS: readonly EffectInfo[] = [
       "1",
       "2",
       "3"
-    ]
+    ],
+    "modulatable": true
   },
   {
     "name": "bprate",
@@ -167,7 +172,8 @@ export const EFFECTS: readonly EffectInfo[] = [
     "synonyms": [],
     "description": "Rate of the LFO for the bandpass filter",
     "hint": "rate in hertz",
-    "values": []
+    "values": [],
+    "modulatable": true
   },
   {
     "name": "bprelease",
@@ -190,7 +196,8 @@ export const EFFECTS: readonly EffectInfo[] = [
     "synonyms": [],
     "description": "Shape of the LFO for the bandpass filter",
     "hint": "Shape of the lfo (0, 1, 2, ..)",
-    "values": []
+    "values": [],
+    "modulatable": true
   },
   {
     "name": "bpskew",
@@ -198,7 +205,8 @@ export const EFFECTS: readonly EffectInfo[] = [
     "synonyms": [],
     "description": "Skew of the LFO for the bandpass filter",
     "hint": "How much to bend the LFO shape",
-    "values": []
+    "values": [],
+    "modulatable": true
   },
   {
     "name": "bpsustain",
@@ -221,7 +229,8 @@ export const EFFECTS: readonly EffectInfo[] = [
     "synonyms": [],
     "description": "Cycle-synced rate of the LFO for the bandpass filter",
     "hint": "rate in cycles",
-    "values": []
+    "values": [],
+    "modulatable": true
   },
   {
     "name": "brak",
@@ -240,7 +249,8 @@ export const EFFECTS: readonly EffectInfo[] = [
     ],
     "description": "Postgain multiplier prior to sending the signal to the audio bus.",
     "hint": "",
-    "values": []
+    "values": [],
+    "modulatable": true
   },
   {
     "name": "ccn",
@@ -304,7 +314,8 @@ export const EFFECTS: readonly EffectInfo[] = [
       "8",
       "16",
       "32"
-    ]
+    ],
+    "modulatable": true
   },
   {
     "name": "color",
@@ -324,7 +335,8 @@ export const EFFECTS: readonly EffectInfo[] = [
     "hint": "",
     "values": [
       "-20"
-    ]
+    ],
+    "modulatable": true
   },
   {
     "name": "crush",
@@ -341,7 +353,8 @@ export const EFFECTS: readonly EffectInfo[] = [
       "7",
       "8",
       "16"
-    ]
+    ],
+    "modulatable": true
   },
   {
     "name": "cut",
@@ -400,7 +413,8 @@ export const EFFECTS: readonly EffectInfo[] = [
       ".5",
       "0.65",
       "1"
-    ]
+    ],
+    "modulatable": true
   },
   {
     "name": "delayfeedback",
@@ -416,7 +430,8 @@ export const EFFECTS: readonly EffectInfo[] = [
       ".5",
       ".75",
       "1"
-    ]
+    ],
+    "modulatable": true
   },
   {
     "name": "delayspeed",
@@ -443,7 +458,8 @@ export const EFFECTS: readonly EffectInfo[] = [
     ],
     "description": "Sets the time of the delay effect in cycles.",
     "hint": "delay length in cycles",
-    "values": []
+    "values": [],
+    "modulatable": true
   },
   {
     "name": "density",
@@ -471,7 +487,8 @@ export const EFFECTS: readonly EffectInfo[] = [
       ".2",
       ".5",
       "24.1"
-    ]
+    ],
+    "modulatable": true
   },
   {
     "name": "distort",
@@ -487,7 +504,8 @@ export const EFFECTS: readonly EffectInfo[] = [
       "3",
       "8",
       "10"
-    ]
+    ],
+    "modulatable": true
   },
   {
     "name": "distorttype",
@@ -507,7 +525,8 @@ export const EFFECTS: readonly EffectInfo[] = [
       "diode",
       "asym",
       "sinefold"
-    ]
+    ],
+    "modulatable": true
   },
   {
     "name": "distortvol",
@@ -519,7 +538,8 @@ export const EFFECTS: readonly EffectInfo[] = [
     "hint": "linear postgain of the distortion",
     "values": [
       "0.8"
-    ]
+    ],
+    "modulatable": true
   },
   {
     "name": "djf",
@@ -532,7 +552,8 @@ export const EFFECTS: readonly EffectInfo[] = [
       ".3",
       ".5",
       ".75"
-    ]
+    ],
+    "modulatable": true
   },
   {
     "name": "drive",
@@ -716,7 +737,8 @@ export const EFFECTS: readonly EffectInfo[] = [
       "1.5",
       "1.61",
       "2"
-    ]
+    ],
+    "modulatable": true
   },
   {
     "name": "fmi",
@@ -733,7 +755,8 @@ export const EFFECTS: readonly EffectInfo[] = [
       "4",
       "8",
       "32"
-    ]
+    ],
+    "modulatable": true
   },
   {
     "name": "fmrelease",
@@ -780,7 +803,8 @@ export const EFFECTS: readonly EffectInfo[] = [
     "synonyms": [],
     "description": "Set frequency of sound.",
     "hint": "in Hz. the audible range is between 20 and 20000 Hz",
-    "values": []
+    "values": [],
+    "modulatable": true
   },
   {
     "name": "ftype",
@@ -804,7 +828,8 @@ export const EFFECTS: readonly EffectInfo[] = [
     "values": [
       ".4",
       "1"
-    ]
+    ],
+    "modulatable": true
   },
   {
     "name": "grow",
@@ -838,7 +863,8 @@ export const EFFECTS: readonly EffectInfo[] = [
     "synonyms": [],
     "description": "DC offset of the LFO for the highpass filter",
     "hint": "dc offset. set to 0 for unipolar",
-    "values": []
+    "values": [],
+    "modulatable": true
   },
   {
     "name": "hpdecay",
@@ -861,7 +887,8 @@ export const EFFECTS: readonly EffectInfo[] = [
     "synonyms": [],
     "description": "Depth of the LFO for the highpass filter",
     "hint": "depth of modulation",
-    "values": []
+    "values": [],
+    "modulatable": true
   },
   {
     "name": "hpdepthfrequency",
@@ -876,7 +903,8 @@ export const EFFECTS: readonly EffectInfo[] = [
       "100",
       "200",
       "500"
-    ]
+    ],
+    "modulatable": true
   },
   {
     "name": "hpenv",
@@ -912,7 +940,8 @@ export const EFFECTS: readonly EffectInfo[] = [
       "1000",
       "2000",
       "4000"
-    ]
+    ],
+    "modulatable": true
   },
   {
     "name": "hpq",
@@ -927,7 +956,8 @@ export const EFFECTS: readonly EffectInfo[] = [
       "10",
       "20",
       "30"
-    ]
+    ],
+    "modulatable": true
   },
   {
     "name": "hprate",
@@ -935,7 +965,8 @@ export const EFFECTS: readonly EffectInfo[] = [
     "synonyms": [],
     "description": "Rate of the LFO for the highpass filter",
     "hint": "rate in hertz",
-    "values": []
+    "values": [],
+    "modulatable": true
   },
   {
     "name": "hprelease",
@@ -958,7 +989,8 @@ export const EFFECTS: readonly EffectInfo[] = [
     "synonyms": [],
     "description": "Shape of the LFO for the highpass filter",
     "hint": "Shape of the lfo (0, 1, 2, ..)",
-    "values": []
+    "values": [],
+    "modulatable": true
   },
   {
     "name": "hpskew",
@@ -966,7 +998,8 @@ export const EFFECTS: readonly EffectInfo[] = [
     "synonyms": [],
     "description": "Skew of the LFO for the highpass filter",
     "hint": "How much to bend the LFO shape",
-    "values": []
+    "values": [],
+    "modulatable": true
   },
   {
     "name": "hpsustain",
@@ -989,7 +1022,8 @@ export const EFFECTS: readonly EffectInfo[] = [
     "synonyms": [],
     "description": "Cycle-synced rate of the LFO for the highpass filter",
     "hint": "rate in cycles",
-    "values": []
+    "values": [],
+    "modulatable": true
   },
   {
     "name": "hurry",
@@ -1169,7 +1203,8 @@ export const EFFECTS: readonly EffectInfo[] = [
     "synonyms": [],
     "description": "DC offset of the LFO for the lowpass filter",
     "hint": "dc offset. set to 0 for unipolar",
-    "values": []
+    "values": [],
+    "modulatable": true
   },
   {
     "name": "lpdecay",
@@ -1197,7 +1232,8 @@ export const EFFECTS: readonly EffectInfo[] = [
       ".5",
       "1",
       "1.8"
-    ]
+    ],
+    "modulatable": true
   },
   {
     "name": "lpdepthfrequency",
@@ -1212,7 +1248,8 @@ export const EFFECTS: readonly EffectInfo[] = [
       "100",
       "200",
       "500"
-    ]
+    ],
+    "modulatable": true
   },
   {
     "name": "lpenv",
@@ -1249,7 +1286,8 @@ export const EFFECTS: readonly EffectInfo[] = [
       "1000",
       "2000",
       "4000"
-    ]
+    ],
+    "modulatable": true
   },
   {
     "name": "lpq",
@@ -1264,7 +1302,8 @@ export const EFFECTS: readonly EffectInfo[] = [
       "10",
       "20",
       "30"
-    ]
+    ],
+    "modulatable": true
   },
   {
     "name": "lprate",
@@ -1277,7 +1316,8 @@ export const EFFECTS: readonly EffectInfo[] = [
       "2",
       "4",
       "8"
-    ]
+    ],
+    "modulatable": true
   },
   {
     "name": "lprelease",
@@ -1300,7 +1340,8 @@ export const EFFECTS: readonly EffectInfo[] = [
     "synonyms": [],
     "description": "Shape of the LFO for the lowpass filter",
     "hint": "Shape of the lfo (0, 1, 2, ..)",
-    "values": []
+    "values": [],
+    "modulatable": true
   },
   {
     "name": "lpskew",
@@ -1308,7 +1349,8 @@ export const EFFECTS: readonly EffectInfo[] = [
     "synonyms": [],
     "description": "Skew of the LFO for the lowpass filter",
     "hint": "How much to bend the LFO shape",
-    "values": []
+    "values": [],
+    "modulatable": true
   },
   {
     "name": "lpsustain",
@@ -1336,7 +1378,8 @@ export const EFFECTS: readonly EffectInfo[] = [
       "2",
       "4",
       "8"
-    ]
+    ],
+    "modulatable": true
   },
   {
     "name": "mask",
@@ -1389,7 +1432,8 @@ export const EFFECTS: readonly EffectInfo[] = [
     "synonyms": [],
     "description": "Plays the given note name or midi number.",
     "hint": "",
-    "values": []
+    "values": [],
+    "modulatable": true
   },
   {
     "name": "nrpnn",
@@ -1460,7 +1504,8 @@ export const EFFECTS: readonly EffectInfo[] = [
       "0",
       ".5",
       "1"
-    ]
+    ],
+    "modulatable": true
   },
   {
     "name": "panchor",
@@ -1545,7 +1590,8 @@ export const EFFECTS: readonly EffectInfo[] = [
       "2",
       "4",
       "8"
-    ]
+    ],
+    "modulatable": true
   },
   {
     "name": "phasercenter",
@@ -1559,7 +1605,8 @@ export const EFFECTS: readonly EffectInfo[] = [
       "800",
       "2000",
       "4000"
-    ]
+    ],
+    "modulatable": true
   },
   {
     "name": "phaserdepth",
@@ -1575,7 +1622,8 @@ export const EFFECTS: readonly EffectInfo[] = [
       ".5",
       ".75",
       "1"
-    ]
+    ],
+    "modulatable": true
   },
   {
     "name": "phasersweep",
@@ -1589,7 +1637,8 @@ export const EFFECTS: readonly EffectInfo[] = [
       "800",
       "2000",
       "4000"
-    ]
+    ],
+    "modulatable": true
   },
   {
     "name": "ply",
@@ -1661,7 +1710,8 @@ export const EFFECTS: readonly EffectInfo[] = [
       ".75",
       ".8",
       "1"
-    ]
+    ],
+    "modulatable": true
   },
   {
     "name": "pwrate",
@@ -1673,7 +1723,8 @@ export const EFFECTS: readonly EffectInfo[] = [
       ".1",
       "5",
       "25"
-    ]
+    ],
+    "modulatable": true
   },
   {
     "name": "pwsweep",
@@ -1684,7 +1735,8 @@ export const EFFECTS: readonly EffectInfo[] = [
     "values": [
       "0.3",
       ".8"
-    ]
+    ],
+    "modulatable": true
   },
   {
     "name": "release",
@@ -1772,7 +1824,8 @@ export const EFFECTS: readonly EffectInfo[] = [
       ".8",
       "0.9",
       "1"
-    ]
+    ],
+    "modulatable": true
   },
   {
     "name": "roomdim",
@@ -2019,7 +2072,8 @@ export const EFFECTS: readonly EffectInfo[] = [
       ".4",
       ".6",
       ".8"
-    ]
+    ],
+    "modulatable": true
   },
   {
     "name": "shrink",
@@ -2078,7 +2132,8 @@ export const EFFECTS: readonly EffectInfo[] = [
       "0",
       ".3",
       "1"
-    ]
+    ],
+    "modulatable": true
   },
   {
     "name": "stretch",
@@ -2090,7 +2145,8 @@ export const EFFECTS: readonly EffectInfo[] = [
       ".5",
       "1",
       "2"
-    ]
+    ],
+    "modulatable": true
   },
   {
     "name": "striate",
@@ -2152,7 +2208,8 @@ export const EFFECTS: readonly EffectInfo[] = [
       "0",
       "0.5",
       "1"
-    ]
+    ],
+    "modulatable": true
   },
   {
     "name": "transpose",
@@ -2181,7 +2238,8 @@ export const EFFECTS: readonly EffectInfo[] = [
       "2",
       "3",
       "100"
-    ]
+    ],
+    "modulatable": true
   },
   {
     "name": "tremolodepth",
@@ -2195,7 +2253,8 @@ export const EFFECTS: readonly EffectInfo[] = [
       ".7",
       "1",
       "2"
-    ]
+    ],
+    "modulatable": true
   },
   {
     "name": "tremolophase",
@@ -2209,7 +2268,8 @@ export const EFFECTS: readonly EffectInfo[] = [
       "0",
       ".25",
       ".66"
-    ]
+    ],
+    "modulatable": true
   },
   {
     "name": "tremoloshape",
@@ -2223,7 +2283,8 @@ export const EFFECTS: readonly EffectInfo[] = [
       "sine",
       "tri",
       "square"
-    ]
+    ],
+    "modulatable": true
   },
   {
     "name": "tremoloskew",
@@ -2237,7 +2298,8 @@ export const EFFECTS: readonly EffectInfo[] = [
       "0",
       ".5",
       "1"
-    ]
+    ],
+    "modulatable": true
   },
   {
     "name": "tremolosync",
@@ -2249,7 +2311,8 @@ export const EFFECTS: readonly EffectInfo[] = [
     "hint": "modulation speed in cycles",
     "values": [
       "4"
-    ]
+    ],
+    "modulatable": true
   },
   {
     "name": "undegrade",
@@ -2312,7 +2375,8 @@ export const EFFECTS: readonly EffectInfo[] = [
       "4",
       "8",
       "16"
-    ]
+    ],
+    "modulatable": true
   },
   {
     "name": "vibmod",
@@ -2328,7 +2392,8 @@ export const EFFECTS: readonly EffectInfo[] = [
       "1",
       "2",
       "12"
-    ]
+    ],
+    "modulatable": true
   },
   {
     "name": "vowel",
@@ -2342,7 +2407,8 @@ export const EFFECTS: readonly EffectInfo[] = [
       "i",
       "o",
       "u"
-    ]
+    ],
+    "modulatable": true
   },
   {
     "name": "warp",
@@ -2358,7 +2424,8 @@ export const EFFECTS: readonly EffectInfo[] = [
       "0.5",
       "0.75",
       "1"
-    ]
+    ],
+    "modulatable": true
   },
   {
     "name": "warpattack",
@@ -2376,7 +2443,8 @@ export const EFFECTS: readonly EffectInfo[] = [
     "synonyms": [],
     "description": "DC offset of the LFO for the wavetable oscillator's warp",
     "hint": "dc offset. set to 0 for unipolar",
-    "values": []
+    "values": [],
+    "modulatable": true
   },
   {
     "name": "warpdecay",
@@ -2394,7 +2462,8 @@ export const EFFECTS: readonly EffectInfo[] = [
     "synonyms": [],
     "description": "Depth of the LFO for the wavetable oscillator's warp",
     "hint": "depth of modulation",
-    "values": []
+    "values": [],
+    "modulatable": true
   },
   {
     "name": "warpenv",
@@ -2428,7 +2497,8 @@ export const EFFECTS: readonly EffectInfo[] = [
     "synonyms": [],
     "description": "Rate of the LFO for the wavetable oscillator's warp",
     "hint": "rate in hertz",
-    "values": []
+    "values": [],
+    "modulatable": true
   },
   {
     "name": "warprelease",
@@ -2454,7 +2524,8 @@ export const EFFECTS: readonly EffectInfo[] = [
     "synonyms": [],
     "description": "Skew of the LFO for the wavetable oscillator's warp",
     "hint": "How much to bend the LFO shape",
-    "values": []
+    "values": [],
+    "modulatable": true
   },
   {
     "name": "warpsustain",
@@ -2472,7 +2543,8 @@ export const EFFECTS: readonly EffectInfo[] = [
     "synonyms": [],
     "description": "cycle synced rate of the LFO for the wavetable warp position",
     "hint": "rate in cycles",
-    "values": []
+    "values": [],
+    "modulatable": true
   },
   {
     "name": "wt",
@@ -2488,7 +2560,8 @@ export const EFFECTS: readonly EffectInfo[] = [
       "0.5",
       "0.75",
       "1"
-    ]
+    ],
+    "modulatable": true
   },
   {
     "name": "wtattack",
@@ -2506,7 +2579,8 @@ export const EFFECTS: readonly EffectInfo[] = [
     "synonyms": [],
     "description": "DC offset of the LFO for the wavetable oscillator's position",
     "hint": "dc offset. set to 0 for unipolar",
-    "values": []
+    "values": [],
+    "modulatable": true
   },
   {
     "name": "wtdecay",
@@ -2524,7 +2598,8 @@ export const EFFECTS: readonly EffectInfo[] = [
     "synonyms": [],
     "description": "Depth of the LFO for the wavetable oscillator's position",
     "hint": "depth of modulation",
-    "values": []
+    "values": [],
+    "modulatable": true
   },
   {
     "name": "wtenv",
@@ -2553,7 +2628,8 @@ export const EFFECTS: readonly EffectInfo[] = [
     "synonyms": [],
     "description": "Rate of the LFO for the wavetable oscillator's position",
     "hint": "rate in hertz",
-    "values": []
+    "values": [],
+    "modulatable": true
   },
   {
     "name": "wtrelease",
@@ -2579,7 +2655,8 @@ export const EFFECTS: readonly EffectInfo[] = [
     "synonyms": [],
     "description": "Skew of the LFO for the wavetable oscillator's position",
     "hint": "How much to bend the LFO shape",
-    "values": []
+    "values": [],
+    "modulatable": true
   },
   {
     "name": "wtsustain",
@@ -2597,7 +2674,8 @@ export const EFFECTS: readonly EffectInfo[] = [
     "synonyms": [],
     "description": "cycle synced rate of the LFO for the wavetable oscillator's position",
     "hint": "rate in cycles",
-    "values": []
+    "values": [],
+    "modulatable": true
   }
 ];
 

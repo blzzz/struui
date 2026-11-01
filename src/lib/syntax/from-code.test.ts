@@ -195,27 +195,39 @@ test('code: sine.range(…).segment(…).slow(…) wird zur Modulation und zurü
   ]) assert.ok(!codeToTrack(bad).ok, bad);
 });
 
-test('code: sine2.mul(…).add(…).segment(…) wird zum LFO und zurück', () => {
+test('code: .lfo({ … }) nach einem Effekt wird zum LFO und zurück', () => {
   const cases: [string, string][] = [
-    ['/* a */ s("bd").lpf(sine2.mul(400).add(800).segment(16).slow(4))', '/* a */ s("bd").lpf(sine2.mul(400).add(800).segment(16).slow(4))'],
-    ['/* a */ s("bd").lpf(saw2 .early(.25).mul( 400 ).add(800).seg(8).slow(1))', '/* a */ s("bd").lpf(saw2.early(0.25).mul(400).add(800).segment(8))'],
-    ['/* n */ note("c".add(square2.mul(3).add(-2).round().segment(4))).s("sine")', '/* n */ note("c".add(square2.mul(3).add(-2).round().segment(4))).s("sine")'],
+    [
+      `/* a */ s("bd").lpf(800).lfo({ control: 'lpf', shape: 'sine', sync: 0.25, depth: 0.5 })`,
+      `/* a */ s("bd").lpf(800).lfo({ control: 'lpf', shape: 'sine', sync: 0.25, depth: 0.5 })`,
+    ],
+    // Strudels Kurznamen, Form als Nummer, Vorgaben und control weggelassen
+    [`/* a */ s("bd").lpf(800) .lfo({ sh: 4, r: 2, da: 300, dc: 0, sk: .2, })`, `/* a */ s("bd").lpf(800).lfo({ control: 'lpf', shape: 'square', rate: 2, depthabs: 300, dcoffset: 0, skew: 0.2 })`],
+    [`/* a */ s("bd").cutoff(800).lfo()`, `/* a */ s("bd").cutoff(800).lfo({ control: 'cutoff', shape: 'tri', rate: 1, depth: 1 })`],
+    [`/* a */ s("bd").room(.5).lfo({ c: "room", "shape": 'triangle' }).lpf(slider(800, 100, 8000, 10))`, `/* a */ s("bd").room(0.5).lfo({ control: 'room', shape: 'tri', rate: 1, depth: 1 }).lpf(slider(800, 100, 8000, 10))`],
   ];
   for (const [input, expected] of cases) assert.equal(roundTrip(input), expected, input);
-  const r = codeToTrack('/* a */ s("bd").lpf(cosine2.early(0.5).mul(400).add(800).segment(16).slow(2)).room(.5)');
+  const r = codeToTrack(`/* a */ s("bd").lpf(800).lfo({ shape: 'saw', sync: 2 }).room(.5)`);
   assert.ok(r.ok);
-  assert.deepEqual(r.effects[0].lfo, { wave: 'cosine', center: 800, depth: 400, segments: 16, slow: 2, phase: 0.5, whole: false });
-  assert.deepEqual(r.effects[0].tokens, []);
-  assert.equal(r.effects[0].mod, null);
+  assert.deepEqual(r.effects[0].lfo, { shape: 'saw', speed: 2, unit: 'sync', depth: 1, absolute: false, dcoffset: -0.5, skew: 0.5 });
+  assert.equal(r.effects[0].tokens[0].kind === 'sound' && r.effects[0].tokens[0].sound, '800', 'der Wert bleibt');
   assert.equal(r.effects[1].lfo, null);
 
   for (const bad of [
-    '/* a */ s("bd").lpf(sine2)',
-    '/* a */ s("bd").lpf(sine2.mul(400).segment(4))',
-    '/* a */ s("bd").lpf(sine2.mul(0).add(800).segment(4))',
-    '/* a */ s("bd").lpf(sine2.early(1).mul(400).add(800).segment(4))',
-    '/* a */ s("bd").lpf(sine2.mul(400).add(800).segment(4).fast(2))',
-    '/* a */ s("bd").lpf(perlin2.mul(400).add(800).segment(4))',
+    `/* a */ s("bd").lfo()`,
+    `/* a */ s("bd").speed(2).lfo()`,
+    `/* a */ s("bd").lpf("<400 800>").lfo()`,
+    `/* a */ s("bd").lpf(sine.range(200, 2000).segment(4)).lfo()`,
+    `/* a */ s("bd").lpf(800).lfo({ control: 'room' })`,
+    `/* a */ s("bd").lpf(800).lfo({ sync: 1, rate: 2 })`,
+    `/* a */ s("bd").lpf(800).lfo({ depth: 1, depthabs: 2 })`,
+    `/* a */ s("bd").lpf(800).lfo({ curve: 2 })`,
+    `/* a */ s("bd").lpf(800).lfo({ shape: 'cosine' })`,
+    `/* a */ s("bd").lpf(800).lfo({ shape: 5 })`,
+    `/* a */ s("bd").lpf(800).lfo({ depth: 0 })`,
+    `/* a */ s("bd").lpf(800).lfo({ sync: 1 }, 'id')`,
+    `/* a */ s("bd").lpf(sine2.mul(400).add(800).segment(4))`,
+    `/* n */ note("c".add(3).lfo()).s("sine")`,
   ]) assert.ok(!codeToTrack(bad).ok, bad);
 });
 

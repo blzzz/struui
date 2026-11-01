@@ -1,6 +1,6 @@
 import { PAUSE, hasModifiers, hasSteps, joinsPrevious, label } from './types.ts';
 import type { Modifiers, Token, TrackType } from './types.ts';
-import { effectInfo } from './effects.ts';
+import { LFO_DEFAULTS, effectInfo } from './effects.ts';
 import { LOCKS } from './locks.ts';
 import type { Effect, LfoSeries, ModSeries, RandSeries, SliderRange } from './effects.ts';
 import { clampSlices } from './sampler.ts';
@@ -76,11 +76,16 @@ export interface CodeOptions {
   elideSamples?: boolean;
   /** Eigener Code rund um den Stapel, unverändert ausgegeben. Fehlt er, steht nur der erzeugte Code da. */
   frame?: Frame;
+  /** Globale Effekte: wirken auf alle Spuren, direkt am Stapel (`stack(…).room(.3)`). Ohne Wertsteine übersprungen. */
+  global?: readonly GlobalEffect[];
 }
+
+/** Was die Code-Erzeugung von einem globalen Effekt braucht (wie die Effekte einer Spur). */
+export type GlobalEffect = Pick<Effect, 'name' | 'tokens' | 'slider' | 'rand' | 'mod' | 'lfo'>;
 
 /**
  * Eigener Code rund um die Spuren, aus der bearbeiteten Code-Ansicht (`syntax/from-program.ts`). Strudel-Steine versteht ihn
- * nicht, gibt ihn aber unverändert wieder aus: `before` nach Aufnahmen und Tempo, `chain` direkt am Stapel (`.fast(2)`),
+ * nicht, gibt ihn aber unverändert wieder aus: `before` nach Aufnahmen und Tempo, `chain` am Stapel nach den globalen Effekten (`.pianoroll()`),
  * `after` danach. Im Arrangement hängt `chain` an `arrange(…)`.
  */
 export interface Frame {
@@ -152,7 +157,8 @@ const NUMBER = /^-?(\d+\.?\d*|\.\d+)$/;
  * Ein Effekt als Code, oder null ohne Wertsteine. Effekte ohne Wert (`fit`) stehen immer da: `.fit()`. Ein einzelner Zahlenstein ohne Modifier geht als Zahl hinein (`.lpf(800)`),
  * mit eingestelltem Regler als Strudels `slider()` (`.lpf(slider(800, 100, 8000, 10))`, auf strudel.cc ein Regler im Code),
  * alles andere als Mini-Notation (`.lpf("<200 800>")`). Dann meldet Strudel auch hier Positionen und die Wertsteine leuchten.
- * Mit Zufallsreihe, Modulation oder LFO steht dieser statt der Steine da (`randToCode`, `modToCode`, `lfoToCode`), auch ohne Steine.
+ * Mit Zufallsreihe oder Modulation steht diese statt der Steine da (`randToCode`, `modToCode`), auch ohne Steine.
+ * Ein LFO folgt dem Wert (`.lpf(800).lfo({ … })`, `lfoToCode`); ohne Wertsteine ist der Effekt samt LFO aus.
  */
 export function effectToCode(e: {
   name: string;
@@ -165,7 +171,10 @@ export function effectToCode(e: {
   if (effectInfo(e.name)?.noValue) return { text: `.${e.name}()`, ranges: [] };
   if (e.rand) return { text: `.${e.name}(${randToCode(e.rand)})`, ranges: [] };
   if (e.mod) return { text: `.${e.name}(${modToCode(e.mod)})`, ranges: [] };
-  if (e.lfo) return { text: `.${e.name}(${lfoToCode(e.lfo)})`, ranges: [] };
+  if (e.lfo) {
+    const base = effectToCode({ ...e, lfo: null });
+    return base && { text: base.text + lfoToCode(e.name, e.lfo), ranges: base.ranges };
+  }
   const [only] = e.tokens;
   if (!only) return null;
   if (e.tokens.length === 1 && only.kind === 'sound' && NUMBER.test(only.sound) && only.random === null && only.repeat === null) {
@@ -202,13 +211,15 @@ export function modToCode(m: ModSeries): string {
 }
 
 /**
- * Ein LFO als Strudel-Code: `sine2.early(0.25).mul(400).add(800).segment(16).slow(4)`, `.early(0)` und `.slow(1)` entfallen,
- * ganze Zahlen mit `.round()` nach `add`.
+ * Ein LFO als Strudel-Code nach dem Wert des Effekts `name`: `.lfo({ control: 'lpf', shape: 'sine', sync: 0.25, depth: 0.5 })`.
+ * `control` steht immer da: ohne ihn nähme Strudel den zuletzt gesetzten Parameter, und der ist nicht immer dieser
+ * (Paramlocks oder Spureffekte vor einem globalen Effekt setzen ihn früher). `dcoffset` und `skew` nur abweichend von Strudels Vorgabe.
  */
-export function lfoToCode(l: LfoSeries): string {
-  const early = l.phase === 0 ? '' : `.early(${l.phase})`;
-  const slow = l.slow === 1 ? '' : `.slow(${l.slow})`;
-  return `${l.wave}2${early}.mul(${l.depth}).add(${l.center})${l.whole ? '.round()' : ''}.segment(${l.segments})${slow}`;
+export function lfoToCode(name: string, l: LfoSeries): string {
+  const parts = [`control: ${quote(name)}`, `shape: ${quote(l.shape)}`, `${l.unit}: ${l.speed}`, `${l.absolute ? 'depthabs' : 'depth'}: ${l.depth}`];
+  if (l.dcoffset !== LFO_DEFAULTS.dcoffset) parts.push(`dcoffset: ${l.dcoffset}`);
+  if (l.skew !== LFO_DEFAULTS.skew) parts.push(`skew: ${l.skew}`);
+  return `.lfo({ ${parts.join(', ')} })`;
 }
 
 const shift = (ranges: readonly TokenRange[], by: number): TokenRange[] =>
@@ -278,12 +289,9 @@ export function trackToCode(t: CodeTrack): { text: string; ranges: TokenRange[] 
 function withTail(t: CodeTrack, head: { text: string; ranges: TokenRange[] }): { text: string; ranges: TokenRange[] } {
   let { text } = head;
   const ranges = [...head.ranges];
-  for (const e of t.effects ?? []) {
-    const fx = effectToCode(e);
-    if (!fx) continue;
-    ranges.push(...shift(fx.ranges, text.length));
-    text += fx.text;
-  }
+  const fx = chainCode(t.effects ?? []);
+  ranges.push(...shift(fx.ranges, text.length));
+  text += fx.text;
   // Nach den Effekten: die Locks überschreiben deren Werte Schritt für Schritt
   const locked = t.type === undefined || t.type === 'sound' ? t.locks && locksToCode(t.locks) : null;
   if (locked) {
@@ -358,6 +366,19 @@ function stackCode(tracks: readonly CodeTrack[]): { text: string; ranges: TokenR
   return { text: text + '\n)', ranges };
 }
 
+/** Effekte hintereinander (`.room(.3).lpf(800)`), Effekte ohne Code übersprungen. Positionen ab dem ersten Punkt. */
+function chainCode(effects: readonly GlobalEffect[]): { text: string; ranges: TokenRange[] } {
+  let text = '';
+  const ranges: TokenRange[] = [];
+  for (const e of effects) {
+    const fx = effectToCode(e);
+    if (!fx) continue;
+    ranges.push(...shift(fx.ranges, text.length));
+    text += fx.text;
+  }
+  return { text, ranges };
+}
+
 /** Eigener Code vor dem Stapel (`frame.before`), auf eigenen Zeilen. */
 function beforeCode(frame: Frame): string {
   return frame.before ? `\n${frame.before}\n` : '';
@@ -373,26 +394,35 @@ function mainCode(main: string | null, frame: Frame): string {
 }
 
 /**
- * Der ganze Code: Aufnahmen, Tempo, eigener Code davor, dann alle Spuren in einem `stack(…)`, eine Spur pro Zeile, und eigener
- * Code danach. Ohne Label spielt Strudel den letzten Ausdruck, also diesen Stapel. Ohne Spur mit Steinen steht kein `stack` da.
+ * Der ganze Code: Aufnahmen, Tempo, eigener Code davor, dann alle Spuren in einem `stack(…)`, eine Spur pro Zeile, daran die
+ * globalen Effekte (`stack(…).room(.3)`), und eigener Code danach. Ohne Label spielt Strudel den letzten Ausdruck, also diesen
+ * Stapel. Ohne Spur mit Steinen steht kein `stack` da und auch keine globalen Effekte.
  */
 export function toStrudelProgram(tracks: readonly CodeTrack[], opts: CodeOptions): Program {
   const frame = opts.frame ?? EMPTY_FRAME;
   const code = header(tracks, opts) + beforeCode(frame);
   const stack = stackCode(tracks);
+  if (!stack) return { code: code + mainCode(null, frame), ranges: [] };
+  const global = chainCode(opts.global ?? []);
   // Die Positionen zählen ab dem Stapel, nach dem Zeilenumbruch, den `mainCode` davor setzt
-  return { code: code + mainCode(stack?.text ?? null, frame), ranges: stack ? shift(stack.ranges, code.length + 1) : [] };
+  const at = code.length + 1;
+  return {
+    code: code + mainCode(stack.text + global.text, frame),
+    ranges: [...shift(stack.ranges, at), ...shift(global.ranges, at + stack.text.length)],
+  };
 }
 
-/** Eine Szene für das Arrangement: Name der Variable und ihre Spuren. */
+/** Eine Szene für das Arrangement: Name der Variable, ihre Spuren und ihre globalen Effekte. */
 export interface CodeScene {
   id: string;
   variable: string;
   tracks: readonly CodeTrack[];
+  global?: readonly GlobalEffect[];
 }
 
 /**
- * Arrangement: jede Szene als Variable (`const Szene01 = stack(…)`, ohne Spuren `silence`), dann
+ * Arrangement: jede Szene als Variable (`const Szene01 = stack(…)`, ohne Spuren `silence`), ihre globalen Effekte direkt am
+ * Stapel (`stack(…).room(.3)`, wie in `toStrudelProgram`; `opts.global` gilt hier nicht), dann
  * `arrange([4, Szene01], [2, Szene02])` als letzter Ausdruck. Ohne Abschnitt steht dort `silence`.
  * Positionen nur für die Szene `lit` (die angezeigte): Szenen teilen sich nach dem Kopieren die IDs der Steine.
  */
@@ -410,8 +440,16 @@ export function toArrangedProgram(
   for (const s of scenes) {
     const stack = stackCode(s.tracks);
     code += `\nconst ${s.variable} = `;
-    if (stack && s.id === opts.lit) ranges.push(...shift(stack.ranges, code.length));
-    code += `${stack?.text ?? 'silence'}\n`;
+    if (!stack) {
+      code += 'silence\n';
+      continue;
+    }
+    const chain = chainCode(s.global ?? []);
+    if (s.id === opts.lit) {
+      ranges.push(...shift(stack.ranges, code.length));
+      ranges.push(...shift(chain.ranges, code.length + stack.text.length));
+    }
+    code += `${stack.text}${chain.text}\n`;
   }
   const variables = new Map(scenes.map((s) => [s.id, s.variable]));
   const parts = sections.flatMap((x) => {

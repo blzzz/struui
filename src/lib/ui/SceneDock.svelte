@@ -8,9 +8,11 @@
   } from "../state/arrangement.svelte.ts";
   import { history } from "../state/history.svelte.ts";
   import { playback } from "../state/playback.svelte.ts";
+  import { project } from "../state/project.svelte.ts";
   import { scenes } from "../state/scenes.svelte.ts";
   import { session } from "../state/session.svelte.ts";
   import ArrangementRow from "./ArrangementRow.svelte";
+  import EdgeToggle from "./EdgeToggle.svelte";
 
   let row = $state<HTMLElement>();
 
@@ -101,38 +103,71 @@
   const R = 20;
   const RING = 2 * Math.PI * R;
 
-  /** Zeilenhöhen der Leiste: Szenen (64 px Stein und Platz für die Umrandung), Schalter, Arrangement. */
+  /** Zeilenhöhen der Leiste: Kante, Szenen (64 px Stein und Platz für die Umrandung), Arrangement-Schalter, Arrangement, Schalter. */
+  const EDGE_H = 18;
   const SCENES_H = 72;
+  const TOGGLE_H = 32;
   const SYNC_H = 32;
   const ARR_H = 84;
   /** Rand oben und unten und Abstand zwischen den Zeilen. */
   const GAP = 8;
 
-  // Mit Arrangement ist die Leiste eine Zeile höher; der Inhalt der Seite rückt mit (`--dock-h`)
+  // Zu nur Kante und Schalter, offen mit Szenen und (eingeschaltet) Arrangement; der Inhalt der Seite rückt mit (`--dock-h`)
   $effect(() => {
+    const open = session.dock;
     const h =
-      GAP +
-      SCENES_H +
+      EDGE_H +
+      (open ? GAP + SCENES_H + GAP + TOGGLE_H : 0) +
+      (open && arrangement.active ? GAP + ARR_H : 0) +
       GAP +
       SYNC_H +
-      GAP +
-      (arrangement.active ? ARR_H + GAP : 0);
+      GAP;
     document.documentElement.style.setProperty("--dock-h", `${h}px`);
   });
+
+  /** Zeiger über der Leiste: ihr Klick klappt auch, die Kante zeigt es an. */
+  let hover = $state(false);
+
+  /** Klick auf freie Stellen der Leiste klappt sie auf oder zu, nicht auf Bedienelemente, Szenen und Arrangement. */
+  function onDockClick(e: MouseEvent) {
+    if ((e.target as Element).closest('button, input, select, a, [role="button"], [role="menu"], [role="list"], .arrangement')) return;
+    session.dock = !session.dock;
+  }
+
+  /** Arrangement ein und aus; beim Ausschalten endet seine Wiedergabe. */
+  function toggleArrangement() {
+    arrangement.active = !arrangement.active;
+    if (!arrangement.active) playback.leaveArrangement();
+  }
 
   // Roher Code zählt mit, wenn er nicht leer ist
   const playing = (tracks: { tokens: unknown[]; muted: boolean; code: string | null }[]) =>
     tracks.filter((t) => (t.code !== null ? t.code.trim() !== "" : t.tokens.length > 0) && !t.muted).length;
 </script>
 
-<!-- Feste Leiste unten: Szenen des ganzen Projekts -->
+<!-- Feste Leiste unten: Szenen des ganzen Projekts. Zu Beginn zugeklappt; die Kante oben oder ein Klick auf freie Stellen
+     klappt sie auf (Szenen, Arrangement-Schalter, Arrangement). -->
+<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
 <footer
   class="dock"
-  class:arranging={arrangement.active}
   style:--scenes-h="{SCENES_H}px"
+  style:--toggle-h="{TOGGLE_H}px"
   style:--sync-h="{SYNC_H}px"
   style:--arr-h="{ARR_H}px"
+  onclick={onDockClick}
+  onpointerenter={() => (hover = true)}
+  onpointerleave={() => (hover = false)}
 >
+  <EdgeToggle
+    open={session.dock}
+    at="top"
+    label={session.dock ? "Szenen zuklappen" : "Szenen und Arrangement"}
+    controls="scenes"
+    hot={hover}
+    onclick={() => (session.dock = !session.dock)}
+  />
+  <div class="body" id="scenes">
+  {#if session.dock}
   <button
     class="take"
     title="Aktuelle Szene als neue Szene kopieren"
@@ -203,20 +238,66 @@
     {/each}
   </div>
 
-  <!-- Untere Zeile: links Arrangement an/aus, rechts ein geteilter Knopf (Aktion, dazu die Wahl Manuell/Auto) -->
+  <!-- Unter den Szenen: Arrangement an/aus, eingeschaltet direkt darunter das Arrangement -->
+  <button
+    class="toggle"
+    aria-pressed={arrangement.active}
+    title="Alle Szenen als Variablen in den Code, gespielt mit arrange()"
+    onclick={toggleArrangement}
+  >
+    {#if arrangement.active}<span aria-hidden="true">✓</span>{/if}
+    Arrangement
+  </button>
+  {#if arrangement.active}
+    <div class="arrangement">
+      <!-- Spielt das Arrangement von vorn; der Ring zeigt den Fortschritt im ganzen Durchlauf -->
+      <button
+        class="aplay"
+        class:on={arrPlaying}
+        aria-label={arrPlaying
+          ? "Arrangement stoppen"
+          : "Arrangement von vorn abspielen"}
+        title={arrPlaying ? "Stopp" : "Arrangement von vorn abspielen"}
+        disabled={!arrPlaying && arrangement.sections.length === 0}
+        onclick={() => playback.toggleArrangement()}
+      >
+        <svg class="ring" viewBox="0 0 48 48" aria-hidden="true">
+          <circle class="track" cx="24" cy="24" r={R} />
+          {#if arrangement.position}
+            <circle
+              class="done"
+              cx="24"
+              cy="24"
+              r={R}
+              stroke-dasharray={RING}
+              stroke-dashoffset={RING * (1 - arrangement.position.progress)}
+            />
+          {/if}
+        </svg>
+        <svg class="icon" viewBox="0 0 16 16" aria-hidden="true">
+          {#if arrPlaying}
+            <rect x="3" y="3" width="10" height="10" rx="1.5" />
+          {:else}
+            <path d="M4.5 2.5 L13.5 8 L4.5 13.5 Z" />
+          {/if}
+        </svg>
+      </button>
+      <ArrangementRow onSelect={(id) => ask({ kind: "select", id })} />
+    </div>
+  {/if}
+  {/if}
+
+  <!-- Unten: links (zugeklappt) die gewählte Szene, rechts Rückgängig und ein geteilter Knopf (Aktion, dazu Manuell/Auto) -->
   <div class="sync" {@attach closeOutside}>
-    <button
-      class="toggle"
-      aria-pressed={arrangement.active}
-      title="Alle Szenen als Variablen in den Code, gespielt mit arrange()"
-      onclick={() => {
-        arrangement.active = !arrangement.active;
-        if (!arrangement.active) playback.leaveArrangement();
-      }}
-    >
-      {#if arrangement.active}<span aria-hidden="true">✓</span>{/if}
-      Arrangement
-    </button>
+    {#if !session.dock}
+      {@const n = playing(project.tracks)}
+      <span class="current">
+        <strong>{scenes.current.name}</strong>
+        <span class="meta"
+          >{n} {n === 1 ? "Spur" : "Spuren"}{#if scenes.dirty} · geändert{/if}{#if arrangement.active} · Arrangement{/if}</span
+        >
+      </span>
+    {/if}
     <button
       class="undo"
       aria-label="Rückgängig"
@@ -283,44 +364,7 @@
     {/if}
   </div>
 
-  <!-- Ganz unten: das Arrangement, nur wenn eingeschaltet -->
-  {#if arrangement.active}
-    <div class="arrangement">
-      <!-- Spielt das Arrangement von vorn; der Ring zeigt den Fortschritt im ganzen Durchlauf -->
-      <button
-        class="aplay"
-        class:on={arrPlaying}
-        aria-label={arrPlaying
-          ? "Arrangement stoppen"
-          : "Arrangement von vorn abspielen"}
-        title={arrPlaying ? "Stopp" : "Arrangement von vorn abspielen"}
-        disabled={!arrPlaying && arrangement.sections.length === 0}
-        onclick={() => playback.toggleArrangement()}
-      >
-        <svg class="ring" viewBox="0 0 48 48" aria-hidden="true">
-          <circle class="track" cx="24" cy="24" r={R} />
-          {#if arrangement.position}
-            <circle
-              class="done"
-              cx="24"
-              cy="24"
-              r={R}
-              stroke-dasharray={RING}
-              stroke-dashoffset={RING * (1 - arrangement.position.progress)}
-            />
-          {/if}
-        </svg>
-        <svg class="icon" viewBox="0 0 16 16" aria-hidden="true">
-          {#if arrPlaying}
-            <rect x="3" y="3" width="10" height="10" rx="1.5" />
-          {:else}
-            <path d="M4.5 2.5 L13.5 8 L4.5 13.5 Z" />
-          {/if}
-        </svg>
-      </button>
-      <ArrangementRow onSelect={(id) => ask({ kind: "select", id })} />
-    </div>
-  {/if}
+  </div>
 </footer>
 
 <dialog
@@ -384,21 +428,29 @@
     position: fixed;
     inset: auto 0 0;
     z-index: 20;
-    /*
-     * Oben «+ Szene» und die Szenen, darunter Arrangement-Schalter und Übernehmen, ganz unten das Arrangement.
-     * Abstände im 8er-Raster; die Höhe ergibt `--dock-h` (Summe der Zeilen, Abstände und Ränder).
-     */
+    display: flex;
+    flex-direction: column;
+    height: calc(var(--dock-h) + env(safe-area-inset-bottom, 0px));
+    background: var(--dock);
+    cursor: pointer;
+  }
+  /*
+   * Unter der Kante: «+ Szene» und die Szenen, darunter der Arrangement-Schalter und (eingeschaltet) das Arrangement, ganz unten
+   * Rückgängig und Übernehmen. Zugeklappt nur die unterste Zeile. Abstände im 8er-Raster; die Höhe ergibt `--dock-h` (Summe der Zeilen,
+   * Abstände, Ränder und der Kante).
+   */
+  .body {
+    flex: 1;
+    min-height: 0;
     display: grid;
     grid-template-columns: auto minmax(0, 1fr);
-    grid-template-rows: var(--scenes-h) var(--sync-h);
+    grid-auto-rows: auto;
+    align-content: start;
     align-items: center;
     gap: 8px 10px;
-    height: calc(var(--dock-h) + env(safe-area-inset-bottom, 0px));
     padding: 8px max(12px, env(safe-area-inset-right, 0px))
       calc(8px + env(safe-area-inset-bottom, 0px))
       max(12px, env(safe-area-inset-left, 0px));
-    background: var(--dock);
-    border-top: 1.5px solid var(--line);
   }
   .take {
     flex: none;
@@ -416,12 +468,21 @@
     font-size: 22px;
     line-height: 1;
   }
-  .dock.arranging {
-    grid-template-rows: var(--scenes-h) var(--sync-h) var(--arr-h);
+  /* Umschaltknopf in eigener Zeile: gedrückt dunkel gefüllt mit Häkchen (globaler Stil für aria-pressed) */
+  .toggle {
+    grid-column: 1 / -1;
+    justify-self: start;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    height: 30px;
+    padding: 0 10px;
+    font-size: 13px;
+    white-space: nowrap;
   }
   .arrangement {
     grid-column: 1 / -1;
-    height: 100%;
+    height: var(--arr-h);
     display: flex;
     align-items: center;
     gap: 10px;
@@ -471,7 +532,7 @@
   }
   .row {
     min-width: 0;
-    height: 100%;
+    height: var(--scenes-h);
     display: flex;
     align-items: center;
     gap: 10px;
@@ -559,23 +620,28 @@
   .sync {
     position: relative;
     grid-column: 1 / -1;
-    height: 100%;
+    height: var(--sync-h);
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 12px;
   }
-  /* Umschaltknopf: gedrückt dunkel gefüllt mit Häkchen (globaler Stil für aria-pressed) */
-  .toggle {
+  /* Zugeklappt: die gewählte Szene in einer Zeile */
+  .current {
+    min-width: 0;
     display: flex;
-    align-items: center;
-    gap: 6px;
-    height: 30px;
-    padding: 0 10px;
-    font-size: 13px;
+    align-items: baseline;
+    gap: 8px;
+    font-size: 14px;
     white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
-  /* Rechts neben dem Arrangement-Schalter, direkt vor dem geteilten Knopf */
+  .meta {
+    font-size: 12px;
+    color: var(--mute);
+  }
+  /* Rechts, direkt vor dem geteilten Knopf */
   .undo {
     margin-left: auto;
     margin-right: -6px;

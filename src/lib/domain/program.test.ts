@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { arrangeTracks, matchTracks } from './program.ts';
 import { inCode, toStrudelProgram, trackToCode } from './codegen.ts';
-import { soundToken } from './types.ts';
+import { effect, soundToken } from './types.ts';
 
 const old = (...names: (string | [string, false])[]) =>
   names.map((n) => (typeof n === 'string' ? { name: n, shown: true } : { name: n[0], shown: false }));
@@ -46,6 +46,21 @@ test('codegen: Rahmen um den Stapel, Positionen zählen ab dem Stapel', () => {
   assert.equal(p.code.slice(p.ranges[0].start, p.ranges[0].end), 'bd');
   // Ohne Spuren hängen die Aufrufe an silence
   assert.equal(toStrudelProgram([], { cps: 0.5, frame }).code, 'setcps(0.5)\n\nconst a = 1\n\nsilence.fast(2);\n// Ende');
+});
+
+test('codegen: globale Effekte am Stapel, vor dem Rahmen, ihre Wertsteine leuchten', () => {
+  const v = [soundToken('800'), soundToken('2000')];
+  const global = [effect('room', [soundToken('.3')]), effect('delay'), effect('lpf', v)];
+  const frame = { before: 'const a = 1', chain: '.fast(2)', after: '' };
+  const p = toStrudelProgram([{ tokens: [soundToken('bd')] }], { cps: 0.5, frame, global });
+  assert.equal(p.code, 'setcps(0.5)\n\nconst a = 1\n\nstack(\n  s("bd")\n).room(0.3).lpf("800 2000").fast(2)');
+  assert.deepEqual(
+    p.ranges.map((r) => p.code.slice(r.start, r.end)),
+    ['bd', '800', '2000'],
+  );
+  assert.equal(p.ranges[1].tokenId, v[0].id);
+  // Ohne Spur keine globalen Effekte
+  assert.equal(toStrudelProgram([], { cps: 0.5, global }).code, 'setcps(0.5)\n');
 });
 
 test('codegen: Aufnahmen auch für rohen Code, wenn ihr Name als Wort darin steht', () => {

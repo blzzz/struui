@@ -1,4 +1,4 @@
-import { restoreTracks, sameContent, scene, sceneName, withContent } from '../domain/scene.ts';
+import { restoreGlobal, restoreTracks, sameContent, scene, sceneName, withContent } from '../domain/scene.ts';
 import type { Scene } from '../domain/scene.ts';
 import { project } from './project.svelte.ts';
 import { session } from './session.svelte.ts';
@@ -8,7 +8,7 @@ import { session } from './session.svelte.ts';
  * Nur im Speicher: gespeichert wird je Pattern nur der Code der gewählten Szene (`patterns.svelte.ts`).
  */
 class Scenes {
-  list = $state<Scene[]>([scene(sceneName([]), $state.snapshot(project.tracks), project.cps)]);
+  list = $state<Scene[]>([scene(sceneName([]), $state.snapshot(project.tracks), project.cps, $state.snapshot(project.global.effects))]);
   currentId = $state(this.list[0].id);
 
   /**
@@ -20,26 +20,26 @@ class Scenes {
   current = $derived(this.list.find((s) => s.id === this.currentId) ?? this.list[0]);
 
   /** Der Zustand weicht von der gewählten Szene ab. */
-  dirty = $derived(!sameContent(this.current, project.tracks, project.cps));
+  dirty = $derived(!sameContent(this.current, project.tracks, project.cps, project.global.effects));
 
   /** Schreibt den aktuellen Zustand in die gewählte Szene. */
   update(): void {
     const i = this.list.findIndex((s) => s.id === this.current.id);
     if (i < 0) return;
     // Ohne Proxy: `structuredClone` kopiert keine Proxys
-    this.list[i] = withContent(this.list[i], $state.snapshot(project.tracks), project.cps);
+    this.list[i] = withContent(this.list[i], $state.snapshot(project.tracks), project.cps, $state.snapshot(project.global.effects));
   }
 
   /** Nur noch eine Szene mit dem aktuellen Zustand (anderes Pattern geladen). */
   reset(): void {
-    const s = scene(sceneName([]), $state.snapshot(project.tracks), project.cps);
+    const s = scene(sceneName([]), $state.snapshot(project.tracks), project.cps, $state.snapshot(project.global.effects));
     this.list = [s];
     this.currentId = s.id;
   }
 
   /** Neue Szene als Kopie des aktuellen Zustands, gleich hinter der gewählten. Sie wird gewählt. Gibt die ID zurück. */
   duplicate(): string {
-    const s = scene(sceneName(this.list), $state.snapshot(project.tracks), project.cps);
+    const s = scene(sceneName(this.list), $state.snapshot(project.tracks), project.cps, $state.snapshot(project.global.effects));
     const i = this.list.findIndex((x) => x.id === this.current.id);
     this.list.splice(i + 1, 0, s);
     this.currentId = s.id;
@@ -53,7 +53,8 @@ class Scenes {
     session.sheet = null;
     session.dropHint = null;
     this.currentId = id;
-    project.restore(restoreTracks($state.snapshot(s)), s.cps);
+    const snap = $state.snapshot(s);
+    project.restore(restoreTracks(snap), s.cps, restoreGlobal(snap));
   }
 
   rename(id: string, name: string): void {

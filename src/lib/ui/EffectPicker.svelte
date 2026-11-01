@@ -3,7 +3,7 @@
   import { EFFECT_CATEGORIES, browseEffects, categoryOf, searchNoteOps } from '../domain/effects.ts';
   import type { EffectCategory, EffectInfo } from '../domain/effects.ts';
   import { browseLockParams } from '../domain/locks.ts';
-  import { project } from '../state/project.svelte.ts';
+  import { GLOBAL_ID, project } from '../state/project.svelte.ts';
   import { session } from '../state/session.svelte.ts';
   import { CATEGORY_LABELS } from './messages.ts';
 
@@ -23,7 +23,10 @@
   let active = $state(0);
 
   const target = $derived(session.effectPicker);
-  const track = $derived(target ? project.tracks.find((t) => t.id === target.trackId) : undefined);
+  /** Die Spur, oder für die globalen Effekte ihr Träger (eine Klangspur). */
+  const track = $derived(
+    target?.trackId === GLOBAL_ID ? project.global : target ? project.tracks.find((t) => t.id === target.trackId) : undefined,
+  );
   const ops = $derived(target?.kind === 'noteOps');
   const lock = $derived(target?.kind === 'locks' ? target : null);
   /** Relative Notenspur: hat ihre Tonleiter schon, `scale` fehlt in der Auswahl. */

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { flip } from "svelte/animate";
   import { singleValue, valueInfo } from "../domain/effects.ts";
-  import { project } from "../state/project.svelte.ts";
+  import { GLOBAL_ID, project } from "../state/project.svelte.ts";
   import type { RowKind } from "../state/project.svelte.ts";
   import { session } from "../state/session.svelte.ts";
   import { reorder } from "../interaction/reorder.ts";
@@ -18,11 +18,12 @@
    * Der Modus-Reiter unten öffnet die Auswahl der Modi und darüber einen Knopf zum Entfernen.
    * Die Boxen brechen um, sie werden nie verkleinert (anders als die Klangreihen).
    * Paramlocks einer Klangspur stehen fest darunter, wie im Code nach den Effekten (neue Effekte kommen davor).
+   * Auch für die globalen Effekte (`project.global`, im Bereich unter der Leiste oben).
    */
   let { track, kind = "effects" }: { track: Track; kind?: RowKind } = $props();
   const ops = $derived(kind === "noteOps");
-  /** Paramlocks: in jeder Klangspur, auch leer (dann nicht im Code). */
-  const showLocks = $derived(kind === "effects" && track.type === "sound");
+  /** Paramlocks: in jeder Klangspur, auch leer (dann nicht im Code). Nicht bei den globalen Effekten (`GLOBAL_ID`). */
+  const showLocks = $derived(kind === "effects" && track.type === "sound" && track.id !== GLOBAL_ID);
 
   const addLabel = $derived(
     ops ? "Mit Noten rechnen (add, div …)" : "Effekt oder Befehl hinzufügen",
@@ -63,7 +64,7 @@
       {@const errors = messages(fx.id)}
       <div
         class="box"
-        class:off={fx.tokens.length === 0 && !fx.rand && !fx.mod && !fx.lfo && !info?.noValue}
+        class:off={fx.tokens.length === 0 && !fx.rand && !fx.mod && !info?.noValue}
         class:bad={errors.length > 0}
         class:wide={!fx.rand && !fx.mod && !fx.lfo &&
           (session.mini.has(fx.id) ||

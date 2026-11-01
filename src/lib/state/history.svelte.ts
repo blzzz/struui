@@ -1,4 +1,5 @@
 import { UndoLog } from '../domain/undo.ts';
+import type { Effect } from '../domain/effects.ts';
 import type { Track } from '../domain/types.ts';
 import { project } from './project.svelte.ts';
 import { scenes } from './scenes.svelte.ts';
@@ -7,10 +8,11 @@ import { session } from './session.svelte.ts';
 interface Snapshot {
   tracks: Track[];
   cps: number;
+  global: Effect[];
 }
 
 /**
- * Rückgängig für Spuren und Tempo, je Szene ein eigener Verlauf: Szene wählen oder anlegen ist kein Schritt.
+ * Rückgängig für Spuren, globale Effekte und Tempo, je Szene ein eigener Verlauf: Szene wählen oder anlegen ist kein Schritt.
  * Nur im Speicher wie die Szenen. Undo/Redo ist offen (`docs/ARCHITECTURE.md`, Abschnitt 4, Punkt 3).
  */
 class History {
@@ -22,7 +24,11 @@ class History {
   record(): void {
     const id = scenes.currentId;
     // Ohne Proxy: `structuredClone` kopiert keine Proxys
-    const snap: Snapshot = { tracks: $state.snapshot(project.tracks), cps: project.cps };
+    const snap: Snapshot = {
+      tracks: $state.snapshot(project.tracks),
+      cps: project.cps,
+      global: $state.snapshot(project.global.effects),
+    };
     const key = JSON.stringify(snap);
     const log = this.logs.get(id);
     if (log) log.record(snap, key, performance.now());
@@ -40,7 +46,7 @@ class History {
     session.sheet = null;
     session.dropHint = null;
     this.depth = log.depth;
-    project.restore(structuredClone(s.tracks), s.cps);
+    project.restore(structuredClone(s.tracks), s.cps, structuredClone(s.global));
   }
 }
 

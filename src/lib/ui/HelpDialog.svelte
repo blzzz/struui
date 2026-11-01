@@ -80,13 +80,18 @@
       <dt>Code</dt>
       <dd>
         «UI | Code» in einer Spur zeigt statt der Steine ihre ganze Codezeile mit Name, Effekten und Lautstärke. Was du dort tippst, wird sofort zu Steinen.
-        Unbekannte Mini-Notation wird ein dunkler Stein mit dem Text. Oben unter «Code» steht das ganze Programm, mit Link zu Strudel.
+        Unbekannte Mini-Notation wird ein dunkler Stein mit dem Text. Im Menü oben rechts (☰) unter «Code» steht das ganze Programm, mit Link zu Strudel.
         Dort lässt es sich auch bearbeiten oder fremder Strudel-Code einfügen (übernehmen mit Strg/⌘+Enter): was Strudel-Steine
         versteht, wird zu Spuren mit Steinen, alles andere bleibt als Code stehen.
       </dd>
+      <dt>Leiste oben</dt>
+      <dd>
+        Ein Klick auf die Leiste oder ihre untere Kante klappt darunter Tempo, Gesamtlautstärke und die globalen Effekte auf.
+        Globale Effekte wirken auf alle Spuren der Szene, im Code direkt am Stapel: <code>stack(…).room(0.3)</code>.
+      </dd>
       <dt>Szenen</dt>
       <dd>
-        In der Leiste ganz unten steht jede Szene als grosser Stein (alle Spuren und das Tempo). Am Anfang gibt es «Szene01».
+        Die Leiste ganz unten ist zu Beginn zugeklappt; ein Klick auf sie oder ihre obere Kante klappt sie auf. Dort steht jede Szene als grosser Stein (alle Spuren, die globalen Effekte und das Tempo). Am Anfang gibt es «Szene01».
         «+ Szene» kopiert die aktuelle Szene in eine neue. Oben den Namen antippen und ändern, darunter antippen wählt die Szene.
         Die gewählte Szene ist gelb umrandet; Der Knopf unten rechts hat zwei Arten (Pfeil daneben): «Auto» schreibt jede Änderung sofort in sie, bei «Manuell» schreibt erst
         «Übernehmen» die Änderungen hinein. Wählst du vorher eine Szene oder legst eine neue an, wirst du gefragt, ob sie übernommen werden.
@@ -94,7 +99,7 @@
       </dd>
       <dt>Arrangement</dt>
       <dd>
-        Unten links einschalten: Ganz unten erscheint eine Zeile. Szenen nach unten hineinziehen. Der grüne <code>!</code>-Knopf
+        In der aufgeklappten Leiste unten unter den Szenen einschalten: Direkt darunter erscheint eine Zeile. Szenen nach unten hineinziehen. Der grüne <code>!</code>-Knopf
         unter jedem Stein zählt die Zyklen (drehen wie bei den Steinen der Spuren), ziehen ändert die Reihenfolge, Antippen öffnet darüber ein Menü (bearbeiten, entfernen), doppelt antippen wählt die Szene. Im Code steht jede Szene als Variable,
         dahinter <code>arrange([4, Szene01], [2, Szene02])</code>; alle Szenen laufen im Tempo der gewählten. ▶ vor der Zeile spielt das Arrangement von vorn,
         der Ring zeigt den Fortschritt und ein grüner Balken den laufenden Abschnitt. Play oben spielt die gewählte Szene;

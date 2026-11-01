@@ -1,7 +1,7 @@
 // Liest die Effekte aus den JSDoc-Kommentaren von `@strudel/core/controls.mjs`, statt sie abzuschreiben,
 // dazu die Sample-Funktionen (`chop`, `fit` …) und die Rechenarten für Noten (`add`, `div` …) aus `@strudel/core/pattern.mjs`,
 // die Musterbefehle (`fast`, `struct`, `degradeBy`, `transpose`, `scale` …) aus `@strudel/core` und `@strudel/tonal`
-// und die Tonleitern für `scale` aus Tonal.js (Namen und Intervalle).
+// die Tonleitern für `scale` aus Tonal.js (Namen und Intervalle) und aus superdough, welche Effekte `lfo` modulieren kann.
 // Aufruf: npm run gen:effects (schreibt src/lib/domain/effects.generated.ts).
 // Der Test `effects.test.ts` prüft, dass die Datei zum installierten Strudel passt.
 import { readFileSync, realpathSync, writeFileSync } from 'node:fs';
@@ -16,6 +16,9 @@ export const SIGNAL = core('signal.mjs');
 export const EUCLID = core('euclid.mjs');
 const TONAL_PACKAGE = fileURLToPath(new URL('../node_modules/@strudel/tonal/package.json', import.meta.url));
 export const TONAL = join(dirname(TONAL_PACKAGE), 'tonal.mjs');
+/** superdough kommt mit `@strudel/webaudio` (keine eigene Abhängigkeit): dort steht, welcher Parameter welchen Audio-Knoten stellt. */
+const WEBAUDIO_PACKAGE = fileURLToPath(new URL('../node_modules/@strudel/webaudio/package.json', import.meta.url));
+export const SUPERDOUGH_DATA = join(dirname(createRequire(realpathSync(WEBAUDIO_PACKAGE)).resolve('superdough/package.json')), 'superdoughdata.mjs');
 export const OUTPUT = fileURLToPath(new URL('../src/lib/domain/effects.generated.ts', import.meta.url));
 
 /**
@@ -106,8 +109,37 @@ function describe(name, group, { lines, tag }) {
   return { name, group, synonyms, description, hint, values: exampleValues(examples, [name, ...synonyms]) };
 }
 
-export function extractEffects(source = readFileSync(CONTROLS, 'utf8'), patternSource = readFileSync(PATTERN, 'utf8')) {
+/**
+ * Die Parameter, die Strudels `lfo` (und `env`) modulieren kann: die Schlüssel von `CONTROL_TARGETS` in superdough
+ * (`cutoff: { node: 'lpf', param: 'frequency' }`). Strudel schreibt dort den Hauptnamen (`cutoff`, nicht `lpf`).
+ */
+export function extractModTargets(source = readFileSync(SUPERDOUGH_DATA, 'utf8')) {
+  const m = /const CONTROL_TARGETS = \{([\s\S]*?)\n\};/.exec(source);
+  if (!m) throw new Error('CONTROL_TARGETS in superdough nicht gefunden');
+  return new Set([...m[1].matchAll(/^\s*(\w+): \{\s*node:/gm)].map((x) => x[1]));
+}
+
+/**
+ * Hauptname je Steuerparameter, wie Strudels `getControlName`: aus `registerControl('wt', 'wavetablePosition')` und
+ * `registerControl(['phaserrate', 'phaserdepth', …], 'ph', 'phaser')` (der erste Name ist der Hauptname, die übrigen sind Aliase).
+ */
+export function extractControlNames(source = readFileSync(CONTROLS, 'utf8')) {
+  const names = new Map();
+  for (const m of source.matchAll(/registerControl\(\s*(\[[^\]]*\]|'[^']+')((?:\s*,\s*'[^']+')*)\s*,?\s*\)/g)) {
+    const main = /'([^']+)'/.exec(m[1])[1];
+    // Wie in Strudel gilt die letzte Anmeldung
+    names.set(main, main);
+    for (const [, alias] of m[2].matchAll(/'([^']+)'/g)) names.set(alias, main);
+  }
+  return names;
+}
+
+/**
+ * Effekte und Befehle. Ein Effekt ist `modulatable`, wenn superdough seinen Hauptnamen als Ziel kennt (`lpf` → `cutoff`).
+ */
+export function extractEffects(source = readFileSync(CONTROLS, 'utf8'), patternSource = readFileSync(PATTERN, 'utf8'), modTargets = extractModTargets()) {
   const effects = new Map();
+  const controls = extractControlNames(source);
   for (const doc of docComments(source)) {
     const [name] = doc.tag('name');
     if (!name || effects.has(name)) continue;
@@ -115,7 +147,9 @@ export function extractEffects(source = readFileSync(CONTROLS, 'utf8'), patternS
     if (NOT_EFFECTS.has(name) || NOT_EFFECT_PREFIX.test(name)) continue;
     // Effekte mit Objekt als Wert (env, lfo, bmod …) lassen sich nicht als einzelner Wert setzen
     if (doc.tag('param').some((p) => /^\{Object\}/.test(p))) continue;
-    effects.set(name, describe(name, groupOf(name), doc));
+    const info = describe(name, groupOf(name), doc);
+    if (modTargets.has(controls.get(name) ?? name)) info.modulatable = true;
+    effects.set(name, info);
   }
   for (const op of extractSampleOps(source, patternSource)) effects.set(op.name, op);
   const taken = new Set([...effects.values()].flatMap((e) => [e.name, ...e.synonyms]));

@@ -1,10 +1,10 @@
 :root {
   box-sizing: border-box;
   color-scheme: light dark;
-  /* Höhe der festen Leiste oben (ohne Safe Area) */
-  --bar-h: 56px;
+  /* Höhe der festen Leiste oben (ohne Safe Area), samt ihrer unteren Kante (18px) */
+  --bar-h: 74px;
   /* Höhe der festen Szenen-Leiste unten (ohne Safe Area) */
-  --dock-h: 128px;
+  --dock-h: 66px;
 
   --bg: #171b18;
   --panel: #212622;

@@ -10,7 +10,9 @@ import {
   effectInfo,
   fromRange,
   fromSlider,
+  convertLfoDepth,
   isLfoSeries,
+  LFO_DEFAULTS,
   isModSeries,
   isRandSeries,
   isSliderRange,
@@ -485,29 +487,42 @@ test('Modulation: Welle statt der Wertsteine, slow(1) entfällt, ganze Zahlen mi
   for (const e of EFFECTS) assert.ok(isModSeries(suggestModSeries(e, null)), e.name);
 });
 
-test('LFO: schwingt um die Mitte, early(0) und slow(1) entfallen, ganze Zahlen mit round()', () => {
-  const lfo = { wave: 'sine' as const, center: 800, depth: 400, segments: 16, slow: 4, phase: 0.25, whole: false };
-  assert.equal(lfoToCode(lfo), 'sine2.early(0.25).mul(400).add(800).segment(16).slow(4)');
-  assert.equal(lfoToCode({ ...lfo, wave: 'tri', phase: 0, slow: 1, whole: true }), 'tri2.mul(400).add(800).round().segment(16)');
-  assert.equal(lfoToCode({ ...lfo, center: -3, phase: 0 }), 'sine2.mul(400).add(-3).segment(16).slow(4)', 'negative Mitte');
-  assert.equal(effectToCode({ ...effect('lpf', [soundToken('800')]), lfo })?.text, '.lpf(sine2.early(0.25).mul(400).add(800).segment(16).slow(4))');
-  assert.equal(effectToCode({ ...effect('lpf'), lfo })?.text, '.lpf(sine2.early(0.25).mul(400).add(800).segment(16).slow(4))', 'auch ohne Steine');
+test('LFO: Strudels lfo nach dem Wert, control immer, dcoffset und skew nur abweichend', () => {
+  const lfo = { shape: 'sine' as const, speed: 0.25, unit: 'sync' as const, depth: 0.5, absolute: false, dcoffset: -0.5, skew: 0.5 };
+  assert.equal(lfoToCode('lpf', lfo), ".lfo({ control: 'lpf', shape: 'sine', sync: 0.25, depth: 0.5 })");
+  assert.equal(
+    lfoToCode('room', { ...lfo, shape: 'square', unit: 'rate', speed: 2, absolute: true, depth: 0.4, dcoffset: 0, skew: 0.2 }),
+    ".lfo({ control: 'room', shape: 'square', rate: 2, depthabs: 0.4, dcoffset: 0, skew: 0.2 })",
+  );
+  assert.equal(
+    effectToCode({ ...effect('lpf', [soundToken('800')]), lfo })?.text,
+    ".lpf(800).lfo({ control: 'lpf', shape: 'sine', sync: 0.25, depth: 0.5 })",
+  );
+  assert.equal(
+    effectToCode({ ...effect('lpf', [soundToken('800')]), slider: { min: 100, max: 8000, step: 10 }, lfo })?.text,
+    ".lpf(slider(800, 100, 8000, 10)).lfo({ control: 'lpf', shape: 'sine', sync: 0.25, depth: 0.5 })",
+    'mit Regler',
+  );
+  assert.equal(effectToCode({ ...effect('lpf'), lfo }), null, 'ohne Wert aus, samt LFO');
 
   assert.ok(isLfoSeries(lfo));
-  assert.ok(!isLfoSeries({ ...lfo, wave: 'perlin' as never }), 'perlin hat keine Fassung von -1 bis 1');
+  assert.ok(isLfoSeries(LFO_DEFAULTS));
+  assert.ok(isLfoSeries(suggestLfoSeries()));
+  assert.ok(!isLfoSeries({ ...lfo, shape: 'cosine' as never }), 'nur Strudels Formen');
   assert.ok(!isLfoSeries({ ...lfo, depth: 0 }), 'Tiefe über 0');
-  assert.ok(!isLfoSeries({ ...lfo, segments: 1.5 }), 'Segmente ganz');
-  assert.ok(!isLfoSeries({ ...lfo, slow: 0 }), 'Dauer über 0');
-  assert.ok(!isLfoSeries({ ...lfo, phase: 1 }), 'Phase unter 1');
-  assert.ok(!isLfoSeries({ ...lfo, phase: -0.1 }), 'Phase ab 0');
+  assert.ok(!isLfoSeries({ ...lfo, speed: 0 }), 'Tempo über 0');
+  assert.ok(!isLfoSeries({ ...lfo, skew: 1.5 }), 'skew bis 1');
+  assert.ok(isLfoSeries({ ...lfo, dcoffset: -1 }), 'dcoffset frei');
 
-  assert.deepEqual(suggestLfoSeries(effectInfo('room'), 0.5), { wave: 'sine', center: 0.5, depth: 0.25, segments: 16, slow: 4, phase: 0, whole: false });
-  assert.deepEqual(
-    suggestLfoSeries(effectInfo('lpf'), null, { min: 100, max: 8000, step: 10 }),
-    { wave: 'sine', center: 4050, depth: 1980, segments: 16, slow: 4, phase: 0, whole: true },
-    'ohne Wert die Mitte des Bereichs, auf den Schritt gerundet',
-  );
-  for (const e of EFFECTS) assert.ok(isLfoSeries(suggestLfoSeries(e, null)), e.name);
+  assert.equal(convertLfoDepth(lfo, true, 800), 400, 'relativ 0.5 bei 800 = absolut 400');
+  assert.equal(convertLfoDepth({ ...lfo, absolute: true, depth: 400 }, false, 800), 0.5);
+  assert.equal(convertLfoDepth(lfo, true, 0), 0.5, 'Wert 0 rechnet superdough als 1');
+  assert.equal(convertLfoDepth(lfo, false, 800), 0.5, 'gleiche Art bleibt');
+});
+
+test('LFO: nur Effekte, die superdough modulieren kann', () => {
+  for (const n of ['lpf', 'hpf', 'room', 'delay', 'gain', 'pan', 'crush', 'phaser']) assert.ok(effectInfo(n)?.modulatable, n);
+  for (const n of ['speed', 'begin', 'attack', 'fast', 'chop']) assert.ok(!effectInfo(n)?.modulatable, n);
 });
 
 test('Kategorien: Familien nach Präfix, Musterbefehle nach Gruppe, kaum Unbekanntes', () => {

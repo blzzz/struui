@@ -7,7 +7,7 @@ import type { TempoUnit } from '../domain/tempo.ts';
 import { trackName } from '../domain/types.ts';
 import type { TrackType } from '../domain/types.ts';
 import { codeToTrack } from './from-code.ts';
-import type { CodeLine } from './from-code.ts';
+import type { CodeLine, ValueRow } from './from-code.ts';
 
 /**
  * Der ganze Code der Code-Ansicht zurück zu Spuren, die Umkehrung von `toStrudelProgram`. Liest beliebigen Strudel-Code:
@@ -19,8 +19,10 @@ import type { CodeLine } from './from-code.ts';
  * - Ein Eintrag, den `codeToTrack` nicht versteht, wird eine Spur mit rohem Code (`Track.code`).
  * - Tempo (`setcpm(120/4)`, `setcpm(30)`, `setcps(.5)`) und die eigenen Aufnahmen (`samples({ rec1: 'data:audio/…' })`)
  *   erzeugt Strudel-Steine selbst; diese Zeilen werden gelesen bzw. weggelassen.
+ * - Globale Effekte: die bekannten Effekte am Anfang der Kette am Stapel des letzten Ausdrucks (`stack(…).room(.3).lpf(800)`, siehe
+ *   `globalPrefix`). Ab dem ersten unbekannten Aufruf (`.pianoroll()`) bleibt der Rest im Rahmen.
  * - Der Sammelkommentar mit der Lage der Spuren (`/* board: … *\/`, siehe `boardComment`) wird gelesen und weggelassen.
- * - Alles andere ist der Rahmen (`Frame`): Code davor, Aufrufe direkt am Stapel (`.fast(2)`) und Code danach.
+ * - Alles andere ist der Rahmen (`Frame`): Code davor, Aufrufe am Stapel nach den globalen Effekten (`.pianoroll()`) und Code danach.
  *
  * Fehler gibt es nur, wenn der Text kein gültiges JavaScript ist.
  */
@@ -38,6 +40,8 @@ export type ProgramResult =
       board: Map<string, Spot> | null;
       /** Eigene Aufnahmen aus `samples({ name: 'data:audio/…' })`, Name zu Data-URL. Gekürzte aus der Anzeige fehlen. */
       recordings: Map<string, string>;
+      /** Globale Effekte am Stapel (`stack(…).room(.3)`), leer ohne. */
+      global: ValueRow[];
     }
   | { ok: false; offset: number; message: string };
 
@@ -151,6 +155,28 @@ function recordingsOf(s: Statement): [string, string][] {
   });
 }
 
+/**
+ * Globale Effekte am Stapel: die längste Folge von Aufrufen direkt nach `stack(…)` (bis `e`), die wie eine Spur gelesen
+ * (`codeToTrack`) nur aus bekannten Effekten besteht, ein Effekt je Aufruf. Lautstärke, Orbit, Locks, `.hush()` und Unbekanntes
+ * beenden sie. `end`: wo der Rest der Kette (Rahmen) beginnt.
+ */
+function globalPrefix(code: string, stack: CallExpression, e: Expression): { global: ValueRow[]; end: number } {
+  const calls: CallExpression[] = [];
+  for (let n: Expression = e; n !== stack && n.type === 'CallExpression' && n.callee.type === 'MemberExpression'; ) {
+    calls.unshift(n);
+    n = n.callee.object as Expression;
+  }
+  let found: { global: ValueRow[]; end: number } = { global: [], end: stack.end };
+  for (const [i, call] of calls.entries()) {
+    const r = codeToTrack(`s("~")${code.slice(stack.end, call.end)}`);
+    // Ein Aufruf je Effekt, dazu einer je LFO (`.lpf(800).lfo({ … })`)
+    const used = r.ok ? r.effects.length + r.effects.filter((fx) => fx.lfo).length : 0;
+    if (!r.ok || r.type !== 'sound' || r.muted || r.locks || r.volume !== 1 || r.orbit !== 1 || used !== i + 1) break;
+    found = { global: r.effects, end: call.end };
+  }
+  return found;
+}
+
 /** Der Aufruf `stack(…)` am Anfang einer Kette (`stack(…).fast(2).room(.3)`), sonst null. */
 function stackHead(e: Expression): CallExpression | null {
   let head: Expression = e;
@@ -242,7 +268,7 @@ export function programToTracks(code: string, prefer?: (name: string) => TrackTy
    * Aufrufe an einem Stapel (`.fast(2)`) gelten nur beim letzten Ausdruck für alle (`chain`), ein früherer bleibt eine Spur.
    */
   const last = rest[rest.length - 1];
-  const sources: { start: number; end: number; entries: ProgramEntry[]; chain: string }[] = [];
+  const sources: { start: number; end: number; entries: ProgramEntry[]; chain: string; global?: ValueRow[] }[] = [];
   for (const s of rest) {
     if (s.type === 'LabeledStatement' && s.body.type === 'ExpressionStatement') {
       const e = s.body.expression;
@@ -258,7 +284,9 @@ export function programToTracks(code: string, prefer?: (name: string) => TrackTy
     const end = s === last ? e.end : s.end;
     const stack = stackHead(e);
     if (stack && (stack === e || s === last)) {
-      sources.push({ start: s.start, end, entries: stackEntries(stack), chain: code.slice(stack.end, e.end) });
+      // Am Stapel zuerst die globalen Effekte, der Rest der Kette ist Rahmen
+      const g = globalPrefix(code, stack, e);
+      sources.push({ start: s.start, end, entries: stackEntries(stack), chain: code.slice(g.end, e.end), global: g.global });
     } else if (stack || s === last) {
       // Ein Name als Kommentar direkt davor gehört zur Spur
       const comment = nameComment(rest[rest.indexOf(s) - 1]?.end ?? 0, e);
@@ -266,7 +294,7 @@ export function programToTracks(code: string, prefer?: (name: string) => TrackTy
       sources.push({ start: comment?.start ?? s.start, end, entries: [entry(text)], chain: '' });
     }
   }
-  if (sources.length === 0) return { ok: true, entries: [], tempo, board, recordings, frame: frame(code.length, code.length) };
+  if (sources.length === 0) return { ok: true, entries: [], tempo, board, recordings, global: [], frame: frame(code.length, code.length) };
 
   // Code zwischen den Quellen kommt vor den Stapel, so ist alles definiert, was die Spuren brauchen
   const first = sources[0];
@@ -280,6 +308,7 @@ export function programToTracks(code: string, prefer?: (name: string) => TrackTy
     tempo,
     board,
     recordings,
+    global: final.global ?? [],
     frame: { ...f, before: [f.before, between].filter(Boolean).join('\n\n') },
   };
 }

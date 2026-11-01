@@ -43,6 +43,10 @@ class Session {
   /** Hauptlautstärke (0–1), wirkt auf Strudels Ausgang, nicht im Code. */
   volume = $state(1);
   view = $state<View>('ui');
+  /** Bereich unter der Leiste oben offen: Tempo, Lautstärke, globale Effekte (`TopBar`). */
+  config = $state(false);
+  /** Szenen-Leiste unten aufgeklappt (Szenen, Arrangement). Zu: nur Rückgängig, Übernehmen und die gewählte Szene (`SceneDock`). */
+  dock = $state(false);
   /** Erklärungsdialog offen. */
   help = $state(false);
   /** Liste der gespeicherten Patterns (Laden, Löschen) offen. */

@@ -53,12 +53,12 @@ function adoptRows(old: readonly Effect[], next: readonly ValueRow[]): Effect[] 
   return next.map((n, i) => {
     const o = old[i];
     if (o?.name !== n.name) return { ...effect(n.name, n.tokens), slider: n.slider, rand: n.rand, mod: n.mod, lfo: n.lfo };
-    // Mit Zufallsreihe, Modulation oder LFO stehen keine Steine im Code: die bisherigen bleiben, samt Bereich
-    if (n.rand || n.mod || n.lfo) return { ...o, rand: n.rand, mod: n.mod, lfo: n.lfo };
+    // Mit Zufallsreihe oder Modulation stehen keine Steine im Code: die bisherigen bleiben, samt Bereich
+    if (n.rand || n.mod) return { ...o, rand: n.rand, mod: n.mod, lfo: null };
     adoptIds(o.tokens, n.tokens);
     // Ohne slider() im Code bleibt ein eingestellter Bereich, solange der Wert Mini-Notation ist (dort steht er nie im Code)
     const keep = n.slider ?? (singleValue(n.tokens) === null ? (o.slider ?? null) : null);
-    return { id: o.id, name: n.name, tokens: n.tokens, slider: keep, rand: null, mod: null, lfo: null };
+    return { id: o.id, name: n.name, tokens: n.tokens, slider: keep, rand: null, mod: null, lfo: n.lfo };
   });
 }
 
@@ -140,9 +140,19 @@ export function codeTracksOf(
   }));
 }
 
+/** ID der Spur, die die globalen Effekte trägt (`Project.global`). */
+export const GLOBAL_ID = 'global';
+
+/** Träger der globalen Effekte: eine Spur, von der nur `effects` gilt. So gehen alle Effekt-Befehle über `trackId`. */
+function globalTrack(effects: Effect[] = []): Track {
+  return { ...track(), id: GLOBAL_ID, effects };
+}
+
 /** Der Projektzustand: Spuren, Tempo und alles, was daraus abgeleitet wird. */
 class Project {
   tracks = $state<Track[]>(startTracks());
+  /** Globale Effekte, wirken auf alle Spuren (`stack(…).room(.3)`). Nicht in `tracks`, gehören aber zur Szene. */
+  global = $state<Track>(globalTrack());
   cps = $state(START_CPS);
   /** Einheit, in der das Tempo angezeigt, eingegeben und in den Code geschrieben wird. */
   tempoUnit = $state<TempoUnit>('bpm');
@@ -151,8 +161,9 @@ class Project {
 
   /** Pro Reihe (Spur oder Effekt): Baum, Fehler und Gruppentiefe. */
   parsed = $derived(
-    new Map<string, ParseResult>(
-      this.tracks.flatMap((t) => [
+    new Map<string, ParseResult>([
+      ...this.global.effects.map((e) => [e.id, analyze(e.tokens)] as const),
+      ...this.tracks.flatMap((t) => [
         [t.id, analyze(t.tokens)] as const,
         [t.voice.id, analyze(t.voice.tokens)] as const,
         [t.sample.id, analyze(t.sample.tokens)] as const,
@@ -160,7 +171,7 @@ class Project {
         ...t.noteOps.map((o) => [o.id, analyze(o.tokens)] as const),
         ...t.effects.map((e) => [e.id, analyze(e.tokens)] as const),
       ]),
-    ),
+    ]),
   );
 
   /** Was in den Code geht: Effekte mit Klammerfehler bleiben weg, damit die Spur weiterläuft. */
@@ -168,9 +179,18 @@ class Project {
     codeTracksOf(this.tracks, (id) => this.parsed.get(id)?.errors.length === 0, session.solo),
   );
 
+  /** Globale Effekte, wie sie in den Code gehen: ohne die mit Klammerfehler. */
+  codeGlobal = $derived(this.global.effects.filter((e) => this.parsed.get(e.id)?.errors.length === 0));
+
   /** Code samt Positionen der Klang- und Wertsteine. Das spielt Strudel ab. */
   program = $derived(
-    toStrudelProgram(this.codeTracks, { cps: this.cps, tempoUnit: this.tempoUnit, samples: sampleBank.dataUrls, frame: this.frame }),
+    toStrudelProgram(this.codeTracks, {
+      cps: this.cps,
+      tempoUnit: this.tempoUnit,
+      samples: sampleBank.dataUrls,
+      frame: this.frame,
+      global: this.codeGlobal,
+    }),
   );
 
   /** Voller Code zum Kopieren und für den Link. */
@@ -184,6 +204,7 @@ class Project {
       samples: sampleBank.dataUrls,
       elideSamples: true,
       frame: this.frame,
+      global: this.codeGlobal,
     }),
   );
 
@@ -194,26 +215,28 @@ class Project {
   codeSaved = $derived(
     toStrudelCode(
       codeTracksOf(this.tracks, (id) => this.parsed.get(id)?.errors.length === 0),
-      { cps: this.cps, tempoUnit: this.tempoUnit, samples: sampleBank.dataUrls, frame: this.frame },
+      { cps: this.cps, tempoUnit: this.tempoUnit, samples: sampleBank.dataUrls, frame: this.frame, global: this.codeGlobal },
     ),
   );
 
   /** Ganzen Zustand ersetzen (Szene wählen). */
-  restore(tracks: Track[], cps: number): void {
+  restore(tracks: Track[], cps: number, global: Effect[]): void {
     this.tracks = tracks;
     this.cps = cps;
+    this.global = globalTrack(global);
   }
 
   parsedOf(laneId: string): ParseResult {
     return this.parsed.get(laneId) ?? analyze([]);
   }
 
+  /** Spur nach ID, auch der Träger der globalen Effekte (`GLOBAL_ID`). */
   private find(trackId: string) {
-    return this.tracks.find((t) => t.id === trackId);
+    return trackId === GLOBAL_ID ? this.global : this.tracks.find((t) => t.id === trackId);
   }
 
   lane(laneId: string): Lane | null {
-    for (const t of this.tracks) {
+    for (const t of [...this.tracks, this.global]) {
       if (t.id === laneId) {
         const info = t.type === 'sampler' ? samplerInfo(t.samplerMode, t.slices) : null;
         return { tokens: t.tokens, track: t, effect: null, content: contentOf(t.type), info, locks: null };
@@ -381,9 +404,15 @@ class Project {
    * Den ganzen Code aus der Code-Ansicht übernehmen (`programToTracks`). Zeilen übernehmen die bisherige Spur mit gleichem
    * Namen, sonst an gleicher Stelle (`matchTracks`), und behalten so ihre IDs. Spuren ohne Steine standen nicht im Code und
    * bleiben, ans Ende gestellt; Spuren, deren Zeile fehlt, fallen weg. Tempo nur, wenn es im Code steht.
+   * Globale Effekte aus der Kette am Stapel; fehlen sie dort, sind sie weg.
    * Doppelte Namen bekommen danach von oben nach unten eine Nummer, der erste bleibt.
    */
-  applyProgram(r: { entries: ProgramEntry[]; frame: Frame; tempo: { cps: number; unit: TempoUnit } | null }): void {
+  applyProgram(r: {
+    entries: ProgramEntry[];
+    frame: Frame;
+    tempo: { cps: number; unit: TempoUnit } | null;
+    global: ValueRow[];
+  }): void {
     const shown = this.codeTracks.map(inCode);
     const old = this.tracks.map((t, i) => ({ name: t.name, shown: shown[i] }));
     const names = r.entries.map((e) => (e.kind === 'raw' ? e.name : e.line.name));
@@ -399,6 +428,7 @@ class Project {
       seen.push(t.name);
     }
     this.frame = r.frame;
+    this.global.effects = adoptRows(this.global.effects, r.global);
     if (r.tempo) {
       this.cps = r.tempo.cps;
       this.tempoUnit = r.tempo.unit;
@@ -409,8 +439,14 @@ class Project {
    * Anderes Pattern laden: nichts vom bisherigen bleibt, dann der Code wie aus der Code-Ansicht (`applyProgram`).
    * Ohne Tempo im Code gilt der Anfangswert, ohne Spuren gibt es eine leere Klangspur.
    */
-  loadProgram(r: { entries: ProgramEntry[]; frame: Frame; tempo: { cps: number; unit: TempoUnit } | null }): void {
+  loadProgram(r: {
+    entries: ProgramEntry[];
+    frame: Frame;
+    tempo: { cps: number; unit: TempoUnit } | null;
+    global: ValueRow[];
+  }): void {
     this.tracks = [];
+    this.global = globalTrack();
     this.frame = EMPTY_FRAME;
     this.cps = START_CPS;
     this.tempoUnit = 'bpm';
@@ -578,7 +614,7 @@ class Project {
     if (e) e.mod = series;
   }
 
-  /** LFO setzen (steht dann statt der Wertsteine im Code) oder entfernen (null, wieder die Steine). */
+  /** LFO zum Wert setzen (`.lpf(800).lfo({ … })`) oder entfernen (null). */
   setEffectLfo(effectId: string, series: LfoSeries | null): void {
     const e = this.lane(effectId)?.effect;
     if (e) e.lfo = series;

@@ -3,7 +3,7 @@
   import { patterns } from '../state/patterns.svelte.ts';
   import { session } from '../state/session.svelte.ts';
 
-  /** Burger-Menü oben rechts: neues Pattern, Pattern laden (`PatternDialog`), Hilfe (`HelpDialog`). */
+  /** Burger-Menü oben rechts: neues Pattern, Pattern laden (`PatternDialog`), Ansicht (Steine oder Code), Hilfe (`HelpDialog`). */
   let open = $state(false);
   let root = $state<HTMLElement>();
   let trigger = $state<HTMLButtonElement>();
@@ -30,14 +30,14 @@
     open = !open;
     if (!open) return;
     await tick();
-    root?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
+    root?.querySelector<HTMLElement>('[role^="menuitem"]')?.focus();
   }
 
   /** Pfeiltasten wandern durch die Einträge. */
   function onMenuKey(e: KeyboardEvent) {
     if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
     e.preventDefault();
-    const items = [...(root?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])];
+    const items = [...(root?.querySelectorAll<HTMLElement>('[role^="menuitem"]') ?? [])];
     const at = items.indexOf(document.activeElement as HTMLElement);
     items[(at + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length]?.focus();
   }
@@ -53,7 +53,7 @@
     bind:this={trigger}
     class="burger"
     aria-label="Menü"
-    title="Neues Pattern, Pattern laden, Hilfe"
+    title="Neues Pattern, Pattern laden, Ansicht, Hilfe"
     aria-haspopup="menu"
     aria-expanded={open}
     onclick={toggle}
@@ -66,6 +66,13 @@
       <button role="menuitem" onclick={() => choose(() => patterns.create())}>Neues Pattern</button>
       <button role="menuitem" onclick={() => choose(() => (session.patterns = true))}>Pattern laden …</button>
       <hr />
+      <button role="menuitemradio" aria-checked={session.view === 'ui'} onclick={() => choose(() => (session.view = 'ui'))}>
+        Steine
+      </button>
+      <button role="menuitemradio" aria-checked={session.view === 'code'} onclick={() => choose(() => (session.view = 'code'))}>
+        Code
+      </button>
+      <hr />
       <button role="menuitem" onclick={() => choose(() => (session.help = true))}>Hilfe</button>
     </div>
   {/if}
@@ -76,10 +83,12 @@
     position: relative;
     flex: none;
   }
+  /* Ohne Rand, nur das Symbol */
   .burger {
     width: 36px;
     height: 36px;
     padding: 0;
+    border: none;
     display: grid;
     place-items: center;
   }
@@ -114,6 +123,17 @@
     border-color: transparent;
     background: transparent;
     color: var(--ink);
+  }
+  /* Platz für das Häkchen der gewählten Ansicht */
+  .menu button[role='menuitemradio'] {
+    padding-left: 28px;
+    position: relative;
+    font-weight: 500;
+  }
+  .menu button[aria-checked='true']::before {
+    content: '✓';
+    position: absolute;
+    left: 10px;
   }
   .menu button:hover {
     background: color-mix(in srgb, var(--blue) 14%, transparent);

@@ -19,7 +19,7 @@ const brief = (e: ProgramEntry): string =>
 function again(code: string): string {
   const r = read(code);
   const tracks: CodeTrack[] = r.entries.map((e) => (e.kind === 'raw' ? { tokens: [], ...e } : e.line));
-  return toStrudelProgram(tracks, { cps: r.tempo?.cps ?? 0.5, tempoUnit: r.tempo?.unit, frame: r.frame }).code;
+  return toStrudelProgram(tracks, { cps: r.tempo?.cps ?? 0.5, tempoUnit: r.tempo?.unit, frame: r.frame, global: r.global }).code;
 }
 
 test('program: eigener Code wird gelesen und kommt unverändert wieder', () => {
@@ -51,18 +51,19 @@ test('program: Sammelkommentar gibt die Lage her und bleibt nicht im Rahmen', ()
   assert.equal(read('s("bd")').board, null);
 });
 
-test('program: Code rund um den Stapel bleibt stehen, Aufrufe am Stapel auch', () => {
+test('program: Code rund um den Stapel bleibt stehen, bekannte Aufrufe am Stapel werden globale Effekte', () => {
   const code = `await samples('github:tidalcycles/dirt-samples')\nconst lead = n("0 2 4").scale("C:minor")\n\nstack(\n  s("bd"),\n  lead\n).fast(2).room(.3);\n\n// Ende`;
   const r = read(code);
   assert.deepEqual(r.entries.map(brief), ['sound ', 'raw : lead']);
   assert.deepEqual(r.frame, {
     before: `await samples('github:tidalcycles/dirt-samples')\nconst lead = n("0 2 4").scale("C:minor")`,
-    chain: '.fast(2).room(.3)',
+    chain: '',
     after: ';\n\n// Ende',
   });
+  assert.deepEqual(r.global.map((g) => g.name), ['fast', 'room']);
   const out = again(code);
   assert.equal(again(out), out, 'zweimal gelesen bleibt gleich');
-  assert.ok(out.endsWith('stack(\n  s("bd"),\n  lead\n).fast(2).room(.3);\n\n// Ende'), out);
+  assert.ok(out.endsWith('stack(\n  s("bd"),\n  lead\n).fast(2).room(0.3);\n\n// Ende'), out);
 });
 
 test('program: was Strudel-Steine nicht versteht, wird roher Code mit Name und Stummschaltung', () => {
@@ -138,7 +139,8 @@ test('program: mehrere Stapel werden einer, in der Reihenfolge im Code', () => {
   const code = 'stack(/* a */ s("bd"))\nconst x = 1\nstack(\n  /* b */ s("hh"),\n  stack(/* c */ s("cp"), /* d */ s("rim"))\n).room(.3)';
   const r = read(code);
   assert.deepEqual(r.entries.map(brief), ['sound a', 'sound b', 'sound c', 'sound d']);
-  assert.deepEqual(r.frame, { before: 'const x = 1', chain: '.room(.3)', after: '' });
+  assert.deepEqual(r.frame, { before: 'const x = 1', chain: '', after: '' });
+  assert.deepEqual(r.global.map((g) => g.name), ['room']);
   const out = again(code);
   assert.equal(out.match(/stack\(/g)?.length, 1, out);
   assert.equal(again(out), out, 'zweimal gelesen bleibt gleich');
@@ -161,4 +163,21 @@ test('program: Aufnahmen kommen mit Namen zurück, gekürzte nicht', () => {
   const full = programToTracks(`samples({\n  rec1: 'data:audio/wav;base64,UklG',\n  'rec 2': 'data:audio/wav;base64,… (3 kB)'\n})\n\nstack(s("rec1"))`);
   assert.ok(full.ok);
   assert.deepEqual([...full.recordings], [['rec1', 'data:audio/wav;base64,UklG']]);
+});
+
+test('program: globale Effekte am Stapel werden gelesen und kommen gleich wieder, der Rest der Kette bleibt Rahmen', () => {
+  const code = 'setcpm(120/4)\n\nstack(\n  /* drums */ s("bd sd")\n).room(0.3).lpf("<800 2000>").pianoroll().delay(.5)';
+  assert.equal(again(code), code);
+  const r = read(code);
+  assert.deepEqual(r.global.map((g) => g.name), ['room', 'lpf']);
+  assert.deepEqual(r.frame, { before: '', chain: '.pianoroll().delay(.5)', after: '' });
+});
+
+test('program: Lautstärke, Orbit oder Unbekanntes am Stapel sind keine globalen Effekte', () => {
+  assert.deepEqual(read('stack(s("bd")).postgain(2).room(.3)').global, []);
+  assert.deepEqual(read('stack(s("bd")).pianoroll()').frame.chain, '.pianoroll()');
+  // Ein früherer Stapel gibt nur Spuren her; all(…) bleibt eigener Code
+  const r = read('all(x => x.lpf(800))\nstack(s("bd"))\nstack(s("hh")).room(.5)');
+  assert.deepEqual(r.global.map((g) => g.name), ['room']);
+  assert.equal(r.frame.before, 'all(x => x.lpf(800))');
 });

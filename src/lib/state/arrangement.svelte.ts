@@ -3,6 +3,7 @@ import type { Section } from '../domain/arrangement.ts';
 import { toArrangedProgram } from '../domain/codegen.ts';
 import type { CodeScene, CodeTrack } from '../domain/codegen.ts';
 import type { Scene } from '../domain/scene.ts';
+import type { Effect } from '../domain/effects.ts';
 import { analyze } from '../syntax/analyze.ts';
 import { board } from './board.svelte.ts';
 import { codeTracksOf, project } from './project.svelte.ts';
@@ -31,6 +32,11 @@ function codeTracksOfScene(s: Scene): CodeTrack[] {
   return tracks;
 }
 
+/** Globale Effekte einer gespeicherten Szene, ohne die mit Klammerfehler. */
+function globalOfScene(s: Scene): Effect[] {
+  return s.global.filter((e) => analyze(e.tokens).errors.length === 0);
+}
+
 /**
  * Arrangement der Szenen: alle Szenen als Variablen mit `arrange(…)`. Eingeschaltet (`active`) zeigen Leiste und
  * Code-Ansicht das Arrangement; was klingt, entscheidet der Play-Knopf (`playback`). Die Abschnitte bleiben beim Ausschalten.
@@ -48,6 +54,7 @@ class Arrangement {
       id: s.id,
       variable: variables[i],
       tracks: s.id === scenes.current.id ? project.codeTracks : codeTracksOfScene(s),
+      global: s.id === scenes.current.id ? project.codeGlobal : globalOfScene(s),
     }));
   });
 

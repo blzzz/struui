@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { clampTimes, insertSection, moveSection, positionAt, sceneVariables, section } from './arrangement.ts';
 import type { Section } from './arrangement.ts';
 import { toArrangedProgram, toStrudelProgram } from './codegen.ts';
-import { soundToken } from './types.ts';
+import { effect, soundToken } from './types.ts';
 
 test('sceneVariables: gültige, verschiedene Namen nah am Szenennamen', () => {
   assert.deepEqual(sceneVariables(['Szene01', 'Intro Teil', '2. Strophe', 'Szene01', 's', 'const', '']), [
@@ -67,6 +67,21 @@ test('toArrangedProgram: Szenen als Variablen, dann arrange', () => {
   assert.equal(ranges.length, 1, 'nur die angezeigte Szene leuchtet');
   assert.equal(code.slice(ranges[0].start, ranges[0].end), 'hh');
   assert.equal(ranges[0].tokenId, hh.id);
+});
+
+test('toArrangedProgram: globale Effekte einer Szene hängen an ihrem Stapel', () => {
+  const { code, ranges } = toArrangedProgram(
+    [
+      { id: 'x', variable: 'A', tracks: [{ tokens: [soundToken('bd')] }], global: [effect('room', [soundToken('.3')])] },
+      { id: 'y', variable: 'B', tracks: [], global: [effect('room', [soundToken('.5')])] },
+    ],
+    [{ sceneId: 'x', times: 1 }],
+    { cps: 0.5, lit: 'x', global: [effect('lpf', [soundToken('800')])] },
+  );
+  assert.match(code, /const A = stack\(\n {2}s\("bd"\)\n\)\.room\(0\.3\)\n/);
+  assert.match(code, /const B = silence\n/);
+  assert.doesNotMatch(code, /all\(|lpf/);
+  assert.deepEqual(ranges.map((r) => code.slice(r.start, r.end)), ['bd']);
 });
 
 test('toArrangedProgram: ohne Abschnitt silence', () => {

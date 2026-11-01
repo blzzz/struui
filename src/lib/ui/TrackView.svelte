@@ -11,7 +11,12 @@
   import { splitDrag } from "../interaction/split-drag.ts";
   import { VOLUME_MAX } from "../domain/types.ts";
   import { SLICES_MAX, clampSlices } from "../domain/sampler.ts";
-  import { SCALE_OCTAVES, SCALE_ROOTS, SCALE_TYPES, scaleName } from "../domain/pitch.ts";
+  import {
+    SCALE_OCTAVES,
+    SCALE_ROOTS,
+    SCALE_TYPES,
+    scaleName,
+  } from "../domain/pitch.ts";
   import type { Track } from "../domain/types.ts";
   import type { Snippet } from "svelte";
   import type { Attachment } from "svelte/attachments";
@@ -365,7 +370,11 @@
           {#if isNote}
             <!-- Notenspur: Notennamen (absolut, note) oder Stufen einer Tonleiter (relativ, n(…).scale(…)).
                  Umschalten rechnet die Steine um, die Melodie bleibt. -->
-            <div class="sampler pitch" role="group" aria-label="Wie die Steine Noten angeben">
+            <div
+              class="sampler pitch"
+              role="group"
+              aria-label="Wie die Steine Noten angeben"
+            >
               <button
                 class="switch"
                 role="switch"
@@ -374,7 +383,10 @@
                   ? "Relativ: Stufen der Tonleiter (n mit scale). Aus: Notennamen (note)"
                   : "Aus: Notennamen (note). Ein: Stufen der Tonleiter, 0 = Grundton (n mit scale)"}
                 onclick={() =>
-                  project.setPitch(track.id, track.pitch === "relative" ? "absolute" : "relative")}
+                  project.setPitch(
+                    track.id,
+                    track.pitch === "relative" ? "absolute" : "relative",
+                  )}
               >
                 <span class="knob" aria-hidden="true"></span>Relativ
               </button>
@@ -389,28 +401,43 @@
                   disabled={track.pitch !== "relative"}
                   aria-label="Grundton"
                   value={track.scale.root}
-                  onchange={(e) => project.setScale(track.id, { root: e.currentTarget.value })}
+                  onchange={(e) =>
+                    project.setScale(track.id, { root: e.currentTarget.value })}
                 >
-                  {#if !SCALE_ROOTS.includes(track.scale.root)}<option value={track.scale.root}>{track.scale.root}</option>{/if}
-                  {#each SCALE_ROOTS as root (root)}<option value={root}>{root}</option>{/each}
+                  {#if !SCALE_ROOTS.includes(track.scale.root)}<option
+                      value={track.scale.root}>{track.scale.root}</option
+                    >{/if}
+                  {#each SCALE_ROOTS as root (root)}<option value={root}
+                      >{root}</option
+                    >{/each}
                 </select>
                 <select
                   disabled={track.pitch !== "relative"}
                   aria-label="Oktave des Grundtons"
                   value={track.scale.octave}
-                  onchange={(e) => project.setScale(track.id, { octave: Number(e.currentTarget.value) })}
+                  onchange={(e) =>
+                    project.setScale(track.id, {
+                      octave: Number(e.currentTarget.value),
+                    })}
                 >
-                  {#if !(SCALE_OCTAVES as readonly number[]).includes(track.scale.octave)}<option value={track.scale.octave}>{track.scale.octave}</option>{/if}
-                  {#each SCALE_OCTAVES as octave (octave)}<option value={octave}>{octave}</option>{/each}
+                  {#if !(SCALE_OCTAVES as readonly number[]).includes(track.scale.octave)}<option
+                      value={track.scale.octave}>{track.scale.octave}</option
+                    >{/if}
+                  {#each SCALE_OCTAVES as octave (octave)}<option value={octave}
+                      >{octave}</option
+                    >{/each}
                 </select>
                 <select
                   disabled={track.pitch !== "relative"}
                   class="type"
                   aria-label="Tonleiter"
                   value={track.scale.type}
-                  onchange={(e) => project.setScale(track.id, { type: e.currentTarget.value })}
+                  onchange={(e) =>
+                    project.setScale(track.id, { type: e.currentTarget.value })}
                 >
-                  {#each SCALE_TYPES as type (type)}<option value={type}>{type.replaceAll(":", " ")}</option>{/each}
+                  {#each SCALE_TYPES as type (type)}<option value={type}
+                      >{type.replaceAll(":", " ")}</option
+                    >{/each}
                 </select>
               </div>
             </div>
@@ -870,8 +897,8 @@
    * und Radius, ohne Fläche. Der Pegel füllt ihn leise von links (`--pct`), der Griff ist ein schmaler Strich.
    */
   .volume {
-    width: 120px;
-    max-width: 120px;
+    width: 80px;
+    max-width: 80px;
     min-width: 60px;
     flex: 0 1 120px;
     height: 28px;

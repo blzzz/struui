@@ -36,11 +36,12 @@
     if (scenes.autoUpdate && scenes.dirty) untrack(() => scenes.update());
   });
 
-  // Jede Änderung an Spuren und Tempo kommt in den Verlauf der gewählten Szene.
+  // Jede Änderung an Spuren, globalen Effekten und Tempo kommt in den Verlauf der gewählten Szene.
   $effect(() => {
     void scenes.currentId;
     void project.cps;
     void JSON.stringify(project.tracks);
+    void JSON.stringify(project.global.effects);
     untrack(() => history.record());
   });
 

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { restoreTracks, sameContent, scene, sceneName, withContent } from './scene.ts';
+import { restoreGlobal, restoreTracks, sameContent, scene, sceneName, withContent } from './scene.ts';
 import { effect, soundToken, track } from './types.ts';
 import type { Track } from './types.ts';
 
@@ -45,6 +45,22 @@ test('sameContent: erkennt Änderungen an Spuren und Tempo', () => {
   assert.ok(!sameContent(s, tracks, 0.6));
   tracks[0].muted = true;
   assert.ok(!sameContent(s, tracks, 0.5));
+});
+
+test('scene: globale Effekte als eigene Kopie, sameContent erkennt Änderungen daran', () => {
+  const tracks: Track[] = [track([soundToken('bd')])];
+  const global = [effect('room', [soundToken('.3')])];
+  const s = scene('A', tracks, 0.5, global);
+  assert.ok(sameContent(s, tracks, 0.5, global));
+  global[0].tokens.push(soundToken('.5'));
+  assert.equal(s.global[0].tokens.length, 1);
+  assert.ok(!sameContent(s, tracks, 0.5, global));
+  assert.ok(!sameContent(s, tracks, 0.5));
+  const loaded = restoreGlobal(s);
+  assert.equal(loaded[0].id, global[0].id);
+  loaded[0].tokens.length = 0;
+  assert.equal(s.global[0].tokens.length, 1);
+  assert.equal(withContent(s, tracks, 0.5, global).global[0].tokens.length, 2);
 });
 
 test('sceneName: erster freier Standardname', () => {

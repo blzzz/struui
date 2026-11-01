@@ -4,6 +4,7 @@
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { createServer } from 'vite';
+import { extractModTargets } from './strudel-effects.mjs';
 
 /**
  * Tonal.js (von `@strudel/tonal`) verweist mit `main` auf CommonJS-Dateien, die zum Teil fehlen (`@tonaljs/abc-notation`).
@@ -163,8 +164,8 @@ try {
     console.log(`ok: ${noteHits} Noten einer Notenspur korrekt Noten- und Klangsteinen zugeordnet`);
   }
 
-  // Fremder Code in der Code-Ansicht: gelesen, wieder erzeugt und von Strudel gespielt. Der Rahmen (Code davor, `.room` am
-  // Stapel) bleibt, der rohe Eintrag klingt, und die Steine der verstandenen Spur leuchten trotz des Codes davor richtig.
+  // Fremder Code in der Code-Ansicht: gelesen, wieder erzeugt und von Strudel gespielt. Der Rahmen (Code davor) bleibt, `.room` am
+  // Stapel wird ein globaler Effekt, der rohe Eintrag klingt, und die Steine der verstandenen Spur leuchten trotz des Codes davor richtig.
   {
     patterns.length = 0;
     const foreign = 'const lead = s("cp*2")\nsetcpm(120/4)\n\nstack(\n  /* drums */ s("bd hh"),\n  lead.fast(1)\n).room(.2)';
@@ -172,7 +173,7 @@ try {
     assert.ok(read.ok, read.message);
     assert.deepEqual(read.entries.map((e) => e.kind), ['track', 'raw']);
     const tracks = read.entries.map((e) => (e.kind === 'raw' ? { tokens: [], ...e } : e.line));
-    const program = codegen.toStrudelProgram(tracks, { cps: read.tempo.cps, tempoUnit: read.tempo.unit, frame: read.frame });
+    const program = codegen.toStrudelProgram(tracks, { cps: read.tempo.cps, tempoUnit: read.tempo.unit, frame: read.frame, global: read.global });
     assert.ok(program.code.startsWith('setcpm(120/4)\n\nconst lead = s("cp*2")\n\nstack('), program.code);
     await run(program.code);
     const byId = new Map(read.entries[0].line.tokens.map((t) => [t.id, t]));
@@ -256,33 +257,48 @@ try {
     console.log(`ok: Modulation mit ${effects.WAVES.length} Wellen läuft in Strudel, bleibt im Bereich und kommt zurück`);
   }
 
-  // LFO: jede Welle läuft und bleibt zwischen Mitte ± Tiefe; ein Sinus um 800 steigt und fällt über 2 Zyklen, die Phase
-  // verschiebt ihn um eine Viertelperiode, und er kommt als LFO zurück.
+  // LFO (Strudels `lfo`, strudel.cc/learn/lfo): Strudel meldet ihn am Ereignis, für superdough. Welche Effekte er modulieren kann,
+  // stimmt mit Strudels Hauptnamen und superdoughs Zielen überein; der Wert bleibt, `control` zeigt auf den Effekt, auch wenn
+  // derselbe Parameter schon vorher gesetzt war (Spur unter globalem Effekt), und alles kommt zurück.
   {
-    for (const wave of effects.LFO_WAVES) {
+    const targets = extractModTargets();
+    const wrong = effects.EFFECTS.filter((e) => e.group === 'audio' && !!e.modulatable !== targets.has(core.getControlName(e.name)));
+    assert.deepEqual(wrong.map((e) => e.name), [], 'modulatable passt nicht zu superdough');
+    const entry = (hap) => {
+      const l = hap.value.lfo;
+      assert.ok(l, 'Ereignis ohne LFO');
+      return l[[...l.__ids].at(-1)];
+    };
+    for (const shape of effects.LFO_SHAPES) {
       patterns.length = 0;
-      const lfo = { wave, center: 800, depth: 400, segments: 8, slow: 2, phase: 0, whole: false };
-      const program = codegen.toStrudelProgram([{ tokens: [snd('hh*8')], effects: [{ ...types.effect('lpf'), lfo }] }], { cps: 0.5 });
+      const lfo = { ...effects.suggestLfoSeries(), shape };
+      const program = codegen.toStrudelProgram([{ tokens: [snd('hh*4')], effects: [{ ...types.effect('lpf', [snd('800')]), lfo }] }], { cps: 0.5 });
       await run(program.code);
-      const haps = patterns[0].queryArc(0, 2).sort((a, b) => a.whole.begin - b.whole.begin);
-      assert.equal(haps.length, 16, wave);
-      for (const h of haps) assert.ok(h.value.cutoff >= 400 && h.value.cutoff <= 1200, `${wave}: ${h.value.cutoff} ausserhalb`);
-      const back = fromCode.codeToTrack(program.code.split('\n').at(-2).trim());
-      assert.ok(back.ok, wave);
-      assert.deepEqual(back.effects[0].lfo, lfo, wave);
-      if (wave === 'sine') {
-        const c = haps.map((h) => h.value.cutoff);
-        assert.ok(c[4] > c[0] && c[12] < c[8], `Sinus steigt und fällt: ${c}`);
-        assert.ok(Math.abs(c[0] - 800) < 1, `Sinus beginnt in der Mitte: ${c[0]}`);
-        patterns.length = 0;
-        const shifted = codegen.toStrudelProgram([{ tokens: [snd('hh*8')], effects: [{ ...types.effect('lpf'), lfo: { ...lfo, phase: 0.25 } }] }], { cps: 0.5 });
-        assert.match(shifted.code, /\.early\(0\.25\)/);
-        await run(shifted.code);
-        const s = patterns[0].queryArc(0, 2).sort((a, b) => a.whole.begin - b.whole.begin).map((h) => h.value.cutoff);
-        assert.ok(Math.abs(s[0] - 1200) < 1, `Viertelperiode früher beginnt der Sinus oben: ${s[0]}`);
+      const haps = patterns[0].queryArc(0, 1);
+      assert.equal(haps.length, 4, shape);
+      for (const h of haps) {
+        assert.equal(h.value.cutoff, 800, 'der Wert bleibt');
+        assert.deepEqual({ ...entry(h) }, { control: 'cutoff', shape, sync: 0.25, depth: 0.5 }, shape);
       }
+      const back = fromCode.codeToTrack(program.code.split('\n').at(-2).trim());
+      assert.ok(back.ok, shape);
+      assert.deepEqual(back.effects[0].lfo, lfo, shape);
     }
-    console.log(`ok: LFO mit ${effects.LFO_WAVES.length} Wellen läuft in Strudel, bleibt um die Mitte und kommt zurück`);
+    // Spur mit lpf unter globalem lpf samt LFO: ohne control nähme Strudel den zuletzt gesetzten Parameter (hier gain)
+    patterns.length = 0;
+    const lfo = { ...effects.suggestLfoSeries(), unit: 'rate', speed: 3, absolute: true, depth: 300, dcoffset: 0 };
+    const program = codegen.toStrudelProgram(
+      [{ tokens: [snd('bd')], effects: [types.effect('lpf', [snd('400')]), types.effect('gain', [snd('.8')])] }],
+      { cps: 0.5, global: [{ ...types.effect('lpf', [snd('900')]), lfo }] },
+    );
+    await run(program.code);
+    const [hap] = patterns[0].queryArc(0, 1);
+    assert.equal(hap.value.cutoff, 900);
+    assert.deepEqual({ ...entry(hap) }, { control: 'cutoff', shape: 'sine', rate: 3, depthabs: 300, dcoffset: 0 });
+    const back = fromProgram.programToTracks(program.code);
+    assert.ok(back.ok);
+    assert.deepEqual(back.global.map((g) => [g.name, g.lfo]), [['lpf', lfo]]);
+    console.log(`ok: LFO mit ${effects.LFO_SHAPES.length} Formen erreicht Strudel am richtigen Parameter, ${effects.EFFECTS.filter((e) => e.modulatable).length} Effekte modulierbar, Rückweg liest ihn`);
   }
 
   // Rechenarten: note("c3 e3".add("<0 12>")) transponiert wirklich (als Methode nach note() täte es das nicht),
@@ -598,6 +614,31 @@ try {
     const back = fromCode.codeToTrack(program.code.split('\n').at(-2).trim());
     assert.ok(back.ok && back.locks?.params.join(':') === 'velocity:n:s');
     console.log('ok: Paramlocks (up mit as) setzen Werte und Rhythmus, Lock- und Klangsteine leuchten, Rückweg liest sie');
+  }
+
+  // Globale Effekte: am Stapel (`stack(…).room(.4)`) wirken sie auf alle Spuren. Die Wertsteine leuchten, der Rückweg liest sie.
+  {
+    patterns.length = 0;
+    const lo = snd('300');
+    const hi = snd('900');
+    const kick = snd('bd');
+    const program = codegen.toStrudelProgram([{ tokens: [kick] }, { tokens: [snd('hh')] }], {
+      cps: 0.5,
+      global: [types.effect('room', [snd('.4')]), types.effect('lpf', [open('<'), lo, hi, close('<')])],
+    });
+    assert.match(program.code, /\n\)\.room\(0\.4\)\.lpf\("<300 900>"\)$/);
+    await run(program.code);
+    for (const [cycle, cutoff] of [[0, 300], [1, 900]]) {
+      const haps = patterns[0].queryArc(cycle, cycle + 1);
+      assert.deepEqual(haps.map((h) => [h.value.s, h.value.room, h.value.cutoff]), [['bd', 0.4, cutoff], ['hh', 0.4, cutoff]]);
+      const lit = (hap) => (hap.context.locations ?? []).flatMap((loc) => program.ranges.filter((r) => loc.start >= r.start && loc.start < r.end).map((r) => r.tokenId));
+      assert.ok(lit(haps[0]).includes(cycle === 0 ? lo.id : hi.id) && lit(haps[0]).includes(kick.id), `Wertstein in Zyklus ${cycle} leuchtet nicht`);
+    }
+    const back = fromProgram.programToTracks(program.code);
+    assert.ok(back.ok);
+    assert.deepEqual(back.global.map((g) => g.name), ['room', 'lpf']);
+    assert.equal(back.entries.length, 2);
+    console.log('ok: globale Effekte am Stapel wirken auf alle Spuren, ihre Wertsteine leuchten, Rückweg liest sie');
   }
 
   // Zufallsabgleich: Der eigene Klammer-Parser muss dieselben Spuren akzeptieren wie Strudels Grammatik.

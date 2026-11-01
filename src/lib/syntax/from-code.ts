@@ -1,5 +1,5 @@
-import { LFO_WAVES, NOTE_OPS, WAVES, effectInfo, isLfoSeries, isModSeries, isRandSeries, isSliderRange, noteOpInfo } from '../domain/effects.ts';
-import type { LfoSeries, LfoWave, ModSeries, RandSeries, SliderRange, Wave } from '../domain/effects.ts';
+import { LFO_DEFAULTS, LFO_SHAPES, NOTE_OPS, WAVES, effectInfo, isLfoSeries, isModSeries, isRandSeries, isSliderRange, noteOpInfo, singleValue } from '../domain/effects.ts';
+import type { LfoSeries, LfoShape, ModSeries, RandSeries, SliderRange, Wave } from '../domain/effects.ts';
 import { LOCKS, isLockParam, isLockValue } from '../domain/locks.ts';
 import { SLICES_MAX } from '../domain/sampler.ts';
 import type { SamplerMode } from '../domain/sampler.ts';
@@ -58,8 +58,8 @@ export interface CodeLine {
 
 /**
  * Ein Effekt oder eine Rechenart: Name, Wertsteine und, aus `slider(wert, min, max, step)`, der Bereich des Reglers.
- * Aus `rand.range(…).segment(…).ribbon(…)` die Zufallsreihe, aus `sine.range(…).segment(…).slow(…)` die Modulation,
- * aus `sine2.mul(…).add(…).segment(…)` der LFO; die Wertsteine sind dann leer.
+ * Aus `rand.range(…).segment(…).ribbon(…)` die Zufallsreihe, aus `sine.range(…).segment(…).slow(…)` die Modulation; die
+ * Wertsteine sind dann leer. Aus `.lfo({ … })` direkt nach dem Effekt der LFO, die Wertsteine bleiben.
  */
 export interface ValueRow {
   name: string;
@@ -185,37 +185,90 @@ export function codeToTrack(code: string, prefer?: TrackType): CodeResult {
   };
   const WAVE = new RegExp(`^(${WAVES.join('|')})\\b`);
 
+  /** Strudels Namen für die Angaben eines LFO (`registerSubControls('lfo', …)` in `@strudel/core`), kleingeschrieben. */
+  const LFO_KEYS: Record<string, string> = {
+    control: 'control', c: 'control', shape: 'shape', sh: 'shape', sync: 'sync', s: 'sync', rate: 'rate', r: 'rate',
+    depth: 'depth', dep: 'depth', dr: 'depth', depthabs: 'depthabs', da: 'depthabs', dcoffset: 'dcoffset', dc: 'dcoffset',
+    skew: 'skew', sk: 'skew',
+  };
+
   /**
-   * LFO nach der Welle (`sine2`): wahlweise `.early(phase)`, dann `.mul(tiefe)`, `.add(mitte)`, wahlweise `.round()`,
-   * `.segment(n)` (auch `seg`) und wahlweise `.slow(zyklen)`, in dieser Reihenfolge, so wie `lfoToCode` sie schreibt.
+   * LFO nach der öffnenden Klammer von `.lfo(`, für den Effekt `row` davor: `{ control: 'lpf', shape: 'sine', sync: 0.25,
+   * depth: 0.5 }`, auch mit Strudels Kurznamen (`c`, `sh`, `s`, `r`, `dep`, `da`, `dc`, `sk`) und Formen als Nummer (0–4).
+   * Was fehlt, ist Strudels Vorgabe (`LFO_DEFAULTS`), `.lfo()` allein auch. `control` muss dieser Effekt sein. Liest bis nach `)`.
    */
-  const lfoSeries = (wave: LfoWave, at: number): LfoSeries => {
-    const shape = `Ein LFO ist ${wave}2.mul(tiefe).add(mitte).segment(n), wahlweise mit .early(phase) nach ${wave}2 und .slow(zyklen) am Schluss.`;
-    const phase = call(['early']) ? arg('Die Phase', true) : 0;
-    if (!call(['mul'])) throw new CodeError(shape, at);
-    const depth = arg('Die Tiefe', true);
-    if (!call(['add'])) throw new CodeError(shape, pos);
-    const center = arg('Die Mitte', true);
-    let whole = false;
-    if (call(['round'])) {
-      expect(')', '«)», round() nimmt keinen Wert');
-      whole = true;
+  const lfoConfig = (row: ValueRow, at: number): LfoSeries => {
+    const info = effectInfo(row.name);
+    if (!info?.modulatable) throw new CodeError(`.${row.name}() kann Strudels LFO nicht modulieren.`, at);
+    if (row.rand || row.mod || !NUMBER.test(singleValue(row.tokens) ?? '')) {
+      throw new CodeError(`Ein LFO folgt einem Effekt mit einer Zahl als Wert, z. B. .${row.name}(800).lfo({ … }).`, at);
     }
-    if (!call(['segment', 'seg'])) throw new CodeError(shape, pos);
-    const segments = arg('Die Zahl der Segmente', true);
-    const slow = call(['slow']) ? arg('Die Dauer in Zyklen', true) : 1;
-    const l = { wave, center, depth, segments, slow, phase, whole };
-    if (!isLfoSeries(l)) {
-      throw new CodeError('Im LFO ist die Tiefe über 0, die Segmente sind ganz ab 1, die Dauer über 0 und die Phase von 0 bis unter 1.', at);
+    const seen = new Map<string, number | string>();
+    space();
+    if (code[pos] === '{') {
+      pos += 1;
+      for (space(); code[pos] !== '}'; space()) {
+        const keyAt = pos;
+        const quoted = /^(["'])(\w+)\1/.exec(code.slice(pos));
+        const raw = quoted ? quoted[2] : identifier();
+        pos += quoted ? quoted[0].length : 0;
+        const key = LFO_KEYS[raw.toLowerCase()];
+        if (!key) throw new CodeError(`«${raw}» kann die Box nicht darstellen (möglich: ${[...new Set(Object.values(LFO_KEYS))].join(', ')}).`, keyAt);
+        if (seen.has(key)) throw new CodeError(`«${key}» steht zweimal im LFO.`, keyAt);
+        expect(':');
+        space();
+        const text = /^(["'])([^"']*)\1/.exec(code.slice(pos));
+        if (text) {
+          pos += text[0].length;
+          seen.set(key, text[2]);
+        } else seen.set(key, Number(number(`«${key}»`)));
+        space();
+        if (code[pos] === ',') pos += 1;
+        else if (code[pos] !== '}') throw new CodeError('Hier fehlt «,» oder «}».', pos);
+      }
+      pos += 1;
     }
+    expect(')');
+    if (seen.has('sync') && seen.has('rate')) throw new CodeError('Im LFO steht entweder sync oder rate.', at);
+    if (seen.has('depth') && seen.has('depthabs')) throw new CodeError('Im LFO steht entweder depth oder depthabs.', at);
+    const control = seen.get('control');
+    if (control !== undefined && effectInfo(String(control))?.name !== info.name) {
+      throw new CodeError(`Der LFO nach .${row.name}() moduliert nur ihn (control: '${row.name}').`, at);
+    }
+    let shape: LfoShape = LFO_DEFAULTS.shape;
+    const s = seen.get('shape');
+    if (typeof s === 'number') {
+      if (!Number.isInteger(s) || s < 0 || s >= LFO_SHAPES.length) throw new CodeError(`Die Form des LFO ist 0 bis ${LFO_SHAPES.length - 1}.`, at);
+      shape = LFO_SHAPES[s];
+    } else if (s !== undefined) {
+      const name = s === 'triangle' ? 'tri' : s;
+      if (!(LFO_SHAPES as readonly string[]).includes(name)) throw new CodeError(`Unbekannte Form «${s}» (möglich: ${LFO_SHAPES.join(', ')}).`, at);
+      shape = name as LfoShape;
+    }
+    const num = (key: string, fallback: number): number => {
+      const v = seen.get(key);
+      if (typeof v === 'string') throw new CodeError(`«${key}» ist im LFO eine Zahl.`, at);
+      return v ?? fallback;
+    };
+    const unit = seen.has('sync') ? 'sync' : 'rate';
+    const absolute = seen.has('depthabs');
+    const l: LfoSeries = {
+      shape,
+      unit,
+      speed: num(unit, LFO_DEFAULTS.speed),
+      absolute,
+      depth: num(absolute ? 'depthabs' : 'depth', LFO_DEFAULTS.depth),
+      dcoffset: num('dcoffset', LFO_DEFAULTS.dcoffset),
+      skew: num('skew', LFO_DEFAULTS.skew),
+    };
+    if (!isLfoSeries(l)) throw new CodeError('Im LFO sind Tempo und Tiefe über 0, skew von 0 bis 1.', at);
     return l;
   };
-  const LFO_WAVE = new RegExp(`^(${LFO_WAVES.join('|')})2\\b`);
 
   /**
    * Wert eines Aufrufs nach der öffnenden Klammer: eine Zahl als ein Stein, Mini-Notation, Strudels Regler
    * `slider(wert, min, max, step)` (fehlen min und max, gilt wie bei Strudel 0 und 1, ohne step ein Hundertstel)
-   * eine Zufallsreihe (`randSeries`), eine Modulation (`modSeries`) oder ein LFO (`lfoSeries`). Liest bis nach `)`.
+   * eine Zufallsreihe (`randSeries`) oder eine Modulation (`modSeries`). Liest bis nach `)`.
    */
   const value = (name: string): ValueRow => {
     space();
@@ -223,15 +276,8 @@ export function codeToTrack(code: string, prefer?: TrackType): CodeResult {
     let slider: SliderRange | null = null;
     let rand: RandSeries | null = null;
     let mod: ModSeries | null = null;
-    let lfo: LfoSeries | null = null;
     const wave = WAVE.exec(code.slice(pos));
-    const lfoWave = LFO_WAVE.exec(code.slice(pos));
-    if (lfoWave) {
-      const at = pos;
-      pos += lfoWave[0].length;
-      lfo = lfoSeries(lfoWave[1] as LfoWave, at);
-      tokens = [];
-    } else if (wave) {
+    if (wave) {
       const at = pos;
       pos += wave[0].length;
       mod = modSeries(wave[1] as Wave, at);
@@ -262,7 +308,7 @@ export function codeToTrack(code: string, prefer?: TrackType): CodeResult {
       tokens = mini();
     }
     expect(')');
-    return { name, tokens, slider, rand, mod, lfo };
+    return { name, tokens, slider, rand, mod, lfo: null };
   };
 
   /** Paramlocks nach `.up`: `("1 .5:4".as("velocity:n"))`. Jeder Wert hat höchstens so viele Teile wie Parameter. */
@@ -353,7 +399,6 @@ export function codeToTrack(code: string, prefer?: TrackType): CodeResult {
       if (row.slider) throw new CodeError(`Bei .${mode}() geht kein Regler (slider).`, at);
       if (row.rand) throw new CodeError(`Bei .${mode}() geht keine Zufallsreihe (rand).`, at);
       if (row.mod) throw new CodeError(`Bei .${mode}() geht keine Modulation.`, at);
-      if (row.lfo) throw new CodeError(`Bei .${mode}() geht kein LFO.`, at);
       sampler = { mode, slices, tokens: row.tokens, at };
     }
 
@@ -406,6 +451,7 @@ export function codeToTrack(code: string, prefer?: TrackType): CodeResult {
         continue;
       }
       if (notes && fx === 'midi') throw new CodeError('.midi() gibt es nur bei Spuren mit s("…"), nicht mit note("…") oder n("…").', at);
+      if (fx === 'lfo') throw new CodeError('Ein LFO (.lfo) folgt direkt dem Effekt, den er moduliert, z. B. .lpf(800).lfo({ … }).', at);
       const special = ['postgain', 'orbit', 'midichan', 'midi'].includes(fx);
       if (!special && !effectInfo(fx)) throw new CodeError(`Unbekannter Effekt «${fx}».`, at);
       expect('(');
@@ -445,7 +491,12 @@ export function codeToTrack(code: string, prefer?: TrackType): CodeResult {
         soundOnly ??= { at, what: '.postgain()' };
         continue;
       }
-      effects.push(value(fx));
+      const row = value(fx);
+      // Strudels LFO direkt danach gehört zu diesem Effekt
+      space();
+      const lfoAt = pos + 1;
+      if (call(['lfo'])) row.lfo = lfoConfig(row, lfoAt);
+      effects.push(row);
     }
     const type: TrackType = notes ? 'note' : port !== null ? 'midi' : sampler ? 'sampler' : 'sound';
     if (type === 'midi' && sampler) throw new CodeError(`.${sampler.mode}() direkt nach s(…) gibt es nicht mit .midi().`, sampler.at);
