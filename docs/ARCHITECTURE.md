@@ -86,8 +86,8 @@ dafür ohne Ladeanzeige geladen. Synths, Soundfonts (`gm_…`) und eigene Aufnah
   Klangreihe (Klangspur oder `.s` einer Notenspur, dort ohne Pause), seitwärts scrollt die Zeile (`canDrag` in `token-gestures.ts`,
   `touch-action: pan-x`). Antippen legt nichts ab, Steine kommen nur durch Ziehen in eine Spur. Langes Drücken spielt den Klang an (`StrudelEngine.preview`, direkt über Strudels `superdough`,
   lädt Strudel beim ersten Mal; auf iOS evtl. still, bis einmal getippt wurde, weil der Audiokontext eine Geste braucht). Klangreihen haben kein `+` mehr; Effektreihen behalten es (für Werte gibt es keine Palette).
-- **Darstellung:** Wrap-Layout; passt eine Klangreihe nicht auf eine Zeile, verkleinert `Lane` sie per CSS `zoom` (bis 0,5,
-  darunter Umbruch; Noten- und Wertreihen werden nie verkleinert, sie brechen um). Ein Knopf daneben schaltet pro Reihe auf Originalgrösse (`session.unfit`). Beim Tippen in einen Stein bleibt
+- **Darstellung:** Wrap-Layout; passt eine Klang- oder Notenreihe nicht auf eine Zeile, verkleinert `Lane` sie per CSS `zoom` (bis 0,5,
+  darunter Umbruch; Wertreihen werden nie verkleinert, sie brechen um). Ein Knopf daneben schaltet pro Reihe auf Originalgrösse (`session.unfit`). Beim Tippen in einen Stein bleibt
   die Reihe verkleinert (zurücksetzen liess sie unter dem Finger springen, das Feld schloss gleich wieder), Feld und Menüs im Stein heben den Zoom auf (ungeprüft im Browser, vor allem Safari).
   Messung in `ui/fit.ts`, der Knopf (Lupe mit + oder −) ist `ui/FitButton.svelte`. Die Effekt-Boxen einer Spur (`EffectList`)
   werden nie verkleinert, sie brechen um.
@@ -120,7 +120,7 @@ dafür ohne Ladeanzeige geladen. Synths, Soundfonts (`gm_…`) und eigene Aufnah
   für Schritt, im Code nach den Effekten `.up("1 .5 ~ .7:4:sd".as("velocity:n:s"))`. `up` ist keine Strudel-Funktion, sondern
   eine eigene Ergänzung zum Prebake (`audio/up.ts`, nach `prebake()` angemeldet, ebenso in `test:strudel`): wie `set.mix`, überschreibt
   aber nur die Werte, die der Stein setzt, und gibt den Rhythmus vor (Pause = kein Ereignis, wie `struct`). Eine feste Box am Ende
-  der Effekte (`EffectList`, ohne Griff; neue Effekte kommen davor), wie im Code: was später kommt, gewinnt. In jeder Klangspur da, auch leer (dann nicht im Code). Jeder Stein zeigt
+  der Effekte (`EffectList`, ohne Griff; neue Effekte kommen davor), wie im Code: was später kommt, gewinnt. In jeder Klangspur da: zu Beginn ohne Parameter nur ein Kopf wie «FX» mit Plus; der erste gewählte Parameter (Effektsuche) schaltet die Reihe ein, das Entfernen des letzten schaltet sie samt Steinen wieder aus. Ohne Steine nicht im Code. Jeder Stein zeigt
   seine Teile übereinander. Die Parameter stehen als Block vorne in der Reihe, ebenso übereinander; Antippen öffnet ihre Bearbeitung
   (ersetzen, entfernen samt Teil, hinten anfügen). Sperrbar sind `n`, `s` und
   Effekte der Gruppen `audio` und `pitch`. Antippen öffnet je Parameter ein Feld. **Strudel kennt keinen leeren Teil in der Mitte**
@@ -139,7 +139,7 @@ dafür ohne Ladeanzeige geladen. Synths, Soundfonts (`gm_…`) und eigene Aufnah
 - **Solo** (`session.solo`, flüchtig): ist eine Spur der Szene auf Solo, bekommen alle anderen im erzeugten Code `.hush()`,
   `Track.muted` bleibt unverändert. Wird der Code bearbeitet, während Solo an ist, werden diese `.hush()` zur echten Stummschaltung.
 - **Neue Klammerpaare enthalten eine Pause** (`[~]`), weil Strudel leere Klammern ablehnt. So bleibt die Spur gültig und läuft weiter.
-- **Abspielkopf:** Zykluszähler und der Rand des runden Start/Stopp-Knopfs, der sich im Lauf eines Zyklus füllt (einer für alle Spuren,
+- **Abspielkopf:** der Start/Stopp-Knopf oben rechts, dessen Fläche sich im Lauf eines Zyklus von links füllt (einer für alle Spuren,
   sie teilen sich den Zyklus), gelesen aus `scheduler.now()` von Strudel. Er ist nicht an die Steine ausgerichtet.
 - **Gewicht `@`** ist eine vierte Art der Wiederholung (eine pro Stein, wie `*` und `!`). `a _` liest der Rückweg als `a@2`.
 - **Aufleuchten bei `%n`:** Strudel meldet bei `{…}%4` zuerst die Position der Zahl, dann die des Klangnamens. Engine und
@@ -311,7 +311,7 @@ dafür ohne Ladeanzeige geladen. Synths, Soundfonts (`gm_…`) und eigene Aufnah
   (`const Szene01 = stack(…).room(0.3)`). Der Rückweg (`programToTracks`, `globalPrefix`) liest am Stapel des letzten Ausdrucks die
   bekannten Effekte und Musterbefehle (auch `.fast(2)`) bis zum ersten anderen Aufruf; der Rest bleibt Rahmen. Früher stand dort
   alles im Rahmen. Strudels `all(…)` wird nicht gelesen und bleibt eigener Code.
-- **Kanalzug pro Spur** (`ui/TrackView.svelte`): rechts vom Namen waagrecht `M` (stumm), `S` (Solo), Orbit bzw. MIDI-Kanal und der Lautstärkeregler (höchstens 120 px breit). Am rechten Rand des Spurkopfs drei Punkte (`ui/TrackMenu.svelte`): Menü mit Art der Spur (Klang, Noten, MIDI), «Code zeigen» bzw. «UI zeigen» und «Spur entfernen»; in der Code-Ansicht steht zusätzlich ein Knopf «UI» im Spurkopf. In der Code-Ansicht fallen
+- **Kanalzug pro Spur** (`ui/TrackView.svelte`): rechts im Spurkopf eine zusammenhängende Gruppe aus `M` (stumm), `S` (Solo), Lautstärkeregler und ganz rechts Orbit bzw. MIDI-Kanal. Dieser letzte Knopf (`ui/TrackMenu.svelte`) öffnet das Menü: Orbit bzw. Kanal wählen, Art der Spur (Klang, Noten, MIDI, Sampler), «Code zeigen» bzw. «UI zeigen», «Spur zurücksetzen» und «Spur entfernen»; in der Code-Ansicht steht zusätzlich ein Knopf «UI» im Spurkopf. In der Code-Ansicht fallen
   Regler und `M` weg, Lautstärke und Stummschaltung stehen dann im Text. Die Lautstärke (`Track.volume`, 0–1.5) ist Strudels `postgain`
   (wirkt nach allen Effekten, Standard 1) und steht nur im Code, wenn sie nicht 1 ist, als letzter Aufruf der Zeile.
   `postgain` ist deshalb aus der Effektliste gefiltert; der Rückweg aus Code liest `.postgain(Zahl)` als Lautstärke.
@@ -372,10 +372,15 @@ dafür ohne Ladeanzeige geladen. Synths, Soundfonts (`gm_…`) und eigene Aufnah
   beim Wechsel der Art warten die anderen in `Track.parked`, je Inhalt.
   Offen: `splice` (wie slice, passt aber die Geschwindigkeit an den Schritt an), scrub mit Geschwindigkeit (`"0.8:1.5"`),
   ungleiche Abschnitte (`slice([0, .25, .5], …)`).
-- **Ganzer Code ohne Labels:** Aufnahmen, Tempo, dann alle Spuren in einem `stack(…)`, eine Spur pro Zeile:
-  `stack(\n  /* drums */ s("bd sd"),\n  /* Klangspur_1 */ s("hh*8").hush()\n)`. Ohne `$:` spielt Strudel den letzten
+- **Ganzer Code ohne Labels:** Titel, Aufnahmen, Tempo, dann alle Spuren in einem `stack(…)`, jede Spur ab einer eigenen Zeile,
+  jeder Aufruf nach ihrem Kopf (Effekte, Locks, Orbit, `.hush()`, …) auf einer eigenen, tiefer eingerückten Zeile, die globalen
+  Effekte am Stapel ebenso: `stack(\n  /* drums */ s("bd sd")\n    .lpf(800),\n  /* Klangspur_1 */ s("hh*8")\n    .hush()\n)\n  .room(0.3)`.
+  Der Code pro Spur (`TrackCode`) bleibt eine Zeile. Ohne `$:` spielt Strudel den letzten
   Ausdruck, also den Stapel. So lässt sich derselbe Aufbau später als Part (`const verse = stack(…)`) in ein
   `arrange(…)` geben, ohne dass eine Spur ihr Label behält und daneben weiterspielt.
+- **Pattern-Titel:** der Name des aktuellen Patterns steht als erste Zeile im Code, in Strudels Schreibweise für Metadaten
+  (`// @title Pattern 1`, `titleComment`, über `project.title`, das `patterns` setzt). `programToTracks` liest ihn und lässt ihn
+  aus dem Rahmen weg, damit er beim Laden nicht doppelt kommt; ein geänderter Titel in der Code-Ansicht benennt das Pattern um.
 - **Spurnamen** (`Track.name`): als Kommentar vor der Spur (`/* drums */`). Strudel sieht ihn nicht, `codeToTrack` liest ihn
   wieder. Erlaubt sind Buchstaben, Ziffern und `_`, nicht am Ende (`trackName`), so kann ein Name den Kommentar nicht beenden.
   Fehlt der Kommentar oder bleibt das Namensfeld leer, bekommt die Spur den Namen ihrer Art mit der ersten freien Nummer

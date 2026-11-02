@@ -14,9 +14,9 @@
    * Eine Steinreihe: die Klänge einer Spur oder die Werte eines Effekts (`value`).
    * Klänge kommen aus der Klangpalette (ziehen), Werte und Noten über das + am Ende (hängt einen Stein an und öffnet sein Feld).
    *
-   * Passt eine Klangreihe nicht auf eine Zeile, wird sie verkleinert (`fit.ts`, bis `MIN_FIT`, darunter bricht sie wieder um).
+   * Passt eine Klang- oder Notenreihe nicht auf eine Zeile, wird sie verkleinert (`fit.ts`, bis `MIN_FIT`, darunter bricht sie wieder um).
    * Daneben erscheint dann ein Knopf für die Originalgrösse (`session.unfit`), dort einer zum Verkleinern.
-   * Noten- und Wertreihen bleiben in Originalgrösse und brechen um.
+   * Wertreihen bleiben in Originalgrösse und brechen um.
    * Die Reihe bleibt auch beim Tippen in einen Stein verkleinert, nur sein Feld hat normale Grösse (`TokenStone`).
    */
   /** `lead`: steht vorne in der Reihe, vor den Steinen (die Parameter der Paramlocks). */
@@ -104,8 +104,10 @@
     return () => ro.disconnect();
   });
 
-  /** Nur Reihen aus Klangsteinen lassen sich verkleinern. */
-  const fittable = $derived(project.contentOf(laneId) === "sounds");
+  /** Nur Reihen aus Klang- und Notensteinen lassen sich verkleinern. */
+  const fittable = $derived(
+    project.contentOf(laneId) === "sounds" || project.contentOf(laneId) === "notes",
+  );
   /** Verkleinerung, damit die Reihe auf eine Zeile passt (1 = passt in Originalgrösse). */
   let fit = $state(1);
   /** Die Reihe ist in Originalgrösse breiter als der Platz: nur dann gibt es den Knopf. */

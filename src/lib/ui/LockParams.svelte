@@ -7,7 +7,7 @@
   /**
    * Block vorne in der Reihe der Paramlocks: die Parameter übereinander, je einer auf Höhe seines Teils in den Steinen
    * (`--lock-row`). Antippen öffnet die Bearbeitung: ein Parameter öffnet die Effektsuche (`EffectPicker`) und wird ersetzt
-   * (die Werte bleiben), × entfernt ihn samt Teil in jedem Stein, «+ Parameter» fügt einen hinten an; sein Teil ist zunächst
+   * (die Werte bleiben), × entfernt ihn samt Teil in jedem Stein (der letzte nimmt alle Steine mit), «+ Parameter» fügt einen hinten an; sein Teil ist zunächst
    * überall leer.
    */
   let { track }: { track: Track } = $props();
@@ -66,10 +66,9 @@
           >
           <button
             class="x"
-            disabled={track.locks.params.length <= 1}
             aria-label={`${param} entfernen`}
             title={track.locks.params.length <= 1
-              ? "Der letzte Parameter bleibt"
+              ? `${param} entfernen: die Paramlocks gehen samt allen Steinen weg`
               : `${param} entfernen, samt Wert in jedem Stein`}
             onclick={() => project.removeLockParam(track.id, i)}>×</button
           >

@@ -3,6 +3,7 @@
   import { midi } from "../state/midi.svelte.ts";
   import { project } from "../state/project.svelte.ts";
   import { session } from "../state/session.svelte.ts";
+  import DotToggle from "./DotToggle.svelte";
   import EffectList from "./EffectList.svelte";
   import Lane from "./Lane.svelte";
   import LaneToggles from "./LaneToggles.svelte";
@@ -102,13 +103,12 @@
     ro.observe(box);
     return () => ro.disconnect();
   };
-  /** Reiter im Effekt-Container einer Notenspur. */
-  let fxTab = $state<"noteOps" | "effects">("effects");
-  /** Effekt-Container und Sounds aufgeklappt. Klick auf den aktiven Reiter (bzw. den Titel) klappt zu und wieder auf. */
+  /** Reiter im Effekt-Container einer Notenspur, in der Reihenfolge des Signalflusses. Zu Beginn der Klang. */
+  let fxTab = $state<"noteOps" | "sound" | "effects">("sound");
+  /** Effekt-Container aufgeklappt. Klick auf den aktiven Reiter (bzw. den Titel) klappt zu und wieder auf. */
   let fxOpen = $state(true);
-  let soundsOpen = $state(true);
 
-  function chooseTab(tab: "noteOps" | "effects") {
+  function chooseTab(tab: "noteOps" | "sound" | "effects") {
     if (fxTab === tab) fxOpen = !fxOpen;
     else {
       fxTab = tab;
@@ -190,91 +190,76 @@
       </label>
     </div>
     <!--
-      Kanalzug in der Mitte des Kopfs: Stummschaltung, Orbit (Klang, Noten) bzw. MIDI-Kanal und Lautstärke (im Code .postgain).
-      Bei MIDI gibt es keinen Regler. In der Code-Ansicht steht alles im Text.
+      Kanalzug rechts im Kopf, als zusammenhängende Gruppe: Stummschaltung, Solo, Lautstärke (im Code .postgain)
+      und ganz rechts Orbit bzw. MIDI-Kanal, der zugleich das Menü der Spur öffnet. Bei MIDI gibt es keinen Regler.
+      In der Code-Ansicht steht alles im Text, nur der Menüknopf bleibt.
     -->
     <div class="strip">
-      {#if !showCode || isRaw}
-        <button
-          class="mute"
-          class:active={track.muted}
-          aria-pressed={track.muted}
-          aria-label="Stumm"
-          title={track.muted ? "Stumm (Code: .hush())" : "Stumm schalten"}
-          onclick={() => project.toggleMute(track.id)}>M</button
+      {#if isMidi && !showCode && !isRaw}
+        <select
+          class="port"
+          value={track.port}
+          aria-label={`MIDI-Ausgang von Spur ${index + 1}`}
+          title="MIDI-Ausgang, im Code .midi('…')"
+          onchange={(e) => project.setPort(track.id, e.currentTarget.value)}
         >
-        <button
-          class="mute solo"
-          class:active={solo}
-          aria-pressed={solo}
-          aria-label="Solo"
-          title={solo
-            ? "Solo (andere Spuren im Code mit .hush())"
-            : "Solo: nur diese Spur hören"}
-          onclick={() => session.toggleSolo(track.id)}>S</button
-        >
-        {#if isRaw}
-          <!-- Roher Code: Orbit und Lautstärke stehen, wenn überhaupt, im Code selbst -->
-        {:else if isMidi}
-          <button
-            class="num"
-            aria-label={`MIDI-Kanal ${track.channel}, tippen für den nächsten`}
-            title={`MIDI-Kanal ${track.channel} (Code: .midichan), tippen: nächster`}
-            onclick={() => project.cycleChannel(track.id)}
-            ><small>ch</small>{track.channel}</button
-          >
-        {:else}
-          <button
-            class="num"
-            class:set={track.orbit !== 1}
-            aria-label={`Orbit ${track.orbit}, tippen für den nächsten`}
-            title={`Orbit ${track.orbit} (Code: .orbit), Spuren im selben Orbit teilen Hall und Delay. Tippen: nächster`}
-            onclick={() => project.cycleOrbit(track.id)}>{track.orbit}</button
-          >
-          <input
-            class="volume"
-            type="range"
-            min="0"
-            max={VOLUME_MAX}
-            step="0.05"
-            value={track.volume}
-            style:--pct={`${(Math.min(track.volume, VOLUME_MAX) / VOLUME_MAX) * 100}%`}
-            aria-label={`Lautstärke von Spur ${index + 1}`}
-            title={`Lautstärke ${Math.round(track.volume * 100)} %`}
-            oninput={(e) =>
-              project.setVolume(track.id, Number(e.currentTarget.value))}
-            ondblclick={() => project.setVolume(track.id, 1)}
-          />
-        {/if}
+          <option value="">Automatisch</option>
+          {#each portNames as name (name)}
+            <option value={name}
+              >{name}{midi.ports?.ok && midi.ports.names.includes(name)
+                ? ""
+                : " (nicht verbunden)"}</option
+            >
+          {/each}
+        </select>
       {/if}
-      <div class="actions">
-        {#if isMidi && !showCode && !isRaw}
-          <select
-            class="port"
-            value={track.port}
-            aria-label={`MIDI-Ausgang von Spur ${index + 1}`}
-            title="MIDI-Ausgang, im Code .midi('…')"
-            onchange={(e) => project.setPort(track.id, e.currentTarget.value)}
-          >
-            <option value="">Automatisch</option>
-            {#each portNames as name (name)}
-              <option value={name}
-                >{name}{midi.ports?.ok && midi.ports.names.includes(name)
-                  ? ""
-                  : " (nicht verbunden)"}</option
-              >
-            {/each}
-          </select>
-        {/if}
-        {#if showCode && !isRaw}
-          <!-- Zurück zu Steinen und Reglern; derselbe Wechsel steht auch im Menü -->
+      {#if showCode && !isRaw}
+        <!-- Zurück zu Steinen und Reglern; derselbe Wechsel steht auch im Menü -->
+        <button
+          class="to-ui"
+          title="UI zeigen: Steine und Regler statt Code"
+          onclick={() => (showCode = false)}>UI</button
+        >
+      {/if}
+      <div class="group">
+        {#if !showCode || isRaw}
           <button
-            class="to-ui"
-            title="UI zeigen: Steine und Regler statt Code"
-            onclick={() => (showCode = false)}>UI</button
+            class="mute"
+            class:active={track.muted}
+            aria-pressed={track.muted}
+            aria-label="Stumm"
+            title={track.muted ? "Stumm (Code: .hush())" : "Stumm schalten"}
+            onclick={() => project.toggleMute(track.id)}>M</button
           >
+          <button
+            class="mute solo"
+            class:active={solo}
+            aria-pressed={solo}
+            aria-label="Solo"
+            title={solo
+              ? "Solo (andere Spuren im Code mit .hush())"
+              : "Solo: nur diese Spur hören"}
+            onclick={() => session.toggleSolo(track.id)}>S</button
+          >
+          <!-- Roher Code: Lautstärke steht, wenn überhaupt, im Code selbst -->
+          {#if !isRaw && !isMidi}
+            <input
+              class="volume"
+              type="range"
+              min="0"
+              max={VOLUME_MAX}
+              step="0.05"
+              value={track.volume}
+              style:--pct={`${(Math.min(track.volume, VOLUME_MAX) / VOLUME_MAX) * 100}%`}
+              aria-label={`Lautstärke von Spur ${index + 1}`}
+              title={`Lautstärke ${Math.round(track.volume * 100)} %`}
+              oninput={(e) =>
+                project.setVolume(track.id, Number(e.currentTarget.value))}
+              ondblclick={() => project.setVolume(track.id, 1)}
+            />
+          {/if}
         {/if}
-        <!-- Art der Spur, Wechsel Code/UI und Entfernen -->
+        <!-- Orbit bzw. MIDI-Kanal, Art der Spur, Wechsel Code/UI und Entfernen -->
         <TrackMenu {track} {index} bind:showCode />
       </div>
     </div>
@@ -375,29 +360,30 @@
               role="group"
               aria-label="Wie die Steine Noten angeben"
             >
-              <button
-                class="switch"
-                role="switch"
-                aria-checked={track.pitch === "relative"}
-                title={track.pitch === "relative"
-                  ? "Relativ: Stufen der Tonleiter (n mit scale). Aus: Notennamen (note)"
-                  : "Aus: Notennamen (note). Ein: Stufen der Tonleiter, 0 = Grundton (n mit scale)"}
-                onclick={() =>
-                  project.setPitch(
-                    track.id,
-                    track.pitch === "relative" ? "absolute" : "relative",
-                  )}
-              >
-                <span class="knob" aria-hidden="true"></span>Relativ
-              </button>
-              <!-- Tonleiter: Grundton, Oktave des Grundtons, Art. Nur relativ aktiv; die Stufen bleiben, die Melodie folgt. -->
+              <!-- Schalter «Relativ» und Tonleiter (Grundton, Oktave des Grundtons, Art) kleben aneinander, wie der Kanalzug.
+                   Die Tonleiter ist nur relativ aktiv; die Stufen bleiben, die Melodie folgt. -->
               <div
                 class="scale"
                 title={track.pitch === "relative"
                   ? `Tonleiter, im Code .scale("${scaleName(track.scale)}")`
                   : "Tonleiter: erst mit «Relativ» aktiv"}
               >
+                <!-- Derselbe Schalter wie ribbon im Effekt, in einem Feld der Gruppe -->
+                <span class="switch">
+                  <DotToggle
+                    pressed={track.pitch === "relative"}
+                    title={track.pitch === "relative"
+                      ? "Relativ: Stufen der Tonleiter (n mit scale). Aus: Notennamen (note)"
+                      : "Aus: Notennamen (note). Ein: Stufen der Tonleiter, 0 = Grundton (n mit scale)"}
+                    onclick={() =>
+                      project.setPitch(
+                        track.id,
+                        track.pitch === "relative" ? "absolute" : "relative",
+                      )}>Relativ</DotToggle
+                  >
+                </span>
                 <select
+                  class="chevron"
                   disabled={track.pitch !== "relative"}
                   aria-label="Grundton"
                   value={track.scale.root}
@@ -412,6 +398,7 @@
                     >{/each}
                 </select>
                 <select
+                  class="chevron"
                   disabled={track.pitch !== "relative"}
                   aria-label="Oktave des Grundtons"
                   value={track.scale.octave}
@@ -429,7 +416,7 @@
                 </select>
                 <select
                   disabled={track.pitch !== "relative"}
-                  class="type"
+                  class="chevron type"
                   aria-label="Tonleiter"
                   value={track.scale.type}
                   onchange={(e) =>
@@ -453,48 +440,9 @@
             {/if}
             <Lane laneId={track.id} tokens={track.tokens} value={isSampler} />
           </div>
-          {#if isNote}
-            <!-- Klang der Noten (.s), eine feste Reihe vor den Effekten. Meist ein Stein, mehrere wechseln (<sine sawtooth>). -->
-            <div
-              class="voice"
-              class:norandom={!session.random.has(track.voice.id)}
-              class:noknobs={!soundKnobs}
-            >
-              <div
-                class="box sounds"
-                class:off={track.voice.tokens.length === 0}
-                class:bad={voiceMessages.length > 0}
-              >
-                <button
-                  class="box-name toggle-name"
-                  aria-expanded={soundsOpen}
-                  title={`Klang der Noten, im Code .s(…). Klick: ${soundsOpen ? "zuklappen" : "aufklappen"}`}
-                  onclick={() => (soundsOpen = !soundsOpen)}>Sounds</button
-                >
-                {#if soundsOpen}
-                  <!-- Eigene Schalter wie links vom Notationseditor, hier beide zu Beginn aus -->
-                  <div class="editor">
-                    {#if track.voice.tokens.length > 0}
-                      <LaneToggles id={track.voice.id} knobsAtStart={false} />
-                    {/if}
-                    <Lane laneId={track.voice.id} tokens={track.voice.tokens} />
-                  </div>
-                {/if}
-              </div>
-              {#if voiceMessages.length > 0}
-                <p class="error">
-                  {voiceMessages.join(" ")} Die Noten klingen dann als triangle.
-                </p>
-              {:else if soundsOpen && track.voice.tokens.length === 0}
-                <p class="hint">
-                  Ohne Klang spielt Strudel die Noten als triangle.
-                </p>
-              {/if}
-            </div>
-          {/if}
         </div>
         <!-- Effekte im eigenen Container. Kopf: bei Notenspuren Reiter Note FX (Rechenarten an der Mini-Notation,
-             note("f d".add("<0 3>"))) und Audio FX, rechts der Schalter darunter/daneben. -->
+             note("f d".add("<0 3>"))), Sound (Klang der Noten, .s) und Audio FX, rechts der Schalter darunter/daneben. -->
         <section
           class="fx"
           class:last={messages.length === 0}
@@ -525,6 +473,17 @@
                   onclick={() => chooseTab("noteOps")}
                   >Note FX{#if track.noteOps.length > 0}<span class="count"
                       >{track.noteOps.length}</span
+                    >{/if}</button
+                >
+                <button
+                  role="tab"
+                  class:bad={voiceMessages.length > 0}
+                  aria-selected={fxTab === "sound"}
+                  aria-expanded={fxTab === "sound" ? fxOpen : undefined}
+                  title="Klang der Noten, im Code .s(…). Erneuter Klick: zu- oder aufklappen"
+                  onclick={() => chooseTab("sound")}
+                  >Sound{#if track.voice.tokens.length > 0}<span class="count"
+                      >{track.voice.tokens.length}</span
                     >{/if}</button
                 >
                 <button
@@ -567,6 +526,30 @@
             <!-- Zugeklappt: nur der Kopf -->
           {:else if isNote && fxTab === "noteOps"}
             <EffectList {track} kind="noteOps" />
+          {:else if isNote && fxTab === "sound"}
+            <!-- Meist ein Stein, mehrere wechseln (<sine sawtooth>). Eigene Schalter wie links vom Notationseditor,
+                 hier beide zu Beginn aus. -->
+            <div
+              class="voice"
+              class:norandom={!session.random.has(track.voice.id)}
+              class:noknobs={!soundKnobs}
+            >
+              <div class="editor">
+                {#if track.voice.tokens.length > 0}
+                  <LaneToggles id={track.voice.id} knobsAtStart={false} />
+                {/if}
+                <Lane laneId={track.voice.id} tokens={track.voice.tokens} />
+              </div>
+              {#if voiceMessages.length > 0}
+                <p class="error">
+                  {voiceMessages.join(" ")} Die Noten klingen dann als triangle.
+                </p>
+              {:else if track.voice.tokens.length === 0}
+                <p class="hint">
+                  Ohne Klang spielt Strudel die Noten als triangle.
+                </p>
+              {/if}
+            </div>
           {:else}
             <EffectList {track} />
             {#if withoutNote}
@@ -590,7 +573,7 @@
   .track {
     padding: 8px 10px 12px;
   }
-  /* Drei Spalten: links der Name, in der Mitte der Kanalzug, rechts MIDI-Ausgang und Menü */
+  /* Zwei Spalten: links der Name, rechts MIDI-Ausgang und Kanalzug mit Menü */
   header {
     display: grid;
     grid-template-columns: 1fr auto;
@@ -610,29 +593,6 @@
     font-size: 13px;
     font-weight: 600;
   }
-  .actions {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    justify-self: end;
-    /* Fest rechts, auch wenn der Kanalzug fehlt (Code-Ansicht) */
-    grid-column: 3;
-    grid-row: 1;
-  }
-  /* Schmal: Kanalzug in eine eigene Zeile unter Name und Menü */
-  /* @media (max-width: 560px) {
-    header {
-      grid-template-columns: 1fr auto;
-    }
-    .actions {
-      grid-column: 2;
-    }
-    .strip {
-      grid-column: 1 / -1;
-      grid-row: 2;
-      justify-self: center;
-    }
-  } */
   /* Stumme Spur: Steine blasser, Bedienelemente bleiben gut lesbar */
   .muted :global(.row) {
     opacity: 0.45;
@@ -675,15 +635,41 @@
     border-color: var(--line);
     color: var(--mute);
   }
-  /* Kanalzug im Kopf, mittig, waagrecht */
+  /* Kanalzug rechts im Kopf, waagrecht */
   .strip {
     display: flex;
     align-items: center;
+    justify-self: end;
     gap: 6px;
-    /* background: var(--line); */
-    border-radius: 0 0 8px 8px;
     padding: 4px;
-    /* margin-top: -12px; */
+  }
+  /*
+   * Knöpfe und Regler kleben aneinander: gemeinsame Ränder, nur die äusseren Ecken rund.
+   * Der Menüknopf liegt in `TrackMenu` (eigene Komponente), daher `:global`.
+   */
+  .group {
+    display: flex;
+    align-items: center;
+  }
+  .group > :global(*) {
+    border-radius: 0;
+  }
+  .group > :global(* + *) {
+    margin-left: -1.5px;
+  }
+  .group > :global(:first-child) {
+    border-top-left-radius: 8px;
+    border-bottom-left-radius: 8px;
+  }
+  .group > :global(:last-child) {
+    border-top-right-radius: 8px;
+    border-bottom-right-radius: 8px;
+  }
+  /* Aktive Knöpfe (M, S) liegen über den Nachbarrändern */
+  .group > :global(.active),
+  .group > :global(:focus-visible) {
+    position: relative;
+    z-index: 1;
   }
   .mute {
     width: 28px;
@@ -830,6 +816,10 @@
     background: var(--fx-raised);
     color: var(--ink);
   }
+  /* Klang mit Fehler: der Reiter zeigt es auch, wenn ein anderer offen ist */
+  .tabs button.bad {
+    color: var(--red);
+  }
   .count {
     min-width: 16px;
     padding: 0 4px;
@@ -893,8 +883,9 @@
     color: #000;
   }
   /*
-   * Waagrechter Regler: links leise, rechts laut. Sieht aus wie die Knöpfe daneben (M, S, Orbit): so hoch, gleicher Rand
-   * und Radius, ohne Fläche. Der Pegel füllt ihn leise von links (`--pct`), der Griff ist ein schmaler Strich.
+   * Waagrechter Regler: links leise, rechts laut. Sieht aus wie die Knöpfe daneben (M, S, Orbit): so hoch, gleicher Rand,
+   * ohne Fläche und ohne Rundung, er liegt immer zwischen S und Orbit. Der Pegel füllt ihn leise von links (`--pct`),
+   * der Griff ist ein schmaler Strich.
    */
   .volume {
     width: 80px;
@@ -902,12 +893,13 @@
     min-width: 60px;
     flex: 0 1 120px;
     height: 28px;
-    margin: 0;
+    /* Teilt den Rand mit S, wie die übrigen Glieder der Gruppe */
+    margin: 0 0 0 -1.5px;
     padding: 0;
     -webkit-appearance: none;
     appearance: none;
     border: 1.5px solid var(--line);
-    border-radius: 8px;
+    border-radius: 0;
     background: linear-gradient(
       to right,
       color-mix(in srgb, var(--mute) 22%, transparent) var(--pct, 0%),
@@ -934,14 +926,14 @@
     width: 3px;
     height: 100%;
     border: none;
-    border-radius: 2px;
+    border-radius: 0;
     background: var(--mute);
   }
   .volume::-moz-range-thumb {
     width: 3px;
     height: 100%;
     border: none;
-    border-radius: 2px;
+    border-radius: 0;
     background: var(--mute);
   }
   .volume:hover::-webkit-slider-thumb {
@@ -949,33 +941,6 @@
   }
   .volume:hover::-moz-range-thumb {
     background: var(--ink);
-  }
-  /* Orbit bzw. MIDI-Kanal: Nummer mit kleiner Beschriftung, Tippen zählt weiter */
-  /* Orbit bzw. MIDI-Kanal: kleine Beschriftung und Zahl auf einer Mittellinie, so hoch wie M */
-  .num {
-    height: 28px;
-    min-width: 28px;
-    padding: 0 8px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 4px;
-    font-size: 14px;
-    font-weight: 700;
-    line-height: 1;
-    border-color: var(--line);
-    color: var(--mute);
-    font-variant-numeric: tabular-nums;
-  }
-  .num small {
-    font-size: 10px;
-    font-weight: 600;
-    letter-spacing: 0.03em;
-    text-transform: uppercase;
-    opacity: 0.8;
-  }
-  .num.set {
-    color: var(--ink);
   }
   .port {
     max-width: 16ch;
@@ -985,9 +950,6 @@
     border-radius: 8px;
     background: var(--bg);
     color: var(--ink);
-  }
-  .voice {
-    margin-top: 10px;
   }
   .voice.sample {
     margin: 0 0 10px;
@@ -1023,83 +985,57 @@
     background: color-mix(in srgb, var(--blue) 18%, transparent);
     color: var(--ink);
   }
-  /* Schalter «Relativ»: kleiner Kippschalter vor der Beschriftung */
   /* Konfigurationszeile der Notenspur: immer eine Zeile, bei wenig Platz wird die Tonleiter schmaler */
   .sampler.pitch {
     flex-wrap: nowrap;
     min-width: 0;
   }
+  /*
+   * Schalter «Relativ» und Tonleiter (drei Auswahlen) als eine Gruppe in derselben Zeile: gemeinsame Ränder, nur die
+   * äusseren Ecken rund. Schrift und Farben wie Tempo in den Einstellungen (TopBar): ohne Fläche, gedämpft, beim Zeigen hell.
+   * Ohne «Relativ» sind die Auswahlen blass und gesperrt.
+   */
+  .scale {
+    flex: 1 1 auto;
+    display: flex;
+    align-items: center;
+    min-width: 0;
+  }
+  .switch,
+  .scale select {
+    height: 28px;
+    border: 1.5px solid var(--line);
+    border-radius: 0;
+    background-color: transparent;
+    color: var(--mute);
+    font: inherit;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  /* Feld um den Schalter (DotToggle), so hoch wie die Auswahlen */
   .switch {
     flex: none;
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    height: 28px;
-    padding: 0 4px 0 2px;
-    border: none;
-    background: transparent;
-    color: var(--mute);
-    font:
-      600 13px ui-monospace,
-      SFMono-Regular,
-      Menlo,
-      Consolas,
-      monospace;
+    box-sizing: border-box;
+    padding: 0 12px;
+    border-radius: 8px 0 0 8px;
   }
-  .switch .knob {
-    position: relative;
-    width: 28px;
-    height: 16px;
-    border-radius: 8px;
-    background: var(--line);
-    transition: background 150ms;
-  }
-  .switch .knob::after {
-    content: "";
-    position: absolute;
-    top: 2px;
-    left: 2px;
-    width: 12px;
-    height: 12px;
-    border-radius: 50%;
-    background: var(--ink);
-    transition: transform 150ms;
-  }
-  .switch[aria-checked="true"] {
-    color: var(--ink);
-  }
-  .switch[aria-checked="true"] .knob {
-    background: var(--blue);
-  }
-  .switch[aria-checked="true"] .knob::after {
-    transform: translateX(12px);
-  }
-  /* Tonleiter: drei Auswahlen in derselben Zeile, ohne «Relativ» blass und gesperrt */
-  .scale {
-    flex: 1 1 auto;
-    display: flex;
-    gap: 4px;
-    min-width: 0;
-  }
+  /* Pfeil aus `select.chevron` (app.css) */
   .scale select {
     flex: none;
     min-width: 0;
-    height: 28px;
-    padding: 0 6px;
-    border: 1.5px solid var(--line);
-    border-radius: 8px;
-    background: var(--bg);
-    color: var(--ink);
-    font:
-      600 13px ui-monospace,
-      SFMono-Regular,
-      Menlo,
-      Consolas,
-      monospace;
+    margin: 0 0 0 -1.5px;
+    padding: 0 22px 0 8px;
   }
+  .scale select:enabled:hover {
+    color: var(--ink);
+  }
+  /* Die Art der Tonleiter füllt die Zeile bis zum rechten Rand */
   .scale .type {
-    flex: 0 1 14em;
+    flex: 1 1 auto;
     text-overflow: ellipsis;
+    border-radius: 0 8px 8px 0;
   }
   .scale select:disabled {
     opacity: 0.4;
@@ -1122,7 +1058,7 @@
     font-size: 16px;
     text-align: center;
   }
-  /* Sample (s) und Klang der Noten (.s) als feste Box im Stil der Effekt-Boxen (EffectList), ohne Griff und × */
+  /* Sample (s) als feste Box im Stil der Effekt-Boxen (EffectList), ohne Griff und × */
   .box {
     display: flex;
     flex-direction: column;
@@ -1133,12 +1069,6 @@
     border: 1.5px solid var(--val-edge);
     border-radius: 8px;
     background: var(--panel);
-  }
-  /* Klang der Noten: dunkelgrün hinterlegt statt umrandet (der Rand bleibt für Fehler), als Zeile über die ganze Breite */
-  .box.sounds {
-    width: auto;
-    border-color: transparent;
-    background: var(--sounds);
   }
   .box.bad {
     border-color: var(--red);
@@ -1151,19 +1081,6 @@
       Menlo,
       Consolas,
       monospace;
-  }
-  /* Titel als Schalter zum Zu- und Aufklappen, sieht aus wie der Titel */
-  .toggle-name {
-    align-self: flex-start;
-    padding: 0;
-    border: none;
-    border-radius: 4px;
-    background: transparent;
-    color: inherit;
-    text-align: left;
-  }
-  .toggle-name[aria-expanded="false"] {
-    margin-bottom: 2px;
   }
   .box.off .box-name {
     color: var(--mute);

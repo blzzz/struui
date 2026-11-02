@@ -1,7 +1,14 @@
 <script lang="ts">
   import { tick, untrack } from "svelte";
   import type { Attachment } from "svelte/attachments";
-  import { MIN_WIDTH, PAD, dotsFor, gapFor, magnet, pxFor } from "../domain/board.ts";
+  import {
+    MIN_WIDTH,
+    PAD,
+    dotsFor,
+    gapFor,
+    magnet,
+    pxFor,
+  } from "../domain/board.ts";
   import type { Rect, Side } from "../domain/board.ts";
   import type { TrackType } from "../domain/types.ts";
   import { boardDrag } from "../interaction/board-drag.ts";
@@ -87,17 +94,26 @@
   /** Verkleinerung und Lage der Fläche: 1:1 beim Bearbeiten, in der Übersicht passt alles mit Rand hinein. */
   const view = $derived.by(() => {
     // Ganze Pixel, sonst wird Text unscharf
-    if (!board.overview) return { s: 1, tx: Math.round(-cam.x * gap), ty: Math.round(-cam.y * gap) };
+    if (!board.overview)
+      return {
+        s: 1,
+        tx: Math.round(-cam.x * gap),
+        ty: Math.round(-cam.y * gap),
+      };
     // Beim Aufziehen mit Platz rundum, damit man auch neben und unter den Spuren ansetzen kann
     const room = placing ? PLACE_ROOM : 0;
-    const fit = { x: box.x - room, y: box.y - room, w: box.w + 2 * room, h: box.h + 2 * room };
+    const fit = {
+      x: box.x - room,
+      y: box.y - room,
+      w: box.w + 2 * room,
+      h: box.h + 2 * room,
+    };
     const bw = pxFor(fit.w, gap);
     const bh = pxFor(fit.h, gap);
-    const s = Math.max(0.05, Math.min(
-      1,
-      (vw - 2 * OVERVIEW_PAD) / bw,
-      (vh - 2 * OVERVIEW_PAD) / bh,
-    ));
+    const s = Math.max(
+      0.05,
+      Math.min(1, (vw - 2 * OVERVIEW_PAD) / bw, (vh - 2 * OVERVIEW_PAD) / bh),
+    );
     return {
       s,
       tx: (vw - bw * s) / 2 - left(fit.x) * s + pan.x,
@@ -157,7 +173,9 @@
     if (started || !vw || !vh || !board.box) return;
     started = true;
     untrack(() => {
-      const first = Object.entries(board.rects).sort(([, a], [, b]) => a.y - b.y || a.x - b.x)[0];
+      const first = Object.entries(board.rects).sort(
+        ([, a], [, b]) => a.y - b.y || a.x - b.x,
+      )[0];
       board.selected ??= first[0];
       show(board.rects[board.selected] ?? first[1]);
     });
@@ -170,7 +188,8 @@
   function onscroll(e: Event) {
     const el = e.currentTarget as HTMLElement;
     if (!el.scrollLeft && !el.scrollTop) return;
-    if (!board.overview) cam = { x: cam.x + el.scrollLeft / gap, y: cam.y + el.scrollTop / gap };
+    if (!board.overview)
+      cam = { x: cam.x + el.scrollLeft / gap, y: cam.y + el.scrollTop / gap };
     el.scrollLeft = 0;
     el.scrollTop = 0;
   }
@@ -211,8 +230,14 @@
     clearTimeout(snapTimer);
     glide = false;
     const keep = 2 * gap;
-    const cx = Math.min(Math.max(x, left(box.x) + keep - vw), left(box.x) + pxFor(box.w, gap) - keep);
-    const cy = Math.min(Math.max(y, top(box.y) + keep - vh), top(box.y) + pxFor(box.h, gap) - keep);
+    const cx = Math.min(
+      Math.max(x, left(box.x) + keep - vw),
+      left(box.x) + pxFor(box.w, gap) - keep,
+    );
+    const cy = Math.min(
+      Math.max(y, top(box.y) + keep - vh),
+      top(box.y) + pxFor(box.h, gap) - keep,
+    );
     raw = { x: cx / gap, y: cy / gap };
     const o = snapOffset;
     cam = { x: magnet(raw.x - o.x) + o.x, y: magnet(raw.y - o.y) + o.y };
@@ -224,7 +249,10 @@
     if (!raw) return;
     glideThen(undefined, SNAP_GLIDE_MS);
     const o = snapOffset;
-    cam = { x: Math.round(raw.x - o.x) + o.x, y: Math.round(raw.y - o.y) + o.y };
+    cam = {
+      x: Math.round(raw.x - o.x) + o.x,
+      y: Math.round(raw.y - o.y) + o.y,
+    };
     raw = null;
   }
 
@@ -306,7 +334,11 @@
       const t = e.target as Element;
       if (e.pointerType === "touch") {
         if (ownGesture(t)) return;
-      } else if (e.button !== 0 || t.closest(".cell, button, .addmenu, .placer")) return;
+      } else if (
+        e.button !== 0 ||
+        t.closest(".cell, button, .addmenu, .placer")
+      )
+        return;
       id = e.pointerId;
       sx = e.clientX;
       sy = e.clientY;
@@ -400,7 +432,9 @@
    * Klang aus der Palette auf freier Fläche losgelassen oder Doppelklick (ohne `item`): hier entsteht die neue Spur,
    * sobald ihre Art gewählt ist.
    */
-  let arriving = $state<{ x: number; y: number; item?: PaletteItem } | null>(null);
+  let arriving = $state<{ x: number; y: number; item?: PaletteItem } | null>(
+    null,
+  );
 
   // Losgelassen: auf freier Fläche erscheint die Wahl der Art, sonst passiert nichts
   $effect(() => {
@@ -456,7 +490,11 @@
       down = null;
       if (!tap) return (last = null);
       const now = { x: e.clientX, y: e.clientY, t: e.timeStamp };
-      if (last && now.t - last.t < DOUBLE_TAP_MS && Math.hypot(now.x - last.x, now.y - last.y) < DOUBLE_TAP_PX) {
+      if (
+        last &&
+        now.t - last.t < DOUBLE_TAP_MS &&
+        Math.hypot(now.x - last.x, now.y - last.y) < DOUBLE_TAP_PX
+      ) {
         last = null;
         open(now.x, now.y);
       } else last = now;
@@ -530,12 +568,19 @@
   /** Punkt unter einem Bildschirmpunkt, wenn dort freie Fläche ist (keine Spur, kein Knopf, kein Menü), sonst null. */
   function freeDot(cx: number, cy: number): { x: number; y: number } | null {
     const el = document.elementFromPoint(cx, cy);
-    if (!el || !boardEl?.contains(el) || el.closest(".cell, button, .addmenu, .placer")) return null;
+    if (
+      !el ||
+      !boardEl?.contains(el) ||
+      el.closest(".cell, button, .addmenu, .placer")
+    )
+      return null;
     return dotAt(cx, cy);
   }
 
   /** Klang aus der Palette über freier Fläche: Punkt, an dem die neue Spur entstünde. */
-  const aimDot = $derived(board.aim && !arriving ? freeDot(board.aim.x, board.aim.y) : null);
+  const aimDot = $derived(
+    board.aim && !arriving ? freeDot(board.aim.x, board.aim.y) : null,
+  );
 
   function placeDown(e: PointerEvent) {
     if (e.button !== 0) return;
@@ -709,7 +754,11 @@
           onfocusin={() => pick(track.id)}
           onpointerdown={() => pick(track.id)}
         >
-          <div class="content" inert={board.overview} {@attach measure(track.id)}>
+          <div
+            class="content"
+            inert={board.overview}
+            {@attach measure(track.id)}
+          >
             <TrackView {track} index={i}>
               {#snippet grip()}
                 <button
@@ -720,7 +769,11 @@
                 >
                   <svg viewBox="0 0 16 16" aria-hidden="true">
                     {#each [4, 8, 12] as y (y)}
-                      <circle cx="6" cy={y} r="1.2" /><circle cx="10" cy={y} r="1.2" />
+                      <circle cx="6" cy={y} r="1.2" /><circle
+                        cx="10"
+                        cy={y}
+                        r="1.2"
+                      />
                     {/each}
                   </svg>
                 </button>
@@ -746,7 +799,9 @@
                   select(track.id);
                 }}
               >
-                <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13 8H3M7 4L3 8L7 12" /></svg>
+                <svg viewBox="0 0 16 16" aria-hidden="true"
+                  ><path d="M13 8H3M7 4L3 8L7 12" /></svg
+                >
               </button>
             {/if}
             <button
@@ -759,7 +814,9 @@
                 if (e.key === "ArrowLeft") board.resize(track.id, rect.w - 1);
               }}
             >
-              <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M11 3L3 11M11 7L7 11" /></svg>
+              <svg viewBox="0 0 12 12" aria-hidden="true"
+                ><path d="M11 3L3 11M11 7L7 11" /></svg
+              >
             </button>
           {/if}
         </div>
@@ -779,7 +836,9 @@
       aria-expanded={adding === side}
       onclick={() => openAdd(side)}
     >
-      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10" /></svg>
+      <svg viewBox="0 0 16 16" aria-hidden="true"
+        ><path d="M8 3v10M3 8h10" /></svg
+      >
     </button>
   {/each}
   {#if menuAt}
@@ -809,7 +868,8 @@
       onpointerleave={() => (hover = null)}
     ></div>
     <p class="hint" role="status">
-      Punkt für die obere linke Ecke antippen und nach unten ziehen · Esc bricht ab
+      Punkt für die obere linke Ecke antippen und nach unten ziehen · Esc bricht
+      ab
     </p>
   {/if}
 </div>
@@ -841,7 +901,6 @@
   .board {
     flex: 1;
     min-height: 0;
-    --dot: var(--mute);
     --dot-r: 1.6px;
     overflow: hidden;
     position: relative;

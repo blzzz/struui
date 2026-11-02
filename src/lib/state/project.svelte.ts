@@ -23,7 +23,7 @@ import {
   contentOf,
   defaultTrackName,
   effect,
-  nextInCycle,
+  clampNumber,
   openToken,
   soundToken,
   track,
@@ -158,6 +158,8 @@ class Project {
   tempoUnit = $state<TempoUnit>('bpm');
   /** Eigener Code rund um die Spuren, aus der Code-Ansicht. Gilt für alle Szenen. */
   frame = $state<Frame>(EMPTY_FRAME);
+  /** Name des aktuellen Patterns, steht als Kopfkommentar im Code (`// @title …`). Setzt `patterns`. */
+  title = $state('');
 
   /** Pro Reihe (Spur oder Effekt): Baum, Fehler und Gruppentiefe. */
   parsed = $derived(
@@ -187,6 +189,7 @@ class Project {
     toStrudelProgram(this.codeTracks, {
       cps: this.cps,
       tempoUnit: this.tempoUnit,
+      title: this.title,
       samples: sampleBank.dataUrls,
       frame: this.frame,
       global: this.codeGlobal,
@@ -201,6 +204,7 @@ class Project {
     toStrudelCode(this.codeTracks, {
       cps: this.cps,
       tempoUnit: this.tempoUnit,
+      title: this.title,
       samples: sampleBank.dataUrls,
       elideSamples: true,
       frame: this.frame,
@@ -215,7 +219,7 @@ class Project {
   codeSaved = $derived(
     toStrudelCode(
       codeTracksOf(this.tracks, (id) => this.parsed.get(id)?.errors.length === 0),
-      { cps: this.cps, tempoUnit: this.tempoUnit, samples: sampleBank.dataUrls, frame: this.frame, global: this.codeGlobal },
+      { cps: this.cps, tempoUnit: this.tempoUnit, title: this.title, samples: sampleBank.dataUrls, frame: this.frame, global: this.codeGlobal },
     ),
   );
 
@@ -508,16 +512,16 @@ class Project {
     if (t) t.slices = clampSlices(slices);
   }
 
-  /** Orbit eins höher, nach dem letzten wieder 1. */
-  cycleOrbit(trackId: string): void {
+  /** Orbit 1 bis `ORBIT_MAX`. */
+  setOrbit(trackId: string, orbit: number): void {
     const t = this.find(trackId);
-    if (t) t.orbit = nextInCycle(t.orbit, ORBIT_MAX);
+    if (t) t.orbit = clampNumber(orbit, ORBIT_MAX);
   }
 
-  /** MIDI-Kanal eins höher, nach 16 wieder 1. */
-  cycleChannel(trackId: string): void {
+  /** MIDI-Kanal 1 bis 16. */
+  setChannel(trackId: string, channel: number): void {
     const t = this.find(trackId);
-    if (t) t.channel = nextInCycle(t.channel, CHANNEL_MAX);
+    if (t) t.channel = clampNumber(channel, CHANNEL_MAX);
   }
 
   /** MIDI-Ausgang nach Namen, leer = Strudel wählt. */

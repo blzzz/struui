@@ -126,6 +126,8 @@ class Patterns {
 
   private write(next: PatternStore): void {
     this.store = next;
+    // Der Name steht als Titel im Code
+    project.title = this.current?.name ?? '';
     try {
       localStorage.setItem(KEY, JSON.stringify(next));
     } catch (e) {

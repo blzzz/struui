@@ -78,7 +78,7 @@ test('toArrangedProgram: globale Effekte einer Szene hängen an ihrem Stapel', (
     [{ sceneId: 'x', times: 1 }],
     { cps: 0.5, lit: 'x', global: [effect('lpf', [soundToken('800')])] },
   );
-  assert.match(code, /const A = stack\(\n {2}s\("bd"\)\n\)\.room\(0\.3\)\n/);
+  assert.match(code, /const A = stack\(\n {2}s\("bd"\)\n\)\n {2}\.room\(0\.3\)\n/);
   assert.match(code, /const B = silence\n/);
   assert.doesNotMatch(code, /all\(|lpf/);
   assert.deepEqual(ranges.map((r) => code.slice(r.start, r.end)), ['bd']);

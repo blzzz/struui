@@ -79,8 +79,18 @@ test('locks: Parameter anfügen, ersetzen und entfernen (samt Teil in jedem Wert
   // .5 hatte nur velocity: der Wert wird zum Startwert von n; Pause und Klammern bleiben
   assert.deepEqual(values(l.tokens), ['4', '~', 'open', lockDefault('n'), 'close']);
   removeLockParam(l, 0);
+  assert.deepEqual(l.params, ['room']);
   removeLockParam(l, 0);
-  assert.deepEqual(l.params, ['room'], 'der letzte Parameter bleibt');
+  assert.deepEqual(l.params, [], 'ohne Parameter keine Paramlocks');
+  assert.deepEqual(l.tokens, [], 'die Werte gehen mit');
+});
+
+test('locks: neue Spuren haben keine Paramlocks, der erste Parameter schaltet sie ein', () => {
+  const l = locks();
+  assert.deepEqual(l.params, []);
+  addLockParam(l, 'lpf');
+  assert.deepEqual(l.params, ['lpf']);
+  assert.deepEqual(l.tokens, []);
 });
 
 test('locks: im Code nach den Effekten als up(…as(…)), Werte leuchten', () => {

@@ -21,6 +21,13 @@ const tonalEsm = {
   },
 };
 
+/** Die Einträge im Stapel, je mit ihren eingerückten Effekten (`s("bd")\n    .lpf(800)`). */
+const stackEntries = (code) =>
+  code
+    .slice(code.indexOf('stack(\n') + 'stack(\n'.length, code.lastIndexOf('\n)'))
+    .split(/,\n(?= {2}\S)/)
+    .map((entry) => entry.trim());
+
 const server = await createServer({
   configFile: false,
   plugins: [tonalEsm],
@@ -95,8 +102,8 @@ try {
     tracks.map((tokens, i) => ({ tokens, name: i === 0 ? 'drums' : '', effects: i === 0 ? fx : [], volume: i === 1 ? 0.8 : 1 })),
     { cps: 0.5 },
   );
-  assert.match(code, /\nstack\(\n {2}\/\* drums \*\/ s\(".*"\)\.lpf\("<200 800>"\)\.room\(0\.5\),\n {2}s\(/, 'Name und Effekte stehen im Code');
-  assert.match(code, /\n {2}s\("[^"]*"\)\.postgain\(0\.8\)\n\)$/, 'Lautstärke steht am Ende der Spur');
+  assert.match(code, /\nstack\(\n {2}\/\* drums \*\/ s\(".*"\)\n {4}\.lpf\("<200 800>"\)\n {4}\.room\(0\.5\),\n {2}s\(/, 'Name und Effekte stehen im Code');
+  assert.match(code, /\n {2}s\("[^"]*"\)\n {4}\.postgain\(0\.8\)\n\)$/, 'Lautstärke steht am Ende der Spur');
   const owner = new Map();
   for (const t of [...tracks.flat(), lo, hi]) owner.set(t.id, t);
   const values = new Set([lo.id, hi.id]);
@@ -139,7 +146,7 @@ try {
     const notes = [snd('f'), open('<'), snd('d'), snd('a4'), close('<'), snd('~'), snd('c#3', { repeat: { op: '*', value: 2 } })];
     const voice = [open('<'), snd('sine'), snd('sawtooth'), close('<')];
     const program = codegen.toStrudelProgram([{ tokens: notes, type: 'note', voice: { tokens: voice }, name: 'mel', orbit: 2 }], { cps: 0.5 });
-    assert.match(program.code, /\/\* mel \*\/ note\("f <d a4> ~ c#3\*2"\)\.s\("<sine sawtooth>"\)\.orbit\(2\)\n\)$/, 'Notenspur im Code');
+    assert.match(program.code, /\/\* mel \*\/ note\("f <d a4> ~ c#3\*2"\)\.s\("<sine sawtooth>"\)\n {4}\.orbit\(2\)\n\)$/, 'Notenspur im Code');
     await run(program.code);
     assert.equal(patterns.length, 1, 'Notenspur wurde ausgewertet');
     const byId = new Map([...notes, ...voice].map((t) => [t.id, t]));
@@ -203,12 +210,12 @@ try {
     await core.evalScope(sliders);
     const fx = [{ ...types.effect('lpf', [snd('800')]), slider: { min: 100, max: 8000, step: 10 } }];
     const program = codegen.toStrudelProgram([{ tokens: [snd('bd'), snd('sd')], effects: fx }], { cps: 0.5 });
-    assert.match(program.code, / {2}s\("bd sd"\)\.lpf\(slider\(800, 100, 8000, 10\)\)\n\)$/, 'slider() im Code');
+    assert.match(program.code, / {2}s\("bd sd"\)\n {4}\.lpf\(slider\(800, 100, 8000, 10\)\)\n\)$/, 'slider() im Code');
     await run(program.code);
     const haps = patterns[0].queryArc(0, 1);
     assert.equal(haps.length, 2);
     for (const hap of haps) assert.equal(hap.value.cutoff, 800, 'Wert aus slider() kommt an');
-    const back = fromCode.codeToTrack(program.code.split('\n').at(-2).trim());
+    const back = fromCode.codeToTrack(stackEntries(program.code).at(-1));
     assert.ok(back.ok);
     assert.deepEqual(back.effects[0].slider, { min: 100, max: 8000, step: 10 });
     console.log('ok: slider(wert, min, max, step) läuft in Strudel und kommt als Regler zurück');
@@ -229,7 +236,7 @@ try {
     for (const c of first) assert.ok(Number.isInteger(c) && c >= 200 && c <= 2000, `Wert ${c} ausserhalb oder nicht ganz`);
     assert.ok(new Set(first).size > 1, 'Zufall fehlt');
     assert.deepEqual(cutoffs(2, 4), first, 'ribbon wiederholt die Reihe');
-    const back = fromCode.codeToTrack(program.code.split('\n').at(-2).trim());
+    const back = fromCode.codeToTrack(stackEntries(program.code).at(-1));
     assert.ok(back.ok);
     assert.deepEqual(back.effects[0].rand, rand);
     console.log('ok: Zufallsreihe (rand.range … ribbon) läuft in Strudel, wiederholt sich und kommt zurück');
@@ -246,7 +253,7 @@ try {
       const haps = patterns[0].queryArc(0, 2).sort((a, b) => a.whole.begin - b.whole.begin);
       assert.equal(haps.length, 16, wave);
       for (const h of haps) assert.ok(h.value.cutoff >= 200 && h.value.cutoff <= 2000, `${wave}: ${h.value.cutoff} ausserhalb`);
-      const back = fromCode.codeToTrack(program.code.split('\n').at(-2).trim());
+      const back = fromCode.codeToTrack(stackEntries(program.code).at(-1));
       assert.ok(back.ok, wave);
       assert.deepEqual(back.effects[0].mod, mod, wave);
       if (wave === 'sine') {
@@ -280,7 +287,7 @@ try {
         assert.equal(h.value.cutoff, 800, 'der Wert bleibt');
         assert.deepEqual({ ...entry(h) }, { control: 'cutoff', shape, sync: 0.25, depth: 0.5 }, shape);
       }
-      const back = fromCode.codeToTrack(program.code.split('\n').at(-2).trim());
+      const back = fromCode.codeToTrack(stackEntries(program.code).at(-1));
       assert.ok(back.ok, shape);
       assert.deepEqual(back.effects[0].lfo, lfo, shape);
     }
@@ -374,7 +381,7 @@ try {
     const half = snd('.5');
     const fx = [types.effect('fit'), types.effect('chop', [snd('2')]), types.effect('scrub', [open('<'), zero, half, close('<')])];
     const program = codegen.toStrudelProgram([{ tokens: [brk], effects: fx }], { cps: 0.5 });
-    assert.match(program.code, / {2}s\("brk"\)\.fit\(\)\.chop\(2\)\.scrub\("<0 \.5>"\)\n\)$/, 'Sample-Funktionen im Code');
+    assert.match(program.code, / {2}s\("brk"\)\n {4}\.fit\(\)\n {4}\.chop\(2\)\n {4}\.scrub\("<0 \.5>"\)\n\)$/, 'Sample-Funktionen im Code');
     await run(program.code);
     for (const [cycle, stone, begin] of [[0, zero, 0], [1, half, 0.5]]) {
       const haps = patterns[0].queryArc(cycle, cycle + 1);
@@ -532,7 +539,7 @@ try {
       [{ tokens: [kick], name: 'drums' }, { tokens: [snare], name: 'snare', muted: true }],
       { cps: 0.5 },
     );
-    assert.match(program.code, /\nstack\(\n {2}\/\* drums \*\/ s\("bd"\),\n {2}\/\* snare \*\/ s\("sd"\)\.hush\(\)\n\)$/, 'stack im Code');
+    assert.match(program.code, /\nstack\(\n {2}\/\* drums \*\/ s\("bd"\),\n {2}\/\* snare \*\/ s\("sd"\)\n {4}\.hush\(\)\n\)$/, 'stack im Code');
     await run(program.code);
     const haps = patterns[0].queryArc(0, 2);
     assert.deepEqual(haps.map((h) => h.value.s), ['bd', 'bd'], 'nur die nicht stumme Spur klingt');
@@ -540,7 +547,7 @@ try {
       const ids = hap.context.locations.flatMap((loc) => program.ranges.filter((r) => loc.start >= r.start && loc.start < r.end));
       assert.deepEqual(ids.map((r) => r.tokenId), [kick.id], 'der Kommentar verschiebt die Positionen nicht');
     }
-    const back = program.code.split('\n').slice(-3, -1).map((line) => fromCode.codeToTrack(line.trim().replace(/,$/, '')));
+    const back = stackEntries(program.code).slice(-2).map((entry) => fromCode.codeToTrack(entry));
     assert.deepEqual(back.map((r) => r.ok && [r.name, r.muted]), [['drums', false], ['snare', true]], 'Rückweg aus dem stack');
     console.log('ok: Namen als Kommentar, stumme Spur mit .hush() schweigt, Rückweg liest Name und Stummschaltung');
   }
@@ -596,7 +603,7 @@ try {
       [{ tokens: [kick], effects: [types.effect('room', [snd('.1')])], locks: locks(['velocity', 'n', 's'], steps) }],
       { cps: 0.5 },
     );
-    assert.match(program.code, /s\("bd"\)\.room\(0\.1\)\.up\("1 \.5 ~ \.7:4:sd"\.as\("velocity:n:s"\)\)/);
+    assert.match(program.code, /s\("bd"\)\n {4}\.room\(0\.1\)\n {4}\.up\("1 \.5 ~ \.7:4:sd"\.as\("velocity:n:s"\)\)/);
     await run(program.code);
     const haps = patterns[0].queryArc(0, 1);
     assert.deepEqual(
@@ -611,7 +618,7 @@ try {
       const ids = (haps[i].context.locations ?? []).flatMap((loc) => program.ranges.filter((r) => loc.start >= r.start && loc.start < r.end).map((r) => r.tokenId));
       assert.ok(ids.includes(step.id) && ids.includes(kick.id), `Lock-Stein ${i} leuchtet nicht mit dem Klang`);
     });
-    const back = fromCode.codeToTrack(program.code.split('\n').at(-2).trim());
+    const back = fromCode.codeToTrack(stackEntries(program.code).at(-1));
     assert.ok(back.ok && back.locks?.params.join(':') === 'velocity:n:s');
     console.log('ok: Paramlocks (up mit as) setzen Werte und Rhythmus, Lock- und Klangsteine leuchten, Rückweg liest sie');
   }
@@ -626,7 +633,7 @@ try {
       cps: 0.5,
       global: [types.effect('room', [snd('.4')]), types.effect('lpf', [open('<'), lo, hi, close('<')])],
     });
-    assert.match(program.code, /\n\)\.room\(0\.4\)\.lpf\("<300 900>"\)$/);
+    assert.match(program.code, /\n\)\n {2}\.room\(0\.4\)\n {2}\.lpf\("<300 900>"\)$/);
     await run(program.code);
     for (const [cycle, cutoff] of [[0, 300], [1, 900]]) {
       const haps = patterns[0].queryArc(cycle, cycle + 1);

@@ -7,8 +7,9 @@
   --dock-h: 66px;
 
   --bg: #171b18;
+  --dot: #113242;
   --panel: #212622;
-  --palette: #343d36;
+  --palette: #2f3c32;
   --box: #343d3688;
   --dock: #343d36;
   --line: #4a524b;
@@ -19,10 +20,8 @@
   --wood-ink: #2c1f0e;
   /* Wertsteine der Effekte */
 
-  /* Klang der Noten einer Notenspur (sounds) */
-  --sounds: #1d3a26;
   /* Effekt-Container der Spur (dunkelblau) und Effekt-Dialog (heller) */
-  --fx: #142238;
+  --fx: #0d141e;
   --fx-raised: #20334f;
   --fx-line: #2e4466;
   --fx-mute: #8fa3c2;
@@ -121,6 +120,23 @@ button.primary,
 button[aria-pressed="true"] {
   background: var(--ink);
   color: var(--bg);
+}
+
+/* Auswahl mit eigenem Pfeil statt des Browserpfeils: zwei Verläufe in der Schriftfarbe ergeben ein schmales «v».
+   Rand, Fläche und Schrift setzt die Komponente. */
+select.chevron {
+  -webkit-appearance: none;
+  appearance: none;
+  padding-right: 22px;
+  background-image:
+    linear-gradient(45deg, transparent 50%, currentColor 50%),
+    linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position:
+    right 12px center,
+    right 8px center;
+  background-size: 4px 4px;
+  background-repeat: no-repeat;
+  cursor: pointer;
 }
 
 /* Geisterstein beim Ziehen (hängt direkt am body, deshalb global) */

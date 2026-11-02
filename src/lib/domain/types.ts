@@ -142,13 +142,13 @@ export const PAUSE = '~';
 /** Bereich des Lautstärkereglers einer Spur. Über 1 wird lauter. */
 export const VOLUME_MAX = 1.5;
 
-/** Orbits und MIDI-Kanäle zählen ab 1; Tippen erhöht und springt nach dem höchsten Wert auf 1 zurück. */
+/** Orbits und MIDI-Kanäle zählen ab 1 bis zum höchsten Wert; gewählt wird im Menü der Spur. */
 export const ORBIT_MAX = 8;
 export const CHANNEL_MAX = 16;
 
-/** Nächste Nummer im Kreis 1…max. */
-export function nextInCycle(value: number, max: number): number {
-  return value >= max || value < 1 ? 1 : Math.floor(value) + 1;
+/** Ganze Nummer im Bereich 1…max. */
+export function clampNumber(value: number, max: number): number {
+  return Math.min(Math.max(Math.round(value), 1), max);
 }
 
 let counter = 0;

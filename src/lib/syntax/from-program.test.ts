@@ -23,7 +23,7 @@ function again(code: string): string {
 }
 
 test('program: eigener Code wird gelesen und kommt unverändert wieder', () => {
-  const code = 'setcpm(120/4)\n\nstack(\n  /* drums */ s("bd sd").lpf(800),\n  /* Klangspur_1 */ s("hh*8").hush()\n)';
+  const code = 'setcpm(120/4)\n\nstack(\n  /* drums */ s("bd sd")\n    .lpf(800),\n  /* Klangspur_1 */ s("hh*8")\n    .hush()\n)';
   assert.equal(again(code), code);
   const r = read(code);
   assert.deepEqual(r.entries.map(brief), ['sound drums', 'sound Klangspur_1 (stumm)']);
@@ -63,7 +63,7 @@ test('program: Code rund um den Stapel bleibt stehen, bekannte Aufrufe am Stapel
   assert.deepEqual(r.global.map((g) => g.name), ['fast', 'room']);
   const out = again(code);
   assert.equal(again(out), out, 'zweimal gelesen bleibt gleich');
-  assert.ok(out.endsWith('stack(\n  s("bd"),\n  lead\n).fast(2).room(0.3);\n\n// Ende'), out);
+  assert.ok(out.endsWith('stack(\n  s("bd"),\n  lead\n)\n  .fast(2)\n  .room(0.3);\n\n// Ende'), out);
 });
 
 test('program: was Strudel-Steine nicht versteht, wird roher Code mit Name und Stummschaltung', () => {
@@ -166,7 +166,7 @@ test('program: Aufnahmen kommen mit Namen zurück, gekürzte nicht', () => {
 });
 
 test('program: globale Effekte am Stapel werden gelesen und kommen gleich wieder, der Rest der Kette bleibt Rahmen', () => {
-  const code = 'setcpm(120/4)\n\nstack(\n  /* drums */ s("bd sd")\n).room(0.3).lpf("<800 2000>").pianoroll().delay(.5)';
+  const code = 'setcpm(120/4)\n\nstack(\n  /* drums */ s("bd sd")\n)\n  .room(0.3)\n  .lpf("<800 2000>").pianoroll().delay(.5)';
   assert.equal(again(code), code);
   const r = read(code);
   assert.deepEqual(r.global.map((g) => g.name), ['room', 'lpf']);
@@ -180,4 +180,17 @@ test('program: Lautstärke, Orbit oder Unbekanntes am Stapel sind keine globalen
   const r = read('all(x => x.lpf(800))\nstack(s("bd"))\nstack(s("hh")).room(.5)');
   assert.deepEqual(r.global.map((g) => g.name), ['room']);
   assert.equal(r.frame.before, 'all(x => x.lpf(800))');
+});
+
+test('program: Titel wird gelesen, bleibt nicht im Rahmen und kommt nicht doppelt', () => {
+  const code = '// @title Mein Beat\n\nsetcpm(120/4)\n\nstack(\n  /* drums */ s("bd sd")\n    .lpf(800)\n    .room(0.3),\n  s("hh")\n)';
+  const r = read(code);
+  assert.equal(r.title, 'Mein Beat');
+  assert.deepEqual(r.frame, { before: '', chain: '', after: '' });
+  assert.deepEqual(r.entries.map(brief), ['sound drums', 'sound ']);
+  const tracks: CodeTrack[] = r.entries.map((e) => (e.kind === 'raw' ? { tokens: [], ...e } : e.line));
+  assert.equal(toStrudelProgram(tracks, { cps: 0.5, tempoUnit: 'bpm', title: r.title ?? '' }).code, code);
+  // Andere Kommentare bleiben eigener Code
+  assert.equal(read('// Mein Beat\ns("bd")').title, null);
+  assert.equal(read('// Mein Beat\ns("bd")').frame.before, '// Mein Beat');
 });

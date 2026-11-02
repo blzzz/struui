@@ -36,7 +36,7 @@ import {
 } from './effects.ts';
 import { effectToCode, lfoToCode, modToCode, randToCode, toStrudelCode, toStrudelProgram, trackToCode } from './codegen.ts';
 import { quickSwitch } from './edit.ts';
-import { closeToken, effect, nextInCycle, openToken, soundToken, trackName } from './types.ts';
+import { closeToken, effect, clampNumber, openToken, soundToken, trackName } from './types.ts';
 import type { TrackType } from './types.ts';
 // @ts-expect-error reines JavaScript ohne Typen
 import { OUTPUT, extractEffects, extractNoteOps, extractSamplerModes, extractScaleSteps, renderModule } from '../../../scripts/strudel-effects.mjs';
@@ -127,7 +127,7 @@ test('codegen: Name als Kommentar, stumm mit .hush(), Effekte in Reihenfolge, le
     ],
     { cps: 0.5 },
   );
-  assert.equal(code, 'setcps(0.5)\n\nstack(\n  /* drums */ s("bd sd").lpf(800).room(0.3),\n  s("hh").postgain(0.6).hush()\n)');
+  assert.equal(code, 'setcps(0.5)\n\nstack(\n  /* drums */ s("bd sd")\n    .lpf(800)\n    .room(0.3),\n  s("hh")\n    .postgain(0.6)\n    .hush()\n)');
 });
 
 test('codegen: Positionen der Wertsteine zeigen im Code auf den Wert', () => {
@@ -320,11 +320,11 @@ test('codegen: eigene Aufnahme als Klang einer Notenspur wird eingebettet', () =
   );
 });
 
-test('types: Orbit und Kanal zählen im Kreis', () => {
-  assert.equal(nextInCycle(1, 8), 2);
-  assert.equal(nextInCycle(8, 8), 1);
-  assert.equal(nextInCycle(16, 16), 1);
-  assert.equal(nextInCycle(0, 8), 1);
+test('types: Orbit und Kanal bleiben ganze Nummern von 1 bis max', () => {
+  assert.equal(clampNumber(3, 8), 3);
+  assert.equal(clampNumber(9, 8), 8);
+  assert.equal(clampNumber(0, 16), 1);
+  assert.equal(clampNumber(2.4, 8), 2);
 });
 
 test('types: Spurnamen nur mit erlaubten Zeichen, kein _ am Ende', () => {

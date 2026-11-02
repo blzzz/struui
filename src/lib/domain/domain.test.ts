@@ -158,7 +158,7 @@ test('codegen: alle Spuren in einem stack, Namen als Kommentar, stumme Spur mit 
   );
   assert.equal(
     code,
-    'setcps(0.5)\n\nstack(\n  /* drums */ s("bd"),\n  s("sd").postgain(0.5).hush(),\n  /* m */ s("cp").midichan(1).midi().hush()\n)',
+    'setcps(0.5)\n\nstack(\n  /* drums */ s("bd"),\n  s("sd")\n    .postgain(0.5)\n    .hush(),\n  /* m */ s("cp")\n    .midichan(1).midi()\n    .hush()\n)',
   );
   assert.equal(toStrudelCode([{ tokens: [] }], { cps: 0.5 }), 'setcps(0.5)\n', 'ohne Steine kein stack');
 });

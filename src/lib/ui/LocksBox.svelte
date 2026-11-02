@@ -11,10 +11,13 @@
    * Paramlocks (.up("…".as("…"))) am Ende der Effekte, wie im Code: was danach kommt, gewinnt. Fest am Ende, ohne Griff.
    * Werte Schritt für Schritt, je Parameter ein Teil im Stein, die Parameter als Block vorne (`LockParams`).
    * Pausen lassen den Schritt aus. Knöpfe wie beim Klang der Noten zu Beginn aus.
+   * Ohne Parameter hat die Spur keine Paramlocks: dann nur ein Kopf wie «FX» und ein Plus, das den ersten Parameter wählt.
    */
   let { track }: { track: Track } = $props();
 
   let open = $state(true);
+  const active = $derived(track.locks.params.length > 0);
+  const addLabel = "Paramlocks: ersten Parameter wählen";
 
   const messages = $derived([
     ...new Set(
@@ -25,6 +28,22 @@
   ]);
 </script>
 
+{#if !active}
+  <!-- Wie der Kopf der Effekte (TrackView) und ihr Plus (EffectList) -->
+  <div class="locks idle">
+    <span class="title" title={`Paramlocks, im Code .up("…".as("…")) nach den Effekten`}>Paramlocks</span>
+    <button
+      class="add"
+      aria-label={addLabel}
+      title={addLabel}
+      aria-haspopup="dialog"
+      onclick={() =>
+        (session.effectPicker = { trackId: track.id, kind: "locks", index: null })}
+    >
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10" /></svg>
+    </button>
+  </div>
+{:else}
 <div
   class="locks"
   class:norandom={!session.random.has(track.locks.id)}
@@ -56,17 +75,55 @@
     <p class="error">
       {messages.join(" ")} Die Paramlocks fehlen dann im Code.
     </p>
-  {:else if open && track.locks.tokens.length === 0}
+    <!-- {:else if open && track.locks.tokens.length === 0}
     <p class="hint">
       Jeder Stein setzt die Parameter im Block vorne für einen Schritt, eine
       Pause lässt ihn aus. Leer bleiben dürfen nur untere Felder.
-    </p>
+    </p> -->
   {/if}
 </div>
+{/if}
 
 <style>
   .locks {
     margin-top: 12px;
+  }
+  /* Noch keine Paramlocks: Titel wie «FX» (`.fx-title` in TrackView), darunter das Plus wie in EffectList */
+  .idle {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  .title {
+    padding: 4px 8px;
+    border-radius: 6px;
+    background: var(--fx-raised);
+    color: var(--ink);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+  }
+  .add {
+    width: 40px;
+    min-height: 96px;
+    padding: 0;
+    display: grid;
+    place-items: center;
+    border: 1.5px dashed var(--line);
+    border-radius: 8px;
+    color: var(--mute);
+  }
+  .add:hover {
+    border-color: var(--ink);
+    color: var(--ink);
+  }
+  .add svg {
+    width: 18px;
+    height: 18px;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
   }
   /* Wie eine Effekt-Box (EffectList), aber als Band über die ganze Breite des Effekt-Containers (Ränder aus TrackView) */
   .box {

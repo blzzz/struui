@@ -22,6 +22,7 @@ import type { CodeLine, ValueRow } from './from-code.ts';
  * - Globale Effekte: die bekannten Effekte am Anfang der Kette am Stapel des letzten Ausdrucks (`stack(…).room(.3).lpf(800)`, siehe
  *   `globalPrefix`). Ab dem ersten unbekannten Aufruf (`.pianoroll()`) bleibt der Rest im Rahmen.
  * - Der Sammelkommentar mit der Lage der Spuren (`/* board: … *\/`, siehe `boardComment`) wird gelesen und weggelassen.
+ * - Ebenso der Titel (`// @title Pattern 1`, siehe `titleComment`).
  * - Alles andere ist der Rahmen (`Frame`): Code davor, Aufrufe am Stapel nach den globalen Effekten (`.pianoroll()`) und Code danach.
  *
  * Fehler gibt es nur, wenn der Text kein gültiges JavaScript ist.
@@ -36,6 +37,8 @@ export type ProgramResult =
       entries: ProgramEntry[];
       frame: Frame;
       tempo: { cps: number; unit: TempoUnit } | null;
+      /** Aus `// @title …`, null ohne. */
+      title: string | null;
       /** Lage der Spuren nach Namen, null ohne Sammelkommentar. */
       board: Map<string, Spot> | null;
       /** Eigene Aufnahmen aus `samples({ name: 'data:audio/…' })`, Name zu Data-URL. Gekürzte aus der Anzeige fehlen. */
@@ -207,6 +210,14 @@ export function programToTracks(code: string, prefer?: (name: string) => TrackTy
     board ??= spots;
     cuts.push([c.start, c.end]);
   }
+  // Der erste Titel gilt, alle gehören nicht in den Rahmen
+  let title: string | null = null;
+  for (const c of comments) {
+    const m = c.type === 'Line' ? /^\s*@title\b(.*)$/.exec(c.value) : null;
+    if (!m) continue;
+    title ??= m[1].trim();
+    cuts.push([c.start, c.end]);
+  }
   const recordings = new Map<string, string>();
   const rest = body.filter((s) => {
     const t = tempoOf(s);
@@ -294,7 +305,7 @@ export function programToTracks(code: string, prefer?: (name: string) => TrackTy
       sources.push({ start: comment?.start ?? s.start, end, entries: [entry(text)], chain: '' });
     }
   }
-  if (sources.length === 0) return { ok: true, entries: [], tempo, board, recordings, global: [], frame: frame(code.length, code.length) };
+  if (sources.length === 0) return { ok: true, entries: [], tempo, title, board, recordings, global: [], frame: frame(code.length, code.length) };
 
   // Code zwischen den Quellen kommt vor den Stapel, so ist alles definiert, was die Spuren brauchen
   const first = sources[0];
@@ -306,6 +317,7 @@ export function programToTracks(code: string, prefer?: (name: string) => TrackTy
     ok: true,
     entries: sources.flatMap((x) => x.entries),
     tempo,
+    title,
     board,
     recordings,
     global: final.global ?? [],

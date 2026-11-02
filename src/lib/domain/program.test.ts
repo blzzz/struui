@@ -53,7 +53,7 @@ test('codegen: globale Effekte am Stapel, vor dem Rahmen, ihre Wertsteine leucht
   const global = [effect('room', [soundToken('.3')]), effect('delay'), effect('lpf', v)];
   const frame = { before: 'const a = 1', chain: '.fast(2)', after: '' };
   const p = toStrudelProgram([{ tokens: [soundToken('bd')] }], { cps: 0.5, frame, global });
-  assert.equal(p.code, 'setcps(0.5)\n\nconst a = 1\n\nstack(\n  s("bd")\n).room(0.3).lpf("800 2000").fast(2)');
+  assert.equal(p.code, 'setcps(0.5)\n\nconst a = 1\n\nstack(\n  s("bd")\n)\n  .room(0.3)\n  .lpf("800 2000").fast(2)');
   assert.deepEqual(
     p.ranges.map((r) => p.code.slice(r.start, r.end)),
     ['bd', '800', '2000'],
@@ -69,4 +69,27 @@ test('codegen: Aufnahmen auch für rohen Code, wenn ihr Name als Wort darin steh
   assert.match(code('s("rec1 bd")'), /samples\(\{\n  rec1:/);
   assert.match(code('s("rec1:2")'), /samples/);
   assert.doesNotMatch(code('s("rec10")'), /samples/);
+});
+
+test('codegen: Titel als Kopfkommentar, Effekte einer Spur im Stapel je auf eigener Zeile, eingerückt', () => {
+  const v = soundToken('400');
+  const tracks = [
+    { name: 'drums', tokens: [soundToken('bd')], effects: [effect('lpf', [v]), effect('room', [soundToken('.3')])], orbit: 2 },
+    { tokens: [soundToken('hh')] },
+  ];
+  const p = toStrudelProgram(tracks, { cps: 0.5, title: ' Mein\nBeat ' });
+  assert.equal(
+    p.code,
+    '// @title Mein Beat\n\nsetcps(0.5)\n\nstack(\n  /* drums */ s("bd")\n    .lpf(400)\n    .room(0.3)\n    .orbit(2),\n  s("hh")\n)',
+  );
+  assert.deepEqual(p.ranges.map((r) => p.code.slice(r.start, r.end)), ['bd', 'hh']);
+  // Ohne Titel keine Zeile, einzeln (Spurcode) alles auf einer Zeile
+  assert.match(toStrudelProgram(tracks, { cps: 0.5, title: '  ' }).code, /^setcps/);
+  assert.equal(trackToCode(tracks[0]).text, '/* drums */ s("bd").lpf(400).room(0.3).orbit(2)');
+});
+
+test('codegen: Wertsteine leuchten auch auf eingerückten Zeilen', () => {
+  const v = [soundToken('200'), soundToken('800')];
+  const p = toStrudelProgram([{ tokens: [soundToken('bd')], effects: [effect('room', [soundToken('.3')]), effect('lpf', v)] }], { cps: 0.5 });
+  assert.deepEqual(p.ranges.map((r) => p.code.slice(r.start, r.end)), ['bd', '200', '800']);
 });

@@ -68,6 +68,8 @@ export function trackToMini(tokens: readonly Token[]): string {
 
 export interface CodeOptions {
   cps: number;
+  /** Titel des Patterns, als Kopfkommentar in der ersten Zeile (`// @title Pattern 1`). Leer oder fehlend: keine Zeile. */
+  title?: string;
   /** Einheit der Tempozeile im Code. Standard: cps. */
   tempoUnit?: TempoUnit;
   /** Eigene Aufnahmen: Name zu Data-URL (WAV). */
@@ -258,10 +260,11 @@ function samplerHead(t: CodeTrack): { text: string; ranges: TokenRange[] } {
 /**
  * Eine Spur als eine Codezeile (`/* drums *\/ s("bd sd").lpf(800)`), mit den Positionen ihrer Klang- und Wertsteine.
  * Eine stumme Spur endet mit `.hush()`: Strudel macht daraus Stille, die Zeile bleibt sichtbar.
+ * `sep` steht vor jedem Aufruf nach dem Kopf (Effekte, Locks, Orbit, …): im Stapel ein Umbruch mit Einzug, je Aufruf eine Zeile.
  */
-export function trackToCode(t: CodeTrack): { text: string; ranges: TokenRange[] } {
+export function trackToCode(t: CodeTrack, sep = ''): { text: string; ranges: TokenRange[] } {
   if (t.code != null) return { text: `${trackComment(t)}${t.code}${t.muted ? '.hush()' : ''}`, ranges: [] };
-  if (t.type === 'sampler') return withTail(t, samplerHead(t));
+  if (t.type === 'sampler') return withTail(t, samplerHead(t), sep);
   const { text: mini, ranges: local } = trackToMiniWithRanges(t.tokens);
   const relative = t.type === 'note' && t.pitch === 'relative';
   let text = `${trackComment(t)}${t.type === 'note' ? (relative ? 'n' : 'note') : 's'}("`;
@@ -282,31 +285,35 @@ export function trackToCode(t: CodeTrack): { text: string; ranges: TokenRange[] 
     ranges.push(...shift(voice.ranges, text.length));
     text += voice.text;
   }
-  return withTail(t, { text, ranges });
+  return withTail(t, { text, ranges }, sep);
 }
 
-/** Effekte, dann MIDI-Ausgang bzw. Orbit und Lautstärke, zuletzt die Stummschaltung: der gemeinsame Schluss jeder Zeile. */
-function withTail(t: CodeTrack, head: { text: string; ranges: TokenRange[] }): { text: string; ranges: TokenRange[] } {
+/**
+ * Effekte, dann MIDI-Ausgang bzw. Orbit und Lautstärke, zuletzt die Stummschaltung: der gemeinsame Schluss jeder Zeile.
+ * `sep` vor jedem Aufruf (siehe `trackToCode`).
+ */
+function withTail(t: CodeTrack, head: { text: string; ranges: TokenRange[] }, sep: string): { text: string; ranges: TokenRange[] } {
   let { text } = head;
   const ranges = [...head.ranges];
-  const fx = chainCode(t.effects ?? []);
+  const fx = chainCode(t.effects ?? [], sep);
   ranges.push(...shift(fx.ranges, text.length));
   text += fx.text;
   // Nach den Effekten: die Locks überschreiben deren Werte Schritt für Schritt
   const locked = t.type === undefined || t.type === 'sound' ? t.locks && locksToCode(t.locks) : null;
   if (locked) {
+    text += sep;
     ranges.push(...shift(locked.ranges, text.length));
     text += locked.text;
   }
   if (t.type === 'midi') {
     // `.midi()` nach allen Werten: es liest die Werte, die alle Aufrufe davor gesetzt haben
-    text += `.midichan(${t.channel ?? 1}).midi(${t.port ? quote(t.port) : ''})`;
+    text += `${sep}.midichan(${t.channel ?? 1}).midi(${t.port ? quote(t.port) : ''})`;
   } else {
-    if (t.orbit !== undefined && t.orbit !== 1) text += `.orbit(${t.orbit})`;
+    if (t.orbit !== undefined && t.orbit !== 1) text += `${sep}.orbit(${t.orbit})`;
     // Nach den Effekten, damit die Lautstärke der Spur gilt (ein gleichnamiger Effekt davor würde überschrieben)
-    if (t.volume !== undefined && t.volume !== 1) text += `.postgain(${t.volume})`;
+    if (t.volume !== undefined && t.volume !== 1) text += `${sep}.postgain(${t.volume})`;
   }
-  if (t.muted) text += '.hush()';
+  if (t.muted) text += `${sep}.hush()`;
   return { text, ranges };
 }
 
@@ -319,7 +326,13 @@ function mentions(code: string, name: string): boolean {
   return false;
 }
 
-/** Eigene Aufnahmen, die irgendeine Spur braucht, als `samples({…})`, dann die Tempozeile. */
+/** Titel als Kopfkommentar in Strudels Schreibweise für Metadaten. Zeilenumbrüche im Titel werden Leerzeichen. */
+export function titleComment(title: string | undefined): string {
+  const text = (title ?? '').replace(/\s+/g, ' ').trim();
+  return text ? `// @title ${text}\n\n` : '';
+}
+
+/** Titel, eigene Aufnahmen, die irgendeine Spur braucht, als `samples({…})`, dann die Tempozeile. */
 function header(tracks: readonly CodeTrack[], opts: CodeOptions): string {
   const samples = opts.samples ?? new Map<string, string>();
   const used = new Set<string>();
@@ -337,7 +350,7 @@ function header(tracks: readonly CodeTrack[], opts: CodeOptions): string {
       if (samples.has(name)) used.add(name);
     }
   }
-  let code = '';
+  let code = titleComment(opts.title);
   if (used.size > 0) {
     const defs = [...used].map((name) => {
       const url = samples.get(name) as string;
@@ -351,14 +364,22 @@ function header(tracks: readonly CodeTrack[], opts: CodeOptions): string {
   return code + `${tempoCode(opts.cps, opts.tempoUnit ?? 'cps')}\n`;
 }
 
-/** Alle Spuren in einem `stack(…)`, eine pro Zeile. Null, wenn keine Spur Steine hat. Positionen ab Textanfang. */
+/** Vor jedem Aufruf an einer Spur im Stapel: eigene Zeile, eine Stufe tiefer als die Spur. */
+const TRACK_SEP = '\n    ';
+/** Vor jedem globalen Effekt am Stapel: eigene Zeile, eingerückt. */
+const STACK_SEP = '\n  ';
+
+/**
+ * Alle Spuren in einem `stack(…)`, jede ab einer eigenen Zeile, ihre Effekte darunter eingerückt (`TRACK_SEP`).
+ * Null, wenn keine Spur Steine hat. Positionen ab Textanfang.
+ */
 function stackCode(tracks: readonly CodeTrack[]): { text: string; ranges: TokenRange[] } | null {
   const lines = tracks.filter(inCode);
   if (lines.length === 0) return null;
   const ranges: TokenRange[] = [];
   let text = 'stack(';
   lines.forEach((t, i) => {
-    const line = trackToCode(t);
+    const line = trackToCode(t, TRACK_SEP);
     text += i === 0 ? '\n  ' : ',\n  ';
     ranges.push(...shift(line.ranges, text.length));
     text += line.text;
@@ -366,13 +387,16 @@ function stackCode(tracks: readonly CodeTrack[]): { text: string; ranges: TokenR
   return { text: text + '\n)', ranges };
 }
 
-/** Effekte hintereinander (`.room(.3).lpf(800)`), Effekte ohne Code übersprungen. Positionen ab dem ersten Punkt. */
-function chainCode(effects: readonly GlobalEffect[]): { text: string; ranges: TokenRange[] } {
+/**
+ * Effekte hintereinander (`.room(.3).lpf(800)`), Effekte ohne Code übersprungen, `sep` vor jedem. Positionen ab Textanfang.
+ */
+function chainCode(effects: readonly GlobalEffect[], sep = ''): { text: string; ranges: TokenRange[] } {
   let text = '';
   const ranges: TokenRange[] = [];
   for (const e of effects) {
     const fx = effectToCode(e);
     if (!fx) continue;
+    text += sep;
     ranges.push(...shift(fx.ranges, text.length));
     text += fx.text;
   }
@@ -394,8 +418,8 @@ function mainCode(main: string | null, frame: Frame): string {
 }
 
 /**
- * Der ganze Code: Aufnahmen, Tempo, eigener Code davor, dann alle Spuren in einem `stack(…)`, eine Spur pro Zeile, daran die
- * globalen Effekte (`stack(…).room(.3)`), und eigener Code danach. Ohne Label spielt Strudel den letzten Ausdruck, also diesen
+ * Der ganze Code: Titel, Aufnahmen, Tempo, eigener Code davor, dann alle Spuren in einem `stack(…)`, je Spur und je Aufruf eine
+ * Zeile, daran die globalen Effekte (`stack(…)\n  .room(.3)`), und eigener Code danach. Ohne Label spielt Strudel den letzten Ausdruck, also diesen
  * Stapel. Ohne Spur mit Steinen steht kein `stack` da und auch keine globalen Effekte.
  */
 export function toStrudelProgram(tracks: readonly CodeTrack[], opts: CodeOptions): Program {
@@ -403,7 +427,7 @@ export function toStrudelProgram(tracks: readonly CodeTrack[], opts: CodeOptions
   const code = header(tracks, opts) + beforeCode(frame);
   const stack = stackCode(tracks);
   if (!stack) return { code: code + mainCode(null, frame), ranges: [] };
-  const global = chainCode(opts.global ?? []);
+  const global = chainCode(opts.global ?? [], STACK_SEP);
   // Die Positionen zählen ab dem Stapel, nach dem Zeilenumbruch, den `mainCode` davor setzt
   const at = code.length + 1;
   return {
@@ -444,7 +468,7 @@ export function toArrangedProgram(
       code += 'silence\n';
       continue;
     }
-    const chain = chainCode(s.global ?? []);
+    const chain = chainCode(s.global ?? [], STACK_SEP);
     if (s.id === opts.lit) {
       ranges.push(...shift(stack.ranges, code.length));
       ranges.push(...shift(chain.ranges, code.length + stack.text.length));

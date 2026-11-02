@@ -51,22 +51,22 @@
     place-items: center;
     padding: 0;
     border: none;
-    border-top: 1px solid color-mix(in srgb, var(--edge-ink) 25%, transparent);
+    /* border-top: 1px solid color-mix(in srgb, var(--edge-ink) 10%, transparent); */
     border-radius: 0;
-    background: color-mix(in srgb, var(--edge-ink) 10%, transparent);
+    background: color-mix(in srgb, var(--edge-ink) 5%, transparent);
     color: color-mix(in srgb, var(--edge-ink) 70%, transparent);
     cursor: pointer;
   }
   .edge.top {
     border-top: none;
-    border-bottom: 1px solid
-      color-mix(in srgb, var(--edge-ink) 25%, transparent);
+    /* border-bottom: 1px solid
+      color-mix(in srgb, var(--edge-ink) 25%, transparent); */
   }
   .edge.hot,
   .edge:hover,
   .edge:focus-visible {
-    border-color: color-mix(in srgb, var(--edge-ink) 55%, transparent);
-    background: color-mix(in srgb, var(--edge-ink) 22%, transparent);
+    border-color: color-mix(in srgb, var(--edge-ink) 10%, transparent);
+    background: color-mix(in srgb, var(--edge-ink) 8%, transparent);
     color: var(--edge-ink);
     outline: none;
   }

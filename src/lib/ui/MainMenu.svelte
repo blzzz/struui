@@ -83,12 +83,13 @@
     position: relative;
     flex: none;
   }
-  /* Ohne Rand, nur das Symbol */
+  /* So hoch wie Abspielen daneben; Ecken kommen von der Gruppe in der Leiste (TopBar) */
   .burger {
-    width: 36px;
+    width: 40px;
     height: 36px;
     padding: 0;
-    border: none;
+    border-color: var(--line);
+    border-radius: inherit;
     display: grid;
     place-items: center;
   }

@@ -63,6 +63,7 @@ class Arrangement {
     toArrangedProgram(this.codeScenes, this.sections, {
       cps: project.cps,
       tempoUnit: project.tempoUnit,
+      title: project.title,
       samples: sampleBank.dataUrls,
       frame: project.frame,
       lit: scenes.current.id,
@@ -85,6 +86,7 @@ class Arrangement {
       ? toArrangedProgram(this.codeScenes, this.sections, {
           cps: project.cps,
           tempoUnit: project.tempoUnit,
+          title: project.title,
           samples: sampleBank.dataUrls,
           elideSamples: true,
           frame: project.frame,

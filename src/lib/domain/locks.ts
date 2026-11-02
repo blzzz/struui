@@ -14,17 +14,15 @@ import { PAUSE, newId } from './types.ts';
 import type { Token } from './types.ts';
 
 export interface Locks extends Effect {
-  /** Die Parameter, in der Reihenfolge der Teile (`as("velocity:n:s")`). Mindestens einer. */
+  /** Die Parameter, in der Reihenfolge der Teile (`as("velocity:n:s")`). Leer: die Spur hat keine Paramlocks (noch nicht gewählt). */
   params: string[];
 }
 
 /** Name des Musterbefehls im Code. */
 export const LOCKS = 'up';
 
-/** Parameter einer neuen Reihe. */
-export const START_PARAMS = ['velocity'];
-
-export function locks(params: string[] = START_PARAMS, tokens: Token[] = []): Locks {
+/** Neue Spuren haben keine Paramlocks; der erste gewählte Parameter schaltet sie ein. */
+export function locks(params: string[] = [], tokens: Token[] = []): Locks {
   return { id: newId('e'), name: LOCKS, params: [...params], tokens };
 }
 
@@ -132,10 +130,15 @@ export function addLockParam(l: Locks, name: string): void {
 
 /**
  * Parameter `index` entfernen, samt seinem Teil in jedem Wert. Ein Wert, der danach leer ist oder eine Lücke hätte,
- * bekommt Startwerte. Der letzte Parameter bleibt.
+ * bekommt Startwerte. Mit dem letzten Parameter gehen auch alle Werte: die Spur hat dann keine Paramlocks mehr.
  */
 export function removeLockParam(l: Locks, index: number): void {
-  if (l.params.length <= 1 || index < 0 || index >= l.params.length) return;
+  if (index < 0 || index >= l.params.length) return;
+  if (l.params.length === 1) {
+    l.params = [];
+    l.tokens = [];
+    return;
+  }
   const params = l.params.filter((_, i) => i !== index);
   l.tokens = eachValue(l.tokens, (v) => {
     const parts = lockParts(v, l.params.length).filter((_, i) => i !== index);

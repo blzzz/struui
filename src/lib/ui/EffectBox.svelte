@@ -34,6 +34,7 @@
   import { project } from "../state/project.svelte.ts";
   import { session } from "../state/session.svelte.ts";
   import { dragNumber } from "../interaction/drag-number.ts";
+  import DotToggle from "./DotToggle.svelte";
   import EffectKnob from "./EffectKnob.svelte";
   import Lane from "./Lane.svelte";
   import LaneToggles from "./LaneToggles.svelte";
@@ -614,14 +615,11 @@
       </div>
       <div class="group" class:muted={!shownRand.ribbon}>
         <span class="cap">
-          <button
-            class="toggle"
-            aria-pressed={shownRand.ribbon}
+          <DotToggle
+            pressed={shownRand.ribbon}
             title="ribbon: dieselbe Reihe immer wieder (den Offset dreht der Knopf)"
-            onclick={() => setRibbon(!shownRand.ribbon)}
+            onclick={() => setRibbon(!shownRand.ribbon)}>ribbon</DotToggle
           >
-            <span class="dot" aria-hidden="true"></span>ribbon
-          </button>
         </span>
         {@render field(
           "rand:cycles",
@@ -697,15 +695,13 @@
       </div>
       <div class="group">
         <span class="cap">
-          <button
-            class="toggle"
-            aria-pressed={shownLfo.unit === "sync"}
+          <DotToggle
+            pressed={shownLfo.unit === "sync"}
             title="sync: Perioden pro Zyklus, bleibt im Takt; aus: rate in Hz"
             onclick={() =>
               setLfo({ unit: shownLfo.unit === "sync" ? "rate" : "sync" })}
+            >sync</DotToggle
           >
-            <span class="dot" aria-hidden="true"></span>sync
-          </button>
         </span>
         {@render field(
           "lfo:speed",
@@ -718,14 +714,11 @@
       </div>
       <div class="group">
         <span class="cap">
-          <button
-            class="toggle"
-            aria-pressed={shownLfo.absolute}
+          <DotToggle
+            pressed={shownLfo.absolute}
             title="depthabs: Tiefe in der Einheit des Werts (400 = 200 nach oben und unten); aus: relativ zum Wert (1 = halber Wert)"
-            onclick={() => setAbsolute(!shownLfo.absolute)}
+            onclick={() => setAbsolute(!shownLfo.absolute)}>absolut</DotToggle
           >
-            <span class="dot" aria-hidden="true"></span>absolut
-          </button>
         </span>
         {@render field(
           "lfo:depth",
@@ -1179,38 +1172,6 @@
   .fields .num:disabled,
   .group.muted .unit {
     opacity: 0.4;
-  }
-  /* ribbon an/aus: kleiner Schalter im Stil der Felder, an in der Farbe des Modus */
-  .toggle {
-    display: inline-flex;
-    align-items: center;
-    gap: 3px;
-    padding: 2px 5px 2px 3px;
-    border: none;
-    border-radius: 999px;
-    background: color-mix(in srgb, var(--mode-ink, var(--ink)) 9%, transparent);
-    color: var(--mute);
-    font: inherit;
-    cursor: pointer;
-  }
-  .toggle:hover {
-    background: color-mix(
-      in srgb,
-      var(--mode-ink, var(--ink)) 16%,
-      transparent
-    );
-  }
-  .toggle .dot {
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    box-shadow: inset 0 0 0 1.2px currentColor;
-  }
-  .toggle[aria-pressed="true"] {
-    color: var(--mode-ink, var(--ink));
-  }
-  .toggle[aria-pressed="true"] .dot {
-    background: currentColor;
   }
   /* Noch kein Bereich eingestellt: der Vorschlag, blass */
   .fields.idle .num:not(:focus) {
